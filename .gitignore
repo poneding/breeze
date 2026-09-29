@@ -1,0 +1,6 @@
+# Local builds, review bundles, and generated verification outputs.
+/target/
+
+# Local OS metadata and application sidecars.
+.DS_Store
+*.breeze.json
