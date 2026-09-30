@@ -1211,3 +1211,35 @@ fn category_popover_dismisses_and_keeps_invalid_input_open(cx: &mut TestAppConte
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn category_secondary_actions_do_not_select_the_row(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| {
+            for name in ["Research", "Work"] {
+                view.category_input
+                    .update(cx, |input, cx| input.set_value(name, window, cx));
+                view.save_category(cx);
+            }
+            view.show_home(cx);
+            view.library_filter = 0;
+        });
+        window.render_frame(cx);
+        window.hover(("category-row", 1usize), cx);
+        window.click(("rename-category", 1usize), cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).category_form);
+        assert_eq!(view.read(cx).library_filter, 0);
+        window.press("escape", cx);
+        window.render_frame(cx);
+        window.hover(("category-row", 1usize), cx);
+        window.click(("delete-category", 1usize), cx);
+        assert_eq!(view.read(cx).library_filter, 0);
+        assert_eq!(view.read(cx).categories.len(), 1);
+        window.render_frame(cx);
+        window.click(("category-nav", 2usize), cx);
+        assert_eq!(view.read(cx).library_filter, 5);
+    })
+    .unwrap();
+}

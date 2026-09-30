@@ -1,5 +1,5 @@
 use crate::*;
-use gpui_kit::component::{ElementExt, Icon};
+use gpui_kit::component::{ElementExt, Icon, button::ButtonCustomVariant};
 use std::ops::Range;
 const CATEGORY_WIDTH: f32 = 144.;
 const POSITION_WIDTH: f32 = 100.;
@@ -181,7 +181,9 @@ impl Breeze {
         let p = self.p();
         let b = &self.books[index];
         Button::new(("library-open", index))
-            .ghost()
+            .custom(ButtonCustomVariant::new(cx).hover(p.tint).active(p.tint))
+            .group("library-row")
+            .group_hover("library-row", move |s| s.bg(p.tint))
             .small()
             .w_full()
             .accessibility_label(format!("阅读文档：{}", b.title))
@@ -238,6 +240,7 @@ impl Breeze {
             )
     }
     fn library_actions(&self, index: usize, cx: &mut Context<Self>) -> Div {
+        let p = self.p();
         let b = &self.books[index];
         row()
             .w(px(ACTIONS_WIDTH))
@@ -246,7 +249,7 @@ impl Breeze {
             .gap_1()
             .child(
                 Button::new(("favorite", index))
-                    .ghost()
+                    .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
                     .small()
                     .icon(IconName::Bookmark)
                     .selected(b.favorite)
@@ -260,7 +263,7 @@ impl Breeze {
             )
             .child(
                 Button::new(("open-item", index))
-                    .ghost()
+                    .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
                     .small()
                     .icon(IconName::ArrowUpRight)
                     .accessibility_label("阅读文档")
@@ -272,7 +275,7 @@ impl Breeze {
             )
             .child(
                 Button::new(("forget", index))
-                    .ghost()
+                    .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
                     .small()
                     .icon(IconName::X)
                     .accessibility_label("从资料库移除")
@@ -319,7 +322,9 @@ impl Breeze {
         let p = self.p();
         let book = &self.books[index];
         Button::new(("library-open", index))
-            .ghost()
+            .custom(ButtonCustomVariant::new(cx).hover(p.tint).active(p.tint))
+            .group("library-row")
+            .group_hover("library-row", move |s| s.bg(p.tint))
             .small()
             .w_full()
             .h(px(264.))

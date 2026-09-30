@@ -3,6 +3,7 @@ use crate::*;
 use breeze_core::library::{Category, CategoryColor, validate_name};
 use gpui_kit::component::{
     Icon, Theme,
+    button::ButtonCustomVariant,
     menu::{DropdownMenu, PopupMenuItem},
     popover::Popover,
 };
@@ -142,54 +143,100 @@ impl Breeze {
                     .group("category-row")
                     .w_full()
                     .child(
-                        left_button_icon(
-                            ("category-nav", id),
-                            Icon::new(IconName::Tag)
-                                .small()
-                                .text_color(category_tint(category.color, cx)),
-                            category.name.clone(),
-                        )
-                        .flex_1()
-                        .min_w_0()
-                        .selected(self.library_filter == id + 3)
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.library_filter = id + 3;
-                            cx.notify();
-                        })),
-                    )
-                    .child(
-                        row()
-                            .w(px(44.))
-                            .flex_shrink_0()
-                            .gap_1()
-                            .when(
-                                !(self.category_form && self.category_edit == Some(id)),
-                                |d| d.invisible().group_hover("category-row", |s| s.visible()),
-                            )
+                        Button::new(("category-nav", id))
+                            .custom(ButtonCustomVariant::new(cx).hover(p.tint).active(p.tint))
+                            .small()
+                            .w_full()
+                            .px_2()
+                            .selected(self.library_filter == id + 3)
+                            .when(self.library_filter == id + 3, |d| d.bg(p.tint))
+                            .group_hover("category-row", move |s| s.bg(p.tint))
+                            .accessibility_label(category.name.clone())
+                            .tooltip(category.name.clone())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.library_filter = id + 3;
+                                cx.notify();
+                            }))
                             .child(
-                                self.category_popover(
-                                    Button::new(("rename-category", id))
-                                        .ghost()
-                                        .small()
-                                        .size(px(20.))
-                                        .icon(IconName::Pencil)
-                                        .accessibility_label(format!("修改分类：{}", category.name))
-                                        .tooltip("修改分类"),
-                                    Some(id),
-                                    cx,
-                                ),
-                            )
-                            .child(
-                                Button::new(("delete-category", id))
-                                    .ghost()
-                                    .small()
-                                    .size(px(20.))
-                                    .icon(IconName::Trash)
-                                    .accessibility_label(format!("删除分类：{}", category.name))
-                                    .tooltip("删除分类；保留文档及其他分类")
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.delete_category(id, cx)
-                                    })),
+                                row()
+                                    .w_full()
+                                    .gap_1()
+                                    .child(
+                                        row()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .gap_2()
+                                            .child(
+                                                Icon::new(IconName::Tag)
+                                                    .small()
+                                                    .text_color(category_tint(category.color, cx)),
+                                            )
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .text_left()
+                                                    .text_ellipsis()
+                                                    .child(category.name.clone()),
+                                            ),
+                                    )
+                                    .child(
+                                        row()
+                                            .w(px(44.))
+                                            .flex_shrink_0()
+                                            .gap_1()
+                                            .when(
+                                                !(self.category_form
+                                                    && self.category_edit == Some(id)),
+                                                |d| {
+                                                    d.invisible().group_hover("category-row", |s| {
+                                                        s.visible()
+                                                    })
+                                                },
+                                            )
+                                            .child(
+                                                self.category_popover(
+                                                    Button::new(("rename-category", id))
+                                                        .custom(
+                                                            ButtonCustomVariant::new(cx)
+                                                                .hover(p.line)
+                                                                .active(p.line),
+                                                        )
+                                                        .small()
+                                                        .size(px(20.))
+                                                        .icon(IconName::Pencil)
+                                                        .accessibility_label(format!(
+                                                            "修改分类：{}",
+                                                            category.name
+                                                        ))
+                                                        .tooltip("修改分类"),
+                                                    Some(id),
+                                                    cx,
+                                                ),
+                                            )
+                                            .child(
+                                                Button::new(("delete-category", id))
+                                                    .custom(
+                                                        ButtonCustomVariant::new(cx)
+                                                            .hover(p.line)
+                                                            .active(p.line),
+                                                    )
+                                                    .small()
+                                                    .size(px(20.))
+                                                    .icon(IconName::Trash)
+                                                    .accessibility_label(format!(
+                                                        "删除分类：{}",
+                                                        category.name
+                                                    ))
+                                                    .tooltip("删除分类；保留文档及其他分类")
+                                                    .on_click(cx.listener(
+                                                        move |this, _, _, cx| {
+                                                            cx.stop_propagation();
+                                                            this.delete_category(id, cx)
+                                                        },
+                                                    )),
+                                            ),
+                                    ),
                             ),
                     )
             }))
@@ -205,7 +252,7 @@ impl Breeze {
         Popover::new(("category-popover", editing.unwrap_or(0)))
             .open(self.category_form && self.category_edit == editing)
             .track_focus(&self.category_input.read(cx).focus_handle(cx))
-            .trigger(trigger)
+            .trigger(trigger.on_click(|_, _, cx| cx.stop_propagation()))
             .on_open_change(move |open, window, cx| {
                 view.update(cx, |this, cx| {
                     if *open {
@@ -317,8 +364,9 @@ impl Breeze {
         let mut choices = vec![(0, "清除分类".to_owned())];
         choices.extend(self.categories.iter().map(|c| (c.id, c.name.clone())));
         let view = cx.entity();
+        let p = self.p();
         Button::new(("category", index))
-            .ghost()
+            .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
             .small()
             .w(px(144.))
             .flex_shrink_0()
