@@ -262,16 +262,7 @@ impl Breeze {
                 library_observer,
                 category_submission,
             ],
-            books: vec![Book {
-                source: Source::Sample,
-                title: "Field notes · 阅读的留白".into(),
-                favorite: false,
-                category: 0,
-                state: ReaderState::default(),
-                opened: false,
-                last_opened: 0,
-                annotations: DocumentAnnotations::default(),
-            }],
+            books: Vec::new(),
             active: 0,
             screen: Screen::Home,
             dark: ThemePreference::System.resolve(window.appearance()),
@@ -451,9 +442,6 @@ impl Breeze {
         if self.books[index].annotations.dirty() || self.books[index].annotations.saving {
             self.message = "请先保存批注，再移除资料库条目".into();
             cx.notify();
-            return;
-        }
-        if self.books[index].source == Source::Sample {
             return;
         }
         self.books.remove(index);

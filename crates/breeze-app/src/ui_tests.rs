@@ -19,6 +19,16 @@ pub(super) fn app(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) 
             |window, cx| {
                 let view = cx.new(|cx| Breeze::new(PdfWorker::new().unwrap(), window, cx));
                 view.update(cx, |view, cx| {
+                    view.books.push(Book {
+                        source: Source::Sample,
+                        title: "Field notes".into(),
+                        favorite: false,
+                        category: 0,
+                        state: ReaderState::default(),
+                        opened: false,
+                        last_opened: 0,
+                        annotations: DocumentAnnotations::default(),
+                    });
                     view.screen = Screen::Reader;
                     view.books[0].opened = true;
                     view.books[0].state.navigation.set_total(8);
@@ -1037,6 +1047,35 @@ fn library_row_opens_and_secondary_controls_do_not(cx: &mut TestAppContext) {
         window.render_frame(cx);
         window.click(("library-open", 0usize), cx);
         assert!(view.read(cx).screen == Screen::Reader);
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn library_columns_align_and_empty_state_stays_empty(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| view.show_home(cx));
+        window.render_frame(cx);
+        for (heading, cell) in [
+            ("category-heading", "category"),
+            ("position-heading", "position"),
+        ] {
+            let header = window.find(heading).bounds();
+            let row = window.find((cell, 0usize)).bounds();
+            assert!((header.origin.x - row.origin.x).abs() < px(1.));
+            assert!((header.size.width - row.size.width).abs() < px(1.));
+        }
+        window.click(("forget", 0usize), cx);
+        assert!(view.read(cx).books.is_empty());
+        assert!(view.read(cx).screen == Screen::Home);
+        view.update(cx, |view, cx| {
+            view.restore(view.snapshot(), cx);
+            assert!(view.books.is_empty());
+        });
+        window.render_frame(cx);
+        let fresh = cx.new(|cx| Breeze::new(PdfWorker::new().unwrap(), window, cx));
+        assert!(fresh.read(cx).books.is_empty());
     })
     .unwrap();
 }

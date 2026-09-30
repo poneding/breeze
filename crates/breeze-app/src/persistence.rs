@@ -260,41 +260,39 @@ impl Breeze {
         self.language = state.language;
         self.update_policy = state.updates;
         self.window_policy = state.window;
-        if !state.books.is_empty() {
-            self.books = state
-                .books
-                .into_iter()
-                .map(|b| {
-                    let mut reader = ReaderState {
-                        zoom: b.zoom,
-                        layout: b.layout,
+        self.books = state
+            .books
+            .into_iter()
+            .map(|b| {
+                let mut reader = ReaderState {
+                    zoom: b.zoom,
+                    layout: b.layout,
+                    ..Default::default()
+                };
+                let page = if state.remember_position {
+                    b.page.unwrap_or(0)
+                } else {
+                    0
+                };
+                reader.navigation.set_total(page.saturating_add(1));
+                reader.navigation.go_to(page);
+                Book {
+                    source: b.path.map(Source::File).unwrap_or(Source::Sample),
+                    title: b.title,
+                    favorite: b.favorite,
+                    category: b.category,
+                    state: reader,
+                    opened: state.remember_files && b.opened,
+                    last_opened: b.last_opened,
+                    annotations: DocumentAnnotations {
+                        path: b.annotation_path,
                         ..Default::default()
-                    };
-                    let page = if state.remember_position {
-                        b.page.unwrap_or(0)
-                    } else {
-                        0
-                    };
-                    reader.navigation.set_total(page.saturating_add(1));
-                    reader.navigation.go_to(page);
-                    Book {
-                        source: b.path.map(Source::File).unwrap_or(Source::Sample),
-                        title: b.title,
-                        favorite: b.favorite,
-                        category: b.category,
-                        state: reader,
-                        opened: state.remember_files && b.opened,
-                        last_opened: b.last_opened,
-                        annotations: DocumentAnnotations {
-                            path: b.annotation_path,
-                            ..Default::default()
-                        },
-                    }
-                })
-                .collect();
-        }
-        self.active = state.active.min(self.books.len() - 1);
-        if !self.books[self.active].opened {
+                    },
+                }
+            })
+            .collect();
+        self.active = state.active.min(self.books.len().saturating_sub(1));
+        if !self.books.get(self.active).is_some_and(|book| book.opened) {
             self.active = self.books.iter().position(|b| b.opened).unwrap_or(0);
         }
         self.apply_colors(cx);

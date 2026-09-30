@@ -204,7 +204,8 @@ impl Breeze {
         Button::new(("category", index))
             .ghost()
             .small()
-            .w(px(118.))
+            .w(px(144.))
+            .flex_shrink_0()
             .accessibility_label(format!(
                 "分类：{}",
                 self.category_name(self.books[index].category)

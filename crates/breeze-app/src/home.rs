@@ -1,5 +1,9 @@
 use crate::*;
 use gpui_kit::component::Icon;
+const CATEGORY_WIDTH: f32 = 144.;
+const POSITION_WIDTH: f32 = 100.;
+const ACTIONS_WIDTH: f32 = 80.;
+
 impl Breeze {
     pub(super) fn home(&self, cx: &mut Context<Self>) -> Div {
         let p = self.p();
@@ -104,10 +108,26 @@ impl Breeze {
                             .border_color(p.line)
                             .text_size(px(11.))
                             .text_color(p.muted)
-                            .child(div().flex_1().child("文档"))
-                            .child(div().w(px(118.)).child("分类"))
-                            .child(div().w(px(100.)).child("位置"))
-                            .child(div().w(px(54.))),
+                            .gap_2()
+                            .child(div().flex_1().min_w_0().child("文档"))
+                            .child(
+                                div()
+                                    .id("category-heading")
+                                    .test_support()
+                                    .w(px(CATEGORY_WIDTH))
+                                    .flex_shrink_0()
+                                    .px_2()
+                                    .child("分类"),
+                            )
+                            .child(
+                                div()
+                                    .id("position-heading")
+                                    .test_support()
+                                    .w(px(POSITION_WIDTH))
+                                    .flex_shrink_0()
+                                    .child("位置"),
+                            )
+                            .child(div().w(px(ACTIONS_WIDTH)).flex_shrink_0()),
                     )
                     .child(column().gap_1().children(filtered.iter().map(|(index, b)| {
                         let index = *index;
@@ -121,79 +141,109 @@ impl Breeze {
                             .px_2()
                             .gap_2()
                             .rounded_md()
-                            .child(Icon::new(IconName::FileText).small().text_color(p.muted))
                             .child(
-                                column()
-                                    .flex_1()
-                                    .min_w_0()
-                                    .items_start()
+                                row()
+                                    .w_full()
+                                    .gap_2()
+                                    .child(
+                                        row()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .gap_2()
+                                            .child(
+                                                Icon::new(IconName::FileText)
+                                                    .small()
+                                                    .text_color(p.muted),
+                                            )
+                                            .child(
+                                                column()
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .items_start()
+                                                    .child(
+                                                        div()
+                                                            .w_full()
+                                                            .text_left()
+                                                            .text_ellipsis()
+                                                            .child(b.title.clone()),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .text_size(px(11.))
+                                                            .text_color(p.muted)
+                                                            .child("PDF"),
+                                                    ),
+                                            ),
+                                    )
+                                    .child(self.category_assignment(index, cx))
                                     .child(
                                         div()
-                                            .w_full()
+                                            .id(("position", index))
+                                            .test_support()
+                                            .w(px(POSITION_WIDTH))
+                                            .flex_shrink_0()
                                             .text_left()
-                                            .text_ellipsis()
-                                            .child(b.title.clone()),
+                                            .text_size(px(12.))
+                                            .text_color(p.muted)
+                                            .child(if b.opened {
+                                                format!("第 {} 页", b.state.navigation.page() + 1)
+                                            } else {
+                                                "尚未打开".into()
+                                            }),
                                     )
-                                    .child(div().text_size(px(11.)).text_color(p.muted).child(
-                                        if b.source == Source::Sample {
-                                            "PDF · 内置示例"
-                                        } else {
-                                            "PDF · 本地文件"
-                                        },
-                                    )),
+                                    .child(
+                                        row()
+                                            .w(px(ACTIONS_WIDTH))
+                                            .flex_shrink_0()
+                                            .justify_end()
+                                            .gap_1()
+                                            .child(
+                                                Button::new(("favorite", index))
+                                                    .ghost()
+                                                    .small()
+                                                    .icon(IconName::Bookmark)
+                                                    .selected(b.favorite)
+                                                    .accessibility_label("收藏")
+                                                    .tooltip("收藏 / 取消收藏")
+                                                    .on_click(cx.listener(
+                                                        move |this, _, _, cx| {
+                                                            cx.stop_propagation();
+                                                            this.books[index].favorite =
+                                                                !this.books[index].favorite;
+                                                            cx.notify()
+                                                        },
+                                                    )),
+                                            )
+                                            .child(
+                                                Button::new(("open-item", index))
+                                                    .ghost()
+                                                    .small()
+                                                    .icon(IconName::ArrowUpRight)
+                                                    .accessibility_label("阅读文档")
+                                                    .tooltip("阅读文档")
+                                                    .on_click(cx.listener(
+                                                        move |this, _, _, cx| {
+                                                            cx.stop_propagation();
+                                                            this.open_book(index, cx)
+                                                        },
+                                                    )),
+                                            )
+                                            .child(
+                                                Button::new(("forget", index))
+                                                    .ghost()
+                                                    .small()
+                                                    .icon(IconName::X)
+                                                    .accessibility_label("从资料库移除")
+                                                    .tooltip("移除条目，不删除文件")
+                                                    .on_click(cx.listener(
+                                                        move |this, _, _, cx| {
+                                                            cx.stop_propagation();
+                                                            this.forget_book(index, cx)
+                                                        },
+                                                    )),
+                                            ),
+                                    ),
                             )
-                            .child(self.category_assignment(index, cx))
-                            .child(
-                                div()
-                                    .w(px(100.))
-                                    .text_size(px(12.))
-                                    .text_color(p.muted)
-                                    .child(if b.opened {
-                                        format!("第 {} 页", b.state.navigation.page() + 1)
-                                    } else {
-                                        "尚未打开".into()
-                                    }),
-                            )
-                            .child(
-                                Button::new(("favorite", index))
-                                    .ghost()
-                                    .small()
-                                    .icon(IconName::Bookmark)
-                                    .selected(b.favorite)
-                                    .accessibility_label("收藏")
-                                    .tooltip("收藏 / 取消收藏")
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        cx.stop_propagation();
-                                        this.books[index].favorite = !this.books[index].favorite;
-                                        cx.notify()
-                                    })),
-                            )
-                            .child(
-                                Button::new(("open-item", index))
-                                    .ghost()
-                                    .small()
-                                    .icon(IconName::ArrowUpRight)
-                                    .accessibility_label("阅读文档")
-                                    .tooltip("阅读文档")
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        cx.stop_propagation();
-                                        this.open_book(index, cx)
-                                    })),
-                            )
-                            .when(b.source != Source::Sample, |d| {
-                                d.child(
-                                    Button::new(("forget", index))
-                                        .ghost()
-                                        .small()
-                                        .icon(IconName::X)
-                                        .accessibility_label("从资料库移除")
-                                        .tooltip("移除条目，不删除文件")
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            cx.stop_propagation();
-                                            this.forget_book(index, cx)
-                                        })),
-                                )
-                            })
                     })))
                     .when(filtered.is_empty(), |d| {
                         d.child(div().py_6().text_color(p.muted).child("暂无文档"))

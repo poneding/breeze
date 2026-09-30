@@ -83,7 +83,7 @@ impl Breeze {
     pub(super) fn start_pdf_export(&mut self, request: ExportRequest, cx: &mut Context<Self>) {
         self.export_busy = true;
         let label = match &request.source {
-            Source::Sample => "内置示例".to_string(),
+            Source::Sample => self.books[self.active].title.clone(),
             Source::File(p) => p
                 .file_name()
                 .map(|n| n.to_string_lossy().into_owned())
