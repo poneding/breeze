@@ -242,7 +242,7 @@ impl Breeze {
                                     let active =
                                         self.screen == Screen::Reader && index == self.active;
                                     row()
-                                        .h(px(28.))
+                                        .h_full()
                                         .gap_1()
                                         .when(
                                             !active
@@ -257,19 +257,17 @@ impl Breeze {
                                             |d| d.child(div().w(px(1.)).h(px(14.)).bg(p.line)),
                                         )
                                         .child(
-                                            row()
-                                                .id(("document-tab", index))
+                                            Button::new(("document", index))
+                                                .ghost()
+                                                .small()
                                                 .group("document-tab")
-                                                .h(px(28.))
                                                 .min_w(px(128.))
                                                 .max_w(px(228.))
-                                                .px_2()
-                                                .gap_1()
-                                                .rounded_md()
-                                                .when(active, |d| d.bg(p.bg).shadow_sm())
-                                                .hover(move |s| {
-                                                    s.bg(if active { p.bg } else { p.tint })
-                                                })
+                                                .pl_2()
+                                                .pr_0()
+                                                .accessibility_label(book.title.clone())
+                                                .tooltip(book.title.clone())
+                                                .when(active, |d| d.bg(p.bg))
                                                 .on_click(cx.listener(
                                                     move |this, _, window, cx| {
                                                         window.focus(&this.focus, cx);
@@ -277,43 +275,28 @@ impl Breeze {
                                                     },
                                                 ))
                                                 .child(
-                                                    Button::new(("document", index))
-                                                        .ghost()
-                                                        .small()
-                                                        .flex_1()
+                                                    row()
+                                                        .w_full()
                                                         .min_w_0()
-                                                        .accessibility_label(book.title.clone())
-                                                        .tooltip(book.title.clone())
+                                                        .gap_1()
                                                         .child(
-                                                            row()
-                                                                .w_full()
-                                                                .gap_1()
-                                                                .child(
-                                                                    gpui_kit::component::Icon::new(
-                                                                        IconName::FileText,
-                                                                    )
-                                                                    .small(),
-                                                                )
-                                                                .child(
-                                                                    div()
-                                                                        .flex_1()
-                                                                        .min_w_0()
-                                                                        .text_ellipsis()
-                                                                        .child(book.title.clone()),
-                                                                ),
+                                                            gpui_kit::component::Icon::new(
+                                                                IconName::FileText,
+                                                            )
+                                                            .small(),
                                                         )
-                                                        .on_click(cx.listener(
-                                                            move |this, _, window, cx| {
-                                                                cx.stop_propagation();
-                                                                window.focus(&this.focus, cx);
-                                                                this.open_book(index, cx);
-                                                            },
-                                                        )),
+                                                        .child(
+                                                            div()
+                                                                .flex_1()
+                                                                .min_w_0()
+                                                                .text_ellipsis()
+                                                                .child(book.title.clone()),
+                                                        ),
                                                 )
                                                 .child(
                                                     div()
-                                                        .w(px(24.))
-                                                        .h(px(24.))
+                                                        .flex_shrink_0()
+                                                        .h_full()
                                                         .invisible()
                                                         .group_hover("document-tab", |s| {
                                                             s.visible()

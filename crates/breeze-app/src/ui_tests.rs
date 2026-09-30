@@ -688,6 +688,12 @@ fn tab_close_is_hover_only_and_does_not_activate_its_document(cx: &mut TestAppCo
         window.hover(("document", 1usize), cx);
         assert!(window.find(("close", 1usize)).visible());
         let before = window.find(("document", 1usize)).bounds();
+        let home = window.find("home-tab").bounds();
+        let close = window.find(("close", 1usize)).bounds();
+        assert_eq!(before.size.height, home.size.height);
+        assert_eq!(before.origin.y, home.origin.y);
+        assert!(close.right() <= before.right());
+        assert!(before.right() - close.right() <= px(2.));
         window.click(("close", 1usize), cx);
         assert!(!view.read(cx).books[1].opened);
         assert_eq!(view.read(cx).active, 0);
