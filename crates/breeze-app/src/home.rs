@@ -114,13 +114,15 @@ impl Breeze {
                                         }))
                                 }),
                             )
-                            .child(self.command(
-                                "home-open",
-                                IconName::FolderOpen,
-                                "打开文档",
-                                &Open,
-                                cx,
-                            )),
+                            .when(self.library_filter == 2, |d| {
+                                d.child(self.command(
+                                    "home-open",
+                                    IconName::FilePlusCorner,
+                                    "打开文档",
+                                    &Open,
+                                    cx,
+                                ))
+                            }),
                     )
                     .when(!self.library_grid, |d| {
                         d.child(

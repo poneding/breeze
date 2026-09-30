@@ -19,7 +19,7 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Function | Lucide name | Rust variant |
 |---|---|---|
 | Home | `house` | `House` |
-| Open file | `folder-open` | `FolderOpen` |
+| Open file | `file-plus-corner` | `FilePlusCorner` |
 | Document tab | `file-text` | `FileText` |
 | Close tab | `x` | `X` |
 | Settings | `settings-2` | `Settings2` |

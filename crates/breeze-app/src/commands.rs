@@ -327,7 +327,7 @@ impl Breeze {
                                 },
                             )),
                     )
-                    .child(self.command("open", IconName::FolderOpen, "打开文档", &Open, cx))
+                    .child(self.command("open", IconName::FilePlusCorner, "打开文档", &Open, cx))
                     .child(self.command(
                         "theme",
                         if self.theme_preference == ThemePreference::System {
