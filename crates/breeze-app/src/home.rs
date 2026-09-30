@@ -19,7 +19,8 @@ impl Breeze {
             })
             .filter(|(_, b)| match self.library_filter {
                 1 => b.favorite,
-                n if n >= 3 => b.category == n - 3,
+                3 => b.categories.is_empty(),
+                n if n > 3 => b.categories.contains(&(n - 3)),
                 _ => true,
             })
             .collect();

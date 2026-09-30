@@ -39,11 +39,11 @@ Single/two-page arrangement and continuous scrolling are independent reading set
 
 The compact UI direction is accepted. The source PDF remains read-only. The local reader now persists library/settings and reading state, supports search and glyph-bounds selection, and draws/saves independent sidecar annotations. Restricted annotation export is implemented, while original-content editing remains unavailable; see [delivery status](../plans/STATUS.md).
 
-The current category control assigns one category per entry. Whether the product should instead support multiple tags remains undecided; do not describe the current code as a multi-tag implementation.
+A document may belong to multiple user-created categories. Removing a category removes only that membership; a document is Unassigned when it has no category memberships.
 
 ## Decisions still required
 
 - Confirm minimum OS versions and supported CPU architectures before release commitments.
 - Define text-run/block editing, alignment, and reflow boundaries through targeted validation.
-- Decide category semantics and the initial scope of existing-annotation editing.
+- Decide the initial scope of existing-annotation editing.
 - On a source fingerprint mismatch, stop automatic sidecar application and require explicit reassociation. Do not build speculative automatic migration machinery.

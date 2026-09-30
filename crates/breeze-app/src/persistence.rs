@@ -9,7 +9,10 @@ pub(super) struct SavedBook {
     pub path: Option<PathBuf>,
     pub title: String,
     pub favorite: bool,
+    #[serde(default, skip_serializing)]
     pub category: usize,
+    #[serde(default)]
+    pub categories: Vec<usize>,
     pub page: Option<usize>,
     pub zoom: Zoom,
     #[serde(default)]
@@ -50,7 +53,7 @@ fn first_category_id() -> usize {
 impl Default for SavedState {
     fn default() -> Self {
         Self {
-            version: 5,
+            version: 6,
             books: Vec::new(),
             active: 0,
             categories: Vec::new(),
@@ -73,7 +76,7 @@ impl Default for SavedState {
 }
 impl SavedState {
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(matches!(self.version, 1..=5), "Unsupported state version");
+        anyhow::ensure!(matches!(self.version, 1..=6), "Unsupported state version");
         anyhow::ensure!(self.books.len() <= 4096, "Too many library entries");
         anyhow::ensure!(
             self.width.is_finite() && (168.0..=360.0).contains(&self.width),
@@ -113,10 +116,24 @@ impl SavedState {
             anyhow::ensure!(
                 (if self.version == 1 {
                     b.category < 3
-                } else {
+                } else if self.version < 6 {
                     b.category == 0 || self.categories.iter().any(|c| c.id == b.category)
+                } else {
+                    b.category == 0
                 }) && b.title.len() <= 4096,
                 "Invalid library entry"
+            );
+            anyhow::ensure!(
+                if self.version < 6 {
+                    b.categories.is_empty()
+                } else {
+                    b.categories.len() <= 100
+                        && b.categories.iter().enumerate().all(|(index, id)| {
+                            self.categories.iter().any(|c| c.id == *id)
+                                && !b.categories[..index].contains(id)
+                        })
+                },
+                "Invalid category memberships"
             );
             if let Zoom::Percent(n) = b.zoom {
                 anyhow::ensure!((25..=200).contains(&n), "Invalid zoom");
@@ -128,7 +145,7 @@ impl SavedState {
 impl Breeze {
     pub(super) fn snapshot(&self) -> SavedState {
         SavedState {
-            version: 5,
+            version: 6,
             books: self
                 .books
                 .iter()
@@ -139,7 +156,8 @@ impl Breeze {
                     },
                     title: b.title.clone(),
                     favorite: b.favorite,
-                    category: b.category,
+                    category: 0,
+                    categories: b.categories.clone(),
                     page: self.remember_position.then_some(b.state.navigation.page()),
                     zoom: b.state.zoom,
                     layout: b.state.layout,
@@ -249,6 +267,15 @@ impl Breeze {
                 .collect();
             state.next_category_id = 3;
         }
+        if state.version < 6 {
+            for book in &mut state.books {
+                book.categories = if book.category == 0 {
+                    Vec::new()
+                } else {
+                    vec![book.category]
+                };
+            }
+        }
         self.categories = state.categories;
         self.next_category_id = state.next_category_id;
         self.theme_preference = state.preference;
@@ -285,7 +312,7 @@ impl Breeze {
                     source: b.path.map(Source::File).unwrap_or(Source::Sample),
                     title: b.title,
                     favorite: b.favorite,
-                    category: b.category,
+                    categories: b.categories,
                     state: reader,
                     opened: state.remember_files && b.opened,
                     last_opened: b.last_opened,
@@ -418,6 +445,50 @@ impl Breeze {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn memberships_are_validated_and_legacy_fields_are_read_only() {
+        let mut state = SavedState {
+            categories: vec![breeze_core::library::Category {
+                id: 1,
+                name: "Research".into(),
+            }],
+            next_category_id: 2,
+            ..Default::default()
+        };
+        state.books.push(SavedBook {
+            path: Some("document.pdf".into()),
+            title: "Document".into(),
+            favorite: true,
+            category: 0,
+            categories: vec![1],
+            page: Some(2),
+            zoom: Zoom::FitPage,
+            layout: ReadingLayout::Continuous,
+            opened: false,
+            last_opened: 1,
+            annotation_path: None,
+        });
+        state.validate().unwrap();
+        let mut json = serde_json::to_value(&state).unwrap();
+        assert!(json["books"][0].get("category").is_none());
+        assert_eq!(
+            serde_json::from_value::<SavedState>(json.clone()).unwrap(),
+            state
+        );
+        for ids in [vec![0], vec![1, 1], vec![99]] {
+            state.books[0].categories = ids;
+            assert!(state.validate().is_err());
+        }
+        json["version"] = 5.into();
+        json["books"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("categories");
+        json["books"][0]["category"] = 1.into();
+        let legacy: SavedState = serde_json::from_value(json).unwrap();
+        legacy.validate().unwrap();
+        assert_eq!(legacy.books[0].category, 1);
+    }
     #[test]
     fn invalid_state_rejected() {
         let mut state = SavedState {

@@ -76,9 +76,7 @@ impl Breeze {
     pub(super) fn delete_category(&mut self, id: usize, cx: &mut Context<Self>) {
         self.categories.retain(|c| c.id != id);
         for book in &mut self.books {
-            if book.category == id {
-                book.category = 0;
-            }
+            book.categories.retain(|category| *category != id);
         }
         if self.library_filter == id + 3 {
             self.library_filter = 3;
@@ -163,7 +161,7 @@ impl Breeze {
                                 .small()
                                 .icon(IconName::Trash)
                                 .accessibility_label("删除分类")
-                                .tooltip("删除分类；文档移至未分类，不删除文件")
+                                .tooltip("删除分类；保留文档及其他分类")
                                 .on_click(
                                     cx.listener(move |this, _, _, cx| this.delete_category(id, cx)),
                                 ),
@@ -193,12 +191,40 @@ impl Breeze {
                 )
             })
     }
+    pub(super) fn toggle_category(&mut self, index: usize, id: usize, cx: &mut Context<Self>) {
+        if id != 0 && !self.categories.iter().any(|category| category.id == id) {
+            return;
+        }
+        if let Some(book) = self.books.get_mut(index) {
+            if id == 0 {
+                book.categories.clear();
+            } else if book.categories.contains(&id) {
+                book.categories.retain(|category| *category != id);
+            } else {
+                book.categories.push(id);
+                book.categories.sort_unstable();
+            }
+        }
+        cx.notify();
+    }
     pub(super) fn category_assignment(
         &self,
         index: usize,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let mut choices = vec![(0, "未分类".to_owned())];
+        let selected = self.books[index].categories.clone();
+        let names: Vec<_> = self
+            .categories
+            .iter()
+            .filter(|c| selected.contains(&c.id))
+            .map(|c| c.name.as_str())
+            .collect();
+        let label = if names.is_empty() {
+            "未分类".to_owned()
+        } else {
+            names.join("、")
+        };
+        let mut choices = vec![(0, "清除分类".to_owned())];
         choices.extend(self.categories.iter().map(|c| (c.id, c.name.clone())));
         let view = cx.entity();
         Button::new(("category", index))
@@ -206,29 +232,24 @@ impl Breeze {
             .small()
             .w(px(144.))
             .flex_shrink_0()
-            .accessibility_label(format!(
-                "分类：{}",
-                self.category_name(self.books[index].category)
-            ))
-            .child(
-                div()
-                    .w_full()
-                    .text_left()
-                    .text_ellipsis()
-                    .child(self.category_name(self.books[index].category)),
-            )
+            .accessibility_label(format!("分类（可多选）：{label}"))
+            .tooltip(format!("分类（可多选）：{label}"))
+            .child(div().w_full().text_left().text_ellipsis().child(label))
             .on_click(|_, _, cx| cx.stop_propagation())
             .dropdown_menu(move |mut menu, window, _| {
                 for (id, name) in &choices {
                     let id = *id;
-                    menu = menu.item(PopupMenuItem::new(name.clone()).on_click(
-                        window.listener_for(&view, move |this, _, _, cx| {
-                            if let Some(book) = this.books.get_mut(index) {
-                                book.category = id;
-                            }
-                            cx.notify();
-                        }),
-                    ));
+                    menu = menu.item(
+                        PopupMenuItem::new(name.clone())
+                            .checked(if id == 0 {
+                                selected.is_empty()
+                            } else {
+                                selected.contains(&id)
+                            })
+                            .on_click(window.listener_for(&view, move |this, _, _, cx| {
+                                this.toggle_category(index, id, cx);
+                            })),
+                    );
                 }
                 menu
             })

@@ -82,7 +82,7 @@ struct Book {
     source: Source,
     title: String,
     favorite: bool,
-    category: usize,
+    categories: Vec<usize>,
     state: ReaderState,
     opened: bool,
     last_opened: u64,
@@ -532,7 +532,7 @@ impl Breeze {
             source: Source::File(path),
             title,
             favorite: false,
-            category: 0,
+            categories: Vec::new(),
             state: ReaderState {
                 layout: self.reading_preferences.layout,
                 zoom: self.reading_preferences.zoom,

@@ -23,7 +23,7 @@ pub(super) fn app(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) 
                         source: Source::Sample,
                         title: "Field notes".into(),
                         favorite: false,
-                        category: 0,
+                        categories: Vec::new(),
                         state: ReaderState::default(),
                         opened: false,
                         last_opened: 0,
@@ -504,20 +504,20 @@ fn categories_are_user_owned_and_layout_roundtrips(cx: &mut TestAppContext) {
     cx.update_window(handle, |_, window, cx| {
         view.update(cx, |view, cx| {
             assert!(view.categories.is_empty());
-            assert_eq!(view.books[0].category, 0);
+            assert_eq!(view.books[0].categories, Vec::<usize>::new());
             view.category_form = true;
             view.category_input
                 .update(cx, |input, cx| input.set_value("  Research  ", window, cx));
             view.save_category(cx);
             let id = view.categories[0].id;
             assert_eq!(view.categories[0].name, "Research");
-            view.books[0].category = id;
+            view.books[0].categories = vec![id];
             view.books[0].state.layout = ReadingLayout::Spread;
             let saved = view.snapshot();
             let saved = serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
             view.restore(saved, cx);
             assert_eq!(view.books[0].state.layout, ReadingLayout::Spread);
-            assert_eq!(view.books[0].category, id);
+            assert_eq!(view.books[0].categories, vec![id]);
             view.category_edit = Some(id);
             view.category_input
                 .update(cx, |input, cx| input.set_value("Reading", window, cx));
@@ -526,7 +526,7 @@ fn categories_are_user_owned_and_layout_roundtrips(cx: &mut TestAppContext) {
             let next = view.next_category_id;
             view.delete_category(id, cx);
             assert!(view.categories.is_empty());
-            assert_eq!(view.books[0].category, 0);
+            assert_eq!(view.books[0].categories, Vec::<usize>::new());
             assert_eq!(view.next_category_id, next);
             assert_eq!(view.books.len(), 1);
             let mut legacy = view.snapshot();
@@ -535,8 +535,8 @@ fn categories_are_user_owned_and_layout_roundtrips(cx: &mut TestAppContext) {
             view.restore(legacy, cx);
             assert_eq!(view.categories.len(), 1);
             assert_eq!(view.categories[0].id, 2);
-            assert_eq!(view.books[0].category, 2);
-            assert_eq!(view.snapshot().version, 5);
+            assert_eq!(view.books[0].categories, vec![2]);
+            assert_eq!(view.snapshot().version, 6);
         });
     })
     .unwrap();
@@ -682,7 +682,7 @@ fn tab_close_is_hover_only_and_does_not_activate_its_document(cx: &mut TestAppCo
                 source: Source::Sample,
                 title: "Second".into(),
                 favorite: false,
-                category: 0,
+                categories: Vec::new(),
                 state: ReaderState::default(),
                 opened: true,
                 last_opened: 0,
@@ -1076,6 +1076,51 @@ fn library_columns_align_and_empty_state_stays_empty(cx: &mut TestAppContext) {
         window.render_frame(cx);
         let fresh = cx.new(|cx| Breeze::new(PdfWorker::new().unwrap(), window, cx));
         assert!(fresh.read(cx).books.is_empty());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn multiple_categories_survive_restore_and_independent_deletion(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| {
+            for name in ["Research", "Work"] {
+                view.category_input
+                    .update(cx, |input, cx| input.set_value(name, window, cx));
+                view.save_category(cx);
+            }
+            view.toggle_category(0, 1, cx);
+            view.toggle_category(0, 2, cx);
+            assert_eq!(view.books[0].categories, vec![1, 2]);
+            let state =
+                serde_json::from_slice(&serde_json::to_vec(&view.snapshot()).unwrap()).unwrap();
+            view.restore(state, cx);
+            assert_eq!(view.books[0].categories, vec![1, 2]);
+            view.delete_category(1, cx);
+            assert_eq!(view.books[0].categories, vec![2]);
+            view.show_home(cx);
+            view.library_filter = 5;
+        });
+        window.render_frame(cx);
+        assert!(window.find(("library-open", 0usize)).bounds().size.width > px(0.));
+        view.update(cx, |view, cx| {
+            view.toggle_category(0, 1, cx);
+            assert_eq!(view.books[0].categories, vec![2]);
+            for version in 2..=5 {
+                let mut state = view.snapshot();
+                state.version = version;
+                state.books[0].category = 2;
+                state.books[0].categories.clear();
+                view.restore(state, cx);
+                assert_eq!(view.books[0].categories, vec![2]);
+            }
+            view.toggle_category(0, 2, cx);
+            assert!(view.books[0].categories.is_empty());
+            view.toggle_category(0, 2, cx);
+            view.toggle_category(0, 0, cx);
+            assert!(view.books[0].categories.is_empty());
+        });
     })
     .unwrap();
 }
