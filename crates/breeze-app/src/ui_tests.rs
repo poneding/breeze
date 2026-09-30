@@ -2,7 +2,7 @@ use super::*;
 use gpui_kit::InputEvent as _;
 use gpui_kit::test::TestWindowExt;
 
-fn app(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
+pub(super) fn app(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
     cx.update(|cx| {
         gpui_kit::init(cx);
         commands::bind(cx);
@@ -159,7 +159,6 @@ fn annotation_gestures_history_and_close_guard(cx: &mut TestAppContext) {
         view.update(cx, |view, _| {
             view.preview = Some(Arc::new(Preview {
                 page: page.page,
-                image: texture(page.pixels).unwrap(),
                 points: page.points,
                 geometry: page.geometry,
                 glyphs: page.glyphs,
@@ -214,7 +213,6 @@ fn text_selection_uses_extracted_geometry(cx: &mut TestAppContext) {
         view.update(cx, |view, _| {
             view.preview = Some(Arc::new(Preview {
                 page: page.page,
-                image: texture(page.pixels).unwrap(),
                 points: page.points,
                 geometry: page.geometry,
                 glyphs: page.glyphs,
@@ -312,7 +310,6 @@ fn annotation_tool_matrix_creates_real_geometry(cx: &mut TestAppContext) {
         view.update(cx, |view, _| {
             view.preview = Some(Arc::new(Preview {
                 page: page.page,
-                image: texture(page.pixels).unwrap(),
                 points: page.points,
                 geometry: page.geometry,
                 glyphs: page.glyphs,
@@ -464,7 +461,6 @@ fn opening_policy_runs_once_and_does_not_change_zoom(cx: &mut TestAppContext) {
         view.update(cx, |view, cx| {
             view.preview = Some(Arc::new(Preview {
                 page: page.page,
-                image: texture(page.pixels).unwrap(),
                 points: page.points,
                 geometry: page.geometry,
                 glyphs: page.glyphs,
@@ -884,6 +880,53 @@ fn continuous_spreads_virtualize_pairs_and_reach_odd_final_page(cx: &mut TestApp
             view.schedule_visible(120..121, false, cx);
         });
         assert_eq!(view.read(cx).books[0].state.navigation.page(), 120);
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn actual_page_surfaces_request_new_pixels_after_zoom_and_display_changes(cx: &mut TestAppContext) {
+    let page = rendered_sample();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.reading.sizes = page.page_sizes.clone();
+            view.preview = Some(Preview::from_page(page).unwrap());
+            view.books[0].state.zoom = Zoom::Percent(100);
+            view.loading = true;
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        let scales = view.read(cx).raster.requested_scales();
+        assert!(!scales.is_empty());
+        assert!(scales.iter().all(|s| (*s - 8. / 3.).abs() < 0.001));
+        view.update(cx, |view, _| view.books[0].state.zoom = Zoom::Percent(200));
+        window.render_frame(cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, _, cx| {
+        assert!(
+            view.read(cx)
+                .raster
+                .requested_scales()
+                .iter()
+                .all(|s| (*s - 16. / 3.).abs() < 0.001)
+        );
+    })
+    .unwrap();
+    cx.simulate_window_scale_factor_change(handle, 1.);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, _, cx| {
+        let scales = view.read(cx).raster.requested_scales();
+        assert!(!scales.is_empty());
+        assert!(scales.iter().all(|s| (*s - 8. / 3.).abs() < 0.001));
+        view.update(cx, |view, cx| view.show_home(cx));
+        assert!(view.read(cx).raster.requested_scales().is_empty());
     })
     .unwrap();
 }

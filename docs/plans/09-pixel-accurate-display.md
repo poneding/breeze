@@ -2,7 +2,7 @@
 
 ## Requirement and status
 
-The user requested clear PDF display with good performance on September 30, 2026. The confirmed requirement is to avoid sacrificing display resolution to obtain responsiveness. The design below is a proposal, not implemented behavior or a production performance guarantee. The application's existing rendering policy is unchanged by this investigation.
+The user requested clear PDF display with good performance on September 30, 2026. The confirmed requirement is to avoid sacrificing display resolution to obtain responsiveness. The first investigation below was a proposal and did not change application display. After the user reported unchanged results from `make run`, the follow-up implemented the device-resolution tile path described in the implementation record below. Production fidelity and performance guarantees remain subject to the stated corpus/platform gates.
 
 The recommended path is **device-resolution rendering, genuine viewport tiles, retained page preparation, and bounded revision-aware caches**. Increasing a fixed whole-page DPI cannot meet this requirement across large pages and high zoom. Source image resolution and engine font/transparency fidelity remain separate limits; higher raster resolution cannot restore detail absent from a scan or fix incorrect glyph rendering.
 
@@ -32,7 +32,7 @@ The current `PageRenderer` clears page font/color/ICC caches on each page call. 
 
 The required engine work is a targeted Rust region-render API that accepts an output rectangle in device pixels and renders directly into a bounded tile surface using the full-page transform translated by the tile origin. It must preserve original page coordinates, CropBox/nonzero origins, rotation, UserUnit, clipping, patterns, transparency groups, soft masks, annotations, and color conversion. Small overlapping gutters must be cropped at composition to avoid seams; validate the required gutter size rather than assuming it solves every filter case. Retain necessary prepared page data with explicit lifetime and memory accounting.
 
-An implementation must not crop a rewritten temporary PDF, modify source objects, switch engines, or change downloaded registry sources. Use a reviewable upstream fix or a deliberately pinned source patch only after the fixture tests establish its semantics. No engine fork, alternate engine, or cache-budget increase is approved by this proposal.
+An implementation must not crop a rewritten temporary PDF, modify source objects, switch engines, or change downloaded registry sources. Use a reviewable upstream fix or a deliberately pinned source patch only after the fixture tests establish its semantics. The initial proposal did not approve an engine fork, alternate engine, or cache-budget increase. The subsequent implementation uses the narrowly scoped local patch recorded below, preserving the selected Rust engine.
 
 Until this gate passes, adaptive whole-page rendering can improve ordinary zoom within the existing budget, but cannot fulfill the complete high-zoom requirement. Do not mark the user request resolved by only raising DPI or rejecting every larger viewport.
 
@@ -81,3 +81,35 @@ The investigation passed `cargo fmt --all -- --check`, `cargo test --workspace -
 5. Commit implementation phases only after their required checks and native inspection pass. Report misses with input hashes, hardware, profile, dimensions, sample count, warm/cold definitions, and memory scope before seeking changes to budgets or architecture.
 
 No PDF display implementation can promise constant latency for arbitrarily complex inputs. Acceptance must bind clarity and performance to a declared corpus and device range, while unsupported or over-budget cases remain explicit.
+
+## Implemented follow-up: device-resolution display
+
+The application now uses metadata-only page requests and direct device-region raster jobs. Native page canvases calculate physical resolution from their actual bounds and display scale, coalesce visible requests, and paint the resulting BGRA tiles without PNG/JPEG encoding or upscaling a fixed page raster. Tile interiors are 508 pixels with two-pixel gutters, yielding at most 512 x 512 uploaded pixels. Scale changes retire the previous resolution; scrolling reuses current-scale tiles. Stale completions and changed document fingerprints cannot enter the visible cache. Source page content is read-only.
+
+The dependency is pinned to a local copy of the same PDF Oxide 0.3.78 distribution. Only `src/rendering/page_renderer.rs` is patched: `render_device_region` allocates the requested region and translates the original page transform into that surface, sharing the existing operator/font/annotation/color implementation. It does not rewrite CropBox or crop an already-rendered full page. [Patch provenance](../../vendor/pdf_oxide/BREEZE-PATCH.md) records the upstream revision and archive checksum. The lockfile retains the existing dependency versions. Retained operator/display-list preparation remains unimplemented; existing document/font caches are reused.
+
+UI cache accounting is split into 8 MiB of page metadata, 56 MiB of page pixels, and 8 MiB of thumbnails. GPU entries are explicitly removed on eviction, source changes, and obsolete zoom levels. Native testing caught a material bug in the first implementation: dropping CPU image references left GPU atlas entries resident. The next measurement exposed an atlas-packing problem: 516-pixel guttered images each occupied a 1024-pixel Metal texture. Both were corrected, and a component test verifies removal of an actually uploaded atlas entry after cache clearing. The 508-pixel interior has a regression assertion preventing this packing regression.
+
+### Validation executed
+
+- `make build` and `make run` passed in the shared checkout; the latter was started with a fresh isolated `BREEZE_DATA_DIR`, observed running, then its scratch process was interrupted. The separate native comparison window was retained.
+- Workspace formatting and all-target Clippy with `-D warnings` passed. The integrated checkout passed **79 tests**, with the three pre-existing ignored probes unchanged. An isolated copy excluding unrelated theme edits also passed 76 tests; the final integrated run covers all 79 tests. The upstream `block 0.1.6` future-incompatibility notice remains.
+- Renderer regressions cover exact requested tile dimensions at multiple scales, metadata without a page raster, no stale low-resolution cache hit, CropBox offsets, all four page rotations, and transparent overlapping content. Tile assembly is compared with the same engine's full-page reference with a small numeric rasterization tolerance; this does not assert byte identity for all documents.
+- Component tests cover actual canvas requests at 1x/2x display scale, zoom changes, cancellation on Home, visible-area tile bounds, panning reuse, and GPU atlas release. Existing annotation/export/gesture tests pass with the metadata-only page path.
+- Native macOS inspection used isolated data under `target/quality-fix/` and separate old/new review bundles. The same Chinese book page was visibly blurred in the old 144-DPI display and sharp in the new large-window display. Native scroll/zoom and the concurrently delivered reading-layout controls were checked. There were intermittent Computer Use `noWindowsAvailable`/user-state-change errors; they are not counted as successful interactions.
+- Independent PDFKit reference images (the system PDF implementation used by Skim) were compared at matching 288-DPI dimensions for two user-owned Chinese documents. Text shape, positioning, and fine strokes were inspected; existing raster illustrations retain their original detail limits. Documents and generated images remain local, outside version control. This is not broad corpus or Windows/Linux acceptance.
+
+### Measured resolution and memory scope
+
+Environment: Apple M1 Pro, 8 logical CPUs, 16 GiB RAM, macOS 15.7.9 (24G830), arm64, Rust 1.97.1. Release probe command: `cargo build --release --locked -p breeze-pdf --example tile_probe`, then `target/release/examples/tile_probe /path/to/document.pdf ZERO_BASED_PAGE 288 target/comparison`. Runs below were sequential after builds finished. Input bytes are read before timing; OS caches are uncontrolled. First full render includes parser/renderer initialization; subsequent tile rows are uncached raster jobs using the loaded document/renderer. GPU upload and presentation are excluded. PNG writing happens outside each tile timing. Probe RSS includes its retained full-page/comparison buffers and is not application RSS.
+
+| Local input | Page (zero-based) | Whole-page dimensions | Tile samples | Tile p50 / p95 | All tiles | Probe peak RSS |
+|---|---:|---|---:|---|---|---|
+| Chinese book A | 31 | 2188 x 2732 | 30 | 5.39 / 11.68 ms | 224.98 ms | 143.91 MiB |
+| Chinese book B | 35 | 1996 x 2835 | 24 | 5.80 / 13.62 ms | 240.09 ms | 92.98 MiB |
+
+The two input documents are private, so their SHA-256 values are withheld here; the measurements above are unchanged.
+
+Native development-build measurements used a 4608 x 2434-pixel window at 2x device scale. `vmmap -summary` reported approximately 1.2 GiB physical footprint / 1.3 GiB peak in the first leaking version. Explicit release reduced the observed footprint to 483 MiB; atlas packing reduced it further, and retiring obsolete scales yielded **216.0 MiB current / 361.6 MiB peak** in the final interactive run. These runs are diagnostic observations, not identical scripted benchmarks. Physical footprint includes compressed/private/GPU/window-surface memory and is different from RSS; the proposed 350 MiB RSS gate is not declared passed by this comparison. A 10-second settled interval recorded zero new render jobs and about 0.5% process CPU before the final obsolete-scale eviction refinement.
+
+The final implementation improves the tested documents substantially without reducing their requested raster resolution. First-open percentiles, sustained 60/120 Hz frame timing, decoder peaks, large mixed corpora, and cross-platform GPU behavior remain release acceptance work. Do not describe the remaining gates or exact equivalence to Skim as completed.

@@ -17,3 +17,7 @@ The function-to-icon map and selection guidance are maintained in [the icon spec
 `brand/` contains the project-authored Breeze logo and platform icon assets. These
 are application identity assets, not replacements for the Lucide command icons.
 See [the brand asset guide](brand/README.md) for sources and usage.
+
+## Pinned PDF renderer patch
+
+`vendor/pdf_oxide/BREEZE-PATCH.md` documents the local 0.3.78 device-region patch. Its MIT/Apache licenses, NOTICE, trademark notice, and bundled-font license texts are also included in `assets/licenses/` for review/release packaging. These notices do not complete the broader transitive-dependency license audit.

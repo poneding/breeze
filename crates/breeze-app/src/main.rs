@@ -12,6 +12,7 @@ use persistence::SavedState;
 mod categories;
 mod commands;
 mod home;
+mod raster;
 mod reader;
 mod reading;
 mod settings;
@@ -91,7 +92,6 @@ struct Preview {
     geometry: breeze_core::annotations::PageGeometry,
     glyphs: Vec<breeze_pdf::Glyph>,
     text_warning: Option<String>,
-    image: Arc<RenderImage>,
     points: (f32, f32),
     outline: Arc<Vec<breeze_pdf::Outline>>,
     bytes: usize,
@@ -100,6 +100,7 @@ struct Preview {
 struct Breeze {
     page_task: Option<Task<()>>,
     reading: reading::ReadingView,
+    raster: raster::RasterView,
     worker: PdfWorker,
     window_handle: AnyWindowHandle,
     pending_window_policy: bool,
@@ -223,6 +224,7 @@ impl Breeze {
         Self {
             page_task: None,
             reading: reading::ReadingView::default(),
+            raster: raster::RasterView::default(),
             worker,
             window_handle: window.window_handle(),
             pending_window_policy: false,
@@ -324,6 +326,7 @@ impl Breeze {
     fn show_home(&mut self, cx: &mut Context<Self>) {
         self.page_task = None;
         self.reading.cancel();
+        self.raster.cancel();
         self.cancel_search();
         self.pending_window_policy = false;
         self.pending_fit = None;
@@ -353,6 +356,7 @@ impl Breeze {
     fn load(&mut self, cx: &mut Context<Self>) {
         self.page_task = None;
         self.reading.cancel();
+        self.raster.cancel();
         self.pending_fit = None;
         self.gesture.clear();
         self.selected_text.clear();
@@ -363,7 +367,9 @@ impl Breeze {
         let source = self.books[self.active].source.clone();
         let current = self.books[self.active].state.navigation.page();
         if self.reading.source.as_ref() != Some(&source) {
+            self.reading.release_images(cx);
             self.reading = reading::ReadingView::default();
+            self.raster.clear(cx);
             self.reading.source = Some(source);
         }
         self.reading.pages_scroll.scroll_to_item(
@@ -374,7 +380,7 @@ impl Breeze {
             .thumbs_scroll
             .scroll_to_item(current, ScrollStrategy::Center);
         self.preview = self.reading.page(current);
-        let receiver = match self.worker.request(
+        let receiver = match self.worker.request_metadata(
             self.books[self.active].source.clone(),
             self.books[self.active].state.navigation.page(),
         ) {
@@ -403,7 +409,9 @@ impl Breeze {
                         if !this.reading.fingerprint.is_empty()
                             && this.reading.fingerprint != fingerprint
                         {
+                            this.reading.release_images(cx);
                             this.reading = reading::ReadingView::default();
+                            this.raster.clear(cx);
                             this.reading.source = Some(this.books[this.active].source.clone());
                             this.reading.pages_scroll.scroll_to_item(
                                 this.books[this.active].state.layout.row(page.page),

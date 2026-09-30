@@ -507,11 +507,7 @@ impl Breeze {
                     }
                 }),
             )
-            .child(
-                img(preview.image.clone())
-                    .size_full()
-                    .object_fit(ObjectFit::Contain),
-            )
+            .child(self.raster_surface(current, geometry, cx))
             .child(
                 div()
                     .id("annotation-overlay")

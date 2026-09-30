@@ -1,5 +1,6 @@
 //! Bounded PDF reading and explicit annotation-copy export; no source-content editing.
 pub mod export;
+mod raster;
 use anyhow::{Context, Result, bail};
 use breeze_core::annotations::{PageGeometry, Rect};
 use futures::channel::oneshot;
@@ -8,6 +9,7 @@ use pdf_oxide::{
     outline::{Destination, OutlineItem},
     rendering::{PageRenderer, RenderOptions},
 };
+pub use raster::DeviceTile;
 use std::{
     collections::VecDeque,
     path::PathBuf,
@@ -40,7 +42,8 @@ pub struct Page {
     pub geometry: PageGeometry,
     pub glyphs: Vec<Glyph>,
     pub text_warning: Option<String>,
-    pub pixels: Pixels,
+    pub pixels: Option<Pixels>,
+    pub tile: Option<DeviceTile>,
     pub page: usize,
     pub total: usize,
     pub points: (f32, f32),
@@ -53,6 +56,8 @@ struct Job {
     source: Source,
     page: usize,
     thumbnail: bool,
+    metadata_only: bool,
+    tile: Option<DeviceTile>,
     reply: oneshot::Sender<Result<Page>>,
 }
 #[derive(Default)]
@@ -71,6 +76,7 @@ impl PdfWorker {
         thread::Builder::new()
             .name("breeze-pdf".into())
             .spawn(move || {
+                let trace = std::env::var_os("BREEZE_TRACE_RENDER").is_some();
                 let mut loaded: Option<Loaded> = None;
                 let mut cache: VecDeque<Page> = VecDeque::new();
                 let mut options = RenderOptions::with_dpi(144).as_raw();
@@ -102,6 +108,16 @@ impl PdfWorker {
                         &mut thumbnails,
                         &mut cache,
                     );
+                    if trace && let Ok(page) = &result {
+                        eprintln!(
+                            "breeze-render page={} metadata={} tile={:?} elapsed_ms={:.2} bytes={}",
+                            page.page,
+                            job.metadata_only,
+                            job.tile,
+                            page.elapsed_ms,
+                            page_bytes(page)
+                        );
+                    }
                     // Receiver may have been dropped after navigation or window close.
                     let _ = job.reply.send(result);
                 }
@@ -109,20 +125,37 @@ impl PdfWorker {
         Ok(Self { queue })
     }
     pub fn request(&self, source: Source, page: usize) -> Result<oneshot::Receiver<Result<Page>>> {
-        self.request_kind(source, page, false)
+        self.request_kind(source, page, false, false, None)
     }
     pub fn request_thumbnail(
         &self,
         source: Source,
         page: usize,
     ) -> Result<oneshot::Receiver<Result<Page>>> {
-        self.request_kind(source, page, true)
+        self.request_kind(source, page, true, false, None)
+    }
+    pub fn request_metadata(
+        &self,
+        source: Source,
+        page: usize,
+    ) -> Result<oneshot::Receiver<Result<Page>>> {
+        self.request_kind(source, page, false, true, None)
+    }
+    pub fn request_tile(
+        &self,
+        source: Source,
+        page: usize,
+        tile: DeviceTile,
+    ) -> Result<oneshot::Receiver<Result<Page>>> {
+        self.request_kind(source, page, false, false, Some(tile))
     }
     fn request_kind(
         &self,
         source: Source,
         page: usize,
         thumbnail: bool,
+        metadata_only: bool,
+        tile: Option<DeviceTile>,
     ) -> Result<oneshot::Receiver<Result<Page>>> {
         let (reply, receive) = oneshot::channel();
         let mut pending = self
@@ -135,6 +168,8 @@ impl PdfWorker {
             source,
             page,
             thumbnail,
+            metadata_only,
+            tile,
             reply,
         });
         self.queue.1.notify_one();
@@ -240,10 +275,12 @@ fn render(
         bail!("文档没有可阅读的页面");
     }
     let page = job.page.min(total - 1);
-    if let Some(index) = cache
-        .iter()
-        .position(|p| p.page == page && p.thumbnail == job.thumbnail)
-    {
+    if let Some(index) = cache.iter().position(|p| {
+        job.tile.is_none()
+            && p.page == page
+            && p.thumbnail == job.thumbnail
+            && p.pixels.is_none() == job.metadata_only
+    }) {
         let mut hit = cache.remove(index).context("Missing cache entry")?;
         hit.elapsed_ms = time.elapsed().as_secs_f64() * 1000.;
         cache.push_back(hit.clone());
@@ -251,17 +288,28 @@ fn render(
     }
     let geometry = loaded.geometries[page];
     let points = geometry.size();
-    let pixels = convert(if job.thumbnail {
-        thumb.render_page(doc, page)?
+    let pixels = if job.metadata_only {
+        None
+    } else if let Some(tile) = job.tile {
+        Some(convert(renderer.render_device_region(
+            doc,
+            page,
+            tile.scale(),
+            tile.region(),
+        )?))
     } else {
-        renderer.render_page(doc, page)?
-    });
-    let outline = if job.thumbnail {
+        Some(convert(if job.thumbnail {
+            thumb.render_page(doc, page)?
+        } else {
+            renderer.render_page(doc, page)?
+        }))
+    };
+    let outline = if job.thumbnail || job.tile.is_some() {
         Arc::new(Vec::new())
     } else {
         loaded.outline.clone()
     };
-    let (glyphs, text_warning) = if job.thumbnail {
+    let (glyphs, text_warning) = if job.thumbnail || job.tile.is_some() {
         (Vec::new(), None)
     } else {
         match doc.extract_chars(page) {
@@ -291,6 +339,7 @@ fn render(
     };
     let result = Page {
         pixels,
+        tile: job.tile,
         page,
         total,
         points,
@@ -303,6 +352,10 @@ fn render(
         page_sizes: loaded.sizes.clone(),
         elapsed_ms: time.elapsed().as_secs_f64() * 1000.,
     };
+    // The UI owns tile residency. Avoid a second CPU cache and deep pixel clones.
+    if job.tile.is_some() {
+        return Ok(result);
+    }
     let cost = page_bytes(&result);
     while cache.iter().map(page_bytes).sum::<usize>() + cost > 32 * 1024 * 1024 {
         if cache.pop_front().is_none() {
@@ -345,7 +398,7 @@ fn page_geometry(doc: &PdfDocument, page: usize) -> Result<PageGeometry> {
     })
 }
 fn page_bytes(page: &Page) -> usize {
-    page.pixels.bgra.len()
+    page.pixels.as_ref().map_or(0, |p| p.bgra.len())
         + page.glyphs.len() * std::mem::size_of::<Glyph>()
         + page
             .outline
@@ -423,8 +476,9 @@ mod tests {
             .unwrap();
         assert_eq!(result.total, 8);
         assert_eq!(
-            result.pixels.bgra.len(),
-            (result.pixels.width * result.pixels.height * 4) as usize
+            result.pixels.as_ref().unwrap().bgra.len(),
+            (result.pixels.as_ref().unwrap().width * result.pixels.as_ref().unwrap().height * 4)
+                as usize
         );
         assert_eq!(result.outline[0].page, Some(0));
         assert_eq!(result.page_sizes.len(), result.total);
@@ -452,6 +506,8 @@ mod scheduling_tests {
                 source: Source::Sample,
                 page: 0,
                 thumbnail: false,
+                metadata_only: false,
+                tile: None,
                 reply: first,
             }),
             stop: false,
@@ -460,6 +516,8 @@ mod scheduling_tests {
             source: Source::Sample,
             page: 7,
             thumbnail: false,
+            metadata_only: false,
+            tile: None,
             reply: second,
         });
         assert!(old.try_recv().is_err());
@@ -519,7 +577,10 @@ mod reader_tests {
             .unwrap()
             .unwrap();
         assert_eq!(first.fingerprint, second.fingerprint);
-        assert_eq!(first.pixels.bgra, second.pixels.bgra);
+        assert_eq!(
+            first.pixels.as_ref().unwrap().bgra,
+            second.pixels.as_ref().unwrap().bgra
+        );
         assert!(page_bytes(&second) <= 32 * 1024 * 1024);
     }
 }
@@ -575,14 +636,17 @@ mod visible_request_tests {
         assert!(thumbnail.thumbnail);
         assert!(thumbnail.glyphs.is_empty());
         assert!(thumbnail.outline.is_empty());
-        assert!(thumbnail.pixels.width * thumbnail.pixels.height <= 120_000);
+        assert!(
+            thumbnail.pixels.as_ref().unwrap().width * thumbnail.pixels.as_ref().unwrap().height
+                <= 120_000
+        );
         assert_eq!(thumbnail.page_sizes.len(), 8);
         let full = futures::executor::block_on(worker.request(Source::Sample, 7).unwrap())
             .unwrap()
             .unwrap();
         assert!(!full.thumbnail);
         assert!(!full.glyphs.is_empty());
-        assert!(full.pixels.width > thumbnail.pixels.width);
+        assert!(full.pixels.as_ref().unwrap().width > thumbnail.pixels.as_ref().unwrap().width);
         assert_eq!(full.fingerprint, thumbnail.fingerprint);
         assert!(Arc::ptr_eq(&full.page_sizes, &thumbnail.page_sizes));
     }
@@ -606,7 +670,10 @@ mod visible_request_tests {
                     .unwrap();
                     let result = futures::executor::block_on(receiver).unwrap().unwrap();
                     samples.push(start.elapsed().as_secs_f64() * 1000.);
-                    dimensions = (result.pixels.width, result.pixels.height);
+                    dimensions = (
+                        result.pixels.as_ref().unwrap().width,
+                        result.pixels.as_ref().unwrap().height,
+                    );
                     bytes = page_bytes(&result);
                 }
             }

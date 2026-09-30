@@ -7,7 +7,7 @@ use std::{
     ops::Range,
     rc::Rc,
 };
-const PAGE_BUDGET: usize = 64 * 1024 * 1024;
+const PAGE_BUDGET: usize = 8 * 1024 * 1024;
 const THUMB_BUDGET: usize = 8 * 1024 * 1024;
 
 struct Resident<T> {
@@ -35,7 +35,24 @@ impl<T: Clone> Cache<T> {
             .map(|e| e.value.clone())
     }
     fn insert(&mut self, page: usize, value: T, bytes: usize, protected: Range<usize>) -> bool {
-        self.entries.retain(|e| e.page != page);
+        self.insert_with_eviction(page, value, bytes, protected, |_| {})
+    }
+    fn insert_with_eviction(
+        &mut self,
+        page: usize,
+        value: T,
+        bytes: usize,
+        protected: Range<usize>,
+        mut evict: impl FnMut(T),
+    ) -> bool {
+        self.entries.retain(|e| {
+            if e.page == page {
+                evict(e.value.clone());
+                false
+            } else {
+                true
+            }
+        });
         if bytes > self.budget {
             return false;
         }
@@ -47,7 +64,9 @@ impl<T: Clone> Cache<T> {
                 .iter()
                 .position(|e| !protected.contains(&e.page))
             {
-                self.entries.remove(index);
+                if let Some(entry) = self.entries.remove(index) {
+                    evict(entry.value);
+                }
             } else {
                 return false;
             }
@@ -105,6 +124,11 @@ impl Default for ReadingView {
     }
 }
 impl ReadingView {
+    pub fn release_images(&mut self, cx: &mut App) {
+        for entry in self.thumbnails.entries.drain(..) {
+            cx.defer(move |cx| cx.drop_image(entry.value, None));
+        }
+    }
     pub fn cancel(&mut self) {
         self.task = None;
         self.busy = false;
@@ -125,14 +149,12 @@ impl ReadingView {
 }
 impl Preview {
     pub(super) fn from_page(page: breeze_pdf::Page) -> Result<Arc<Self>> {
-        let bytes =
-            page.pixels.bgra.len() + page.glyphs.len() * std::mem::size_of::<breeze_pdf::Glyph>();
+        let bytes = page.glyphs.len() * std::mem::size_of::<breeze_pdf::Glyph>();
         Ok(Arc::new(Self {
             page: page.page,
             geometry: page.geometry,
             glyphs: page.glyphs,
             text_warning: page.text_warning,
-            image: texture(page.pixels)?,
             points: page.points,
             outline: page.outline,
             elapsed_ms: page.elapsed_ms,
@@ -256,6 +278,7 @@ impl Breeze {
     pub(super) fn pump_visible(&mut self, cx: &mut Context<Self>) {
         if self.loading
             || self.reading.busy
+            || self.raster.busy()
             || self.screen != Screen::Reader
             || self.closing
             || self.reading.sizes.is_empty()
@@ -271,6 +294,9 @@ impl Breeze {
                 self.reading.page(*p).is_none() && !self.reading.errors.contains_key(&(false, *p))
             })
             .map(|p| (false, p));
+        if next_page.is_none() && self.pump_raster(cx) {
+            return;
+        }
         let next = next_page.or_else(|| {
             if !self.sidebar || !self.thumbs || self.search_open {
                 return None;
@@ -293,7 +319,7 @@ impl Breeze {
         let request = if thumbnail {
             self.worker.request_thumbnail(source, page_index)
         } else {
-            self.worker.request(source, page_index)
+            self.worker.request_metadata(source, page_index)
         };
         let receiver = match request {
             Ok(r) => r,
@@ -329,13 +355,17 @@ impl Breeze {
                         return Ok(());
                     }
                     if thumbnail {
-                        let bytes = page.pixels.bgra.len();
+                        let pixels = page
+                            .pixels
+                            .ok_or_else(|| anyhow::anyhow!("缺少缩略图像素"))?;
+                        let bytes = pixels.bgra.len();
                         anyhow::ensure!(
-                            this.reading.thumbnails.insert(
+                            this.reading.thumbnails.insert_with_eviction(
                                 page_index,
-                                texture(page.pixels)?,
+                                texture(pixels)?,
                                 bytes,
-                                this.reading.wanted_thumbs.clone()
+                                this.reading.wanted_thumbs.clone(),
+                                |image| cx.defer(move |cx| cx.drop_image(image, None))
                             ),
                             "可见缩略图超出内存预算"
                         );
@@ -343,7 +373,7 @@ impl Breeze {
                         let preview = Preview::from_page(page)?;
                         anyhow::ensure!(
                             this.reading.insert(page_index, preview.clone()),
-                            "可见页面超出 64 MiB 内存预算，请提高缩放或切换单页"
+                            "可见页面文字数据超出 8 MiB 内存预算，请切换单页"
                         );
                         if page_index == this.books[this.active].state.navigation.page()
                             && this.gesture.is_empty()
