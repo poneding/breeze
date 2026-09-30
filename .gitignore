@@ -4,3 +4,4 @@
 # Local OS metadata and application sidecars.
 .DS_Store
 *.breeze.json
+*.breeze.json.lock

@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/breeze-core", "crates/breeze-pdf", "crates/breeze-app"]
+members = ["crates/breeze-core", "crates/breeze-pdf", "crates/breeze-app", "crates/breeze-storage"]
 default-members = ["crates/breeze-app"]
 resolver = "3"
 
@@ -11,7 +11,14 @@ publish = false
 
 [workspace.dependencies]
 anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.11"
+tempfile = "3"
+dirs = "6"
+breeze-storage = { path = "crates/breeze-storage" }
 gpui-kit = "=0.7.0"
+lopdf = { version = "=0.45.0", default-features = false }
 pdf_oxide = { version = "=0.3.78", default-features = false, features = ["rendering", "icc"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"

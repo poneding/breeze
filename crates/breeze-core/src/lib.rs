@@ -1,5 +1,8 @@
-//! Format-independent prototype state. No GPUI or PDF engine types cross here.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+//! Format-independent reader state. No GPUI or PDF engine types cross here.
+use serde::{Deserialize, Serialize};
+pub mod annotations;
+pub mod library;
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     Read,
     Annotate,
@@ -21,7 +24,7 @@ impl Mode {
         }
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum Zoom {
     FitPage,
     FitWidth,
@@ -43,7 +46,7 @@ impl Zoom {
         Self::Percent((current + delta).clamp(25, 200) as u16)
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct PageNavigation {
     page: usize,
     total: usize,
@@ -82,10 +85,57 @@ impl PageNavigation {
         Ok(())
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ReadingLayout {
+    #[default]
+    Single,
+    Continuous,
+    Spread,
+}
+impl ReadingLayout {
+    pub const ALL: [Self; 3] = [Self::Single, Self::Continuous, Self::Spread];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Single => "单页",
+            Self::Continuous => "连续",
+            Self::Spread => "双页",
+        }
+    }
+    pub fn pages(self, page: usize, total: usize) -> std::ops::Range<usize> {
+        let page = page.min(total.saturating_sub(1));
+        let start = if self == Self::Spread {
+            page / 2 * 2
+        } else {
+            page
+        };
+        start
+            ..start
+                .saturating_add(if self == Self::Spread { 2 } else { 1 })
+                .min(total)
+    }
+    pub fn step(self, page: usize, total: usize, forward: bool) -> usize {
+        let stride = if self == Self::Spread { 2 } else { 1 };
+        let start = if self == Self::Spread {
+            page / 2 * 2
+        } else {
+            page
+        };
+        if forward {
+            let next = start.saturating_add(stride);
+            if next < total { next } else { page }
+        } else if start == 0 {
+            page
+        } else {
+            start.saturating_sub(stride)
+        }
+    }
+}
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct ReaderState {
     pub navigation: PageNavigation,
     pub zoom: Zoom,
+    #[serde(default)]
+    pub layout: ReadingLayout,
     pub mode: Mode,
 }
 impl Default for ReaderState {
@@ -93,6 +143,7 @@ impl Default for ReaderState {
         Self {
             navigation: PageNavigation::default(),
             zoom: Zoom::FitPage,
+            layout: ReadingLayout::Single,
             mode: Mode::Read,
         }
     }
@@ -101,6 +152,27 @@ impl Default for ReaderState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn spread_groups_and_steps_without_phantom_pages() {
+        let layout = ReadingLayout::Spread;
+        assert_eq!(layout.pages(1, 5), 0..2);
+        assert_eq!(layout.pages(4, 5), 4..5);
+        assert_eq!(
+            layout.pages(usize::MAX - 1, usize::MAX),
+            usize::MAX - 1..usize::MAX
+        );
+        assert_eq!(layout.pages(99, 0), 0..0);
+        assert_eq!(layout.step(1, 5, true), 2);
+        assert_eq!(layout.step(2, 5, true), 4);
+        assert_eq!(layout.step(4, 5, true), 4);
+        assert_eq!(layout.step(2, 4, true), 2);
+        assert_eq!(layout.step(1, 4, false), 1);
+        assert_eq!(layout.step(4, 5, false), 2);
+        for layout in [ReadingLayout::Single, ReadingLayout::Continuous] {
+            assert_eq!(layout.step(1, 5, true), 2);
+            assert_eq!(layout.step(1, 5, false), 0);
+        }
+    }
     #[test]
     fn navigation_clamps() {
         let mut n = PageNavigation::default();
