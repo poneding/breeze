@@ -22,6 +22,35 @@ The bundled eight-page sample is available from Home. The UI currently uses Chin
 
 Native development checks have run on an Apple M1 Pro with macOS 15.7.9. Windows/Linux runtime acceptance is still pending. No WebView, Node.js, or Python runtime is required.
 
+## Developer commands
+
+Use GNU Make from the repository root (`make` shows help). On Windows, run it in a POSIX environment such as Git Bash with GNU Make installed and the MSVC Rust toolchain available; the Cargo commands above remain usable directly in PowerShell.
+
+| Command | Purpose |
+|---|---|
+| `make check` | Check formatting and compile all workspace targets |
+| `make lint` | Run Clippy with warnings treated as errors |
+| `make test` | Run Rust tests and the Python 3.11+ release-tool tests |
+| `make verify` | Run check, lint, and test |
+| `make build` | Build the workspace in the development profile |
+| `make run` | Launch with isolated data under `target/manual-state/` |
+| `make release` | Build the optimized app for the host Rust target |
+| `make package` | Build the release, then write its archive/checksum to `target/dist/` |
+| `make fmt` / `make fmt-check` | Apply formatting / check without editing |
+| `make clean` | Remove Cargo output (including scratch data under the target directory) |
+
+Examples:
+
+```sh
+make run ARGS='"/absolute/path/document with spaces.pdf"'
+make run BREEZE_DATA_DIR="$PWD/target/another-review"
+make package TARGET=aarch64-apple-darwin
+# Use PYTHON=python on systems where Python 3.11+ has that executable name.
+make test-tools PYTHON=python
+```
+
+`CARGO`, `RUSTC`, and `PYTHON` can override tool commands. `CARGO_TARGET_DIR` defaults to `target` and is explicitly exported (overriding any Cargo config target-dir); optimized binaries go to `<CARGO_TARGET_DIR>/<TARGET>/release/`. `TARGET` defaults to the host triple. Cross-compiling still requires the target's SDK/linker/system libraries. Packaging reads `VERSION` from `Cargo.toml` unless explicitly overridden for a local artifact, and supports only the four targets in the release workflow. macOS builds default to `MACOSX_DEPLOYMENT_TARGET=15.0`. Neither `make release` nor `make package` creates tags, pushes, or publishes anything.
+
 ## Daily workflow
 
 1. Open a local PDF or the bundled sample. Use tabs, the outline, the full scrollable thumbnail list, page input, and fit/zoom controls to navigate.
