@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  push:
+    # GitHub tag filters are globs, not regexes. Validate SemVer before building.
+    tags: ['*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    outputs:
+      valid: ${{ steps.version.outputs.valid }}
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Test release tooling
+        run: python -B -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Validate tag and workspace version
+        id: version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python scripts/release.py validate --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
+
+  build:
+    needs: validate
+    if: needs.validate.outputs.valid == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+            binary: breeze-app
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            binary: breeze-app
+          - os: windows-2022
+            target: x86_64-pc-windows-msvc
+            binary: breeze-app.exe
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            binary: breeze-app
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '15.0'
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.1
+          targets: ${{ matrix.target }}
+          components: rustfmt, clippy
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+      - name: Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang cmake pkg-config libfontconfig-dev libfreetype-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev libvulkan-dev libasound2-dev libudev-dev libglib2.0-dev libwebkit2gtk-4.1-dev
+      - name: Verify
+        run: |
+          cargo fmt --all -- --check
+          cargo test --workspace --locked --target '${{ matrix.target }}'
+          cargo clippy --workspace --all-targets --locked --target '${{ matrix.target }}' -- -D warnings
+          python -B -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Build release binary
+        run: cargo build --release --locked -p breeze-app --target '${{ matrix.target }}'
+      - name: Package archive and checksum
+        run: |
+          python scripts/release.py package \
+            --version "$RELEASE_VERSION" \
+            --target '${{ matrix.target }}' \
+            --binary 'target/${{ matrix.target }}/release/${{ matrix.binary }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: breeze-${{ matrix.target }}
+          path: target/dist/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [validate, build]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
+      PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: breeze-*
+          path: dist
+          merge-multiple: true
+      - name: Verify all four packages
+        working-directory: dist
+        run: |
+          test "$(find . -maxdepth 1 -name '*.sha256' | wc -l)" -eq 4
+          sha256sum --check ./*.sha256
+      - name: Publish complete release
+        run: |
+          # A failed upload leaves a draft; a rerun can resume it but must never
+          # replace assets on an already-published release.
+          if draft=$(gh release view "$RELEASE_TAG" --json isDraft --jq .isDraft); then
+            if [ "$draft" != true ]; then
+              echo 'Refusing to modify an already-published release.' >&2
+              exit 1
+            fi
+          else
+            flags=()
+            if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+            gh release create "$RELEASE_TAG" --verify-tag --draft \
+              --title "Breeze $RELEASE_TAG" --generate-notes "${flags[@]}" \
+              --notes 'Automated, unsigned development packages; macOS is not notarized. Native Windows/Linux runtime acceptance, full dependency-license audit, and production fidelity/performance gates remain pending. See RELEASE-NOTES.md inside each archive. SHA-256 checksums accompany the downloads.'
+          fi
+          gh release upload "$RELEASE_TAG" dist/* --clobber
+          gh release edit "$RELEASE_TAG" --draft=false --prerelease="$PRERELEASE"

@@ -67,10 +67,18 @@ One controlled export fixture run took about 14.72 ms in the development profile
 - Renderer fidelity/corpus coverage, adaptive DPI/tiles, and representative-corpus layout/scroll performance acceptance. Fixed-raster continuous/spread layouts and virtualized navigation are implemented.
 - True original text/image editing, insertion into PDF content, source-object hit testing, and rich text-block formatting.
 - Importing/editing pre-existing PDF annotations without duplicate appearances.
-- Complete localization, OS file associations/open events, configured update sources, signing, and release packages.
+- Complete localization, OS file associations/open events, configured update sources, signing, and production-ready installers/packages.
 - Complete conflict recovery/reassociation UX and native three-platform/resource/fuzz acceptance.
 
-The remaining-work plan lists prerequisites and explicit gates. No new Git commit or publication was requested; changes remain available for review.
+The remaining-work plan lists prerequisites and explicit gates; release automation does not waive them.
+
+## SemVer release automation
+
+The tag-push workflow validates SemVer (optional lowercase `v`) and exact workspace-version equality, checks/builds macOS arm64/x64, Windows x64, and Linux x64, and publishes archives with SHA-256 checksums only after the full matrix succeeds. Prerelease tags are marked as such; upload failures leave a resumable draft, and published releases are not overwritten. Packaging preserves the maintained notices and lockfile. See [release operations](../releases.md).
+
+Local validation passed: eight release-tool tests (including all four archive layouts), Actionlint 1.7.12, Rust formatting/check/tests (64 passed, three ignored), Clippy, and an optimized macOS arm64 build. The real macOS ZIP was extracted and checked for its checksum, valid plist, executable permissions, architecture, and system-only dynamic-library paths. The existing upstream `block 0.1.6` future-incompatibility warning remains.
+
+No GitHub remote is configured in this checkout, so no tag was pushed and no hosted workflow/release publication has been executed. Other-platform builds/runtime, signing/notarization, and the full dependency-license audit remain unverified or pending. Local phase commits are now required by AGENTS.md; unrelated in-progress changes remain untouched.
 
 ## September 30 reading/library refinement
 

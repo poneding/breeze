@@ -73,8 +73,8 @@ crates/
 assets/              Required sample and third-party notices
 docs/specs/          Product and technical specifications
 docs/plans/          Implementation work packages and delivery status
-scripts/             Local packaging helper
-.github/             Cross-platform build/test workflow
+scripts/             Local packaging helpers and release-tool tests
+.github/             Cross-platform build/test and tag-release workflows
 ```
 
 See [AGENTS.md](AGENTS.md) for contributor rules and single-line Conventional Commits, the [specification index](docs/specs/README.md) for design constraints, and the [icon map](docs/specs/06-icons.md) for Lucide selections.
@@ -93,6 +93,12 @@ cargo test -p breeze-pdf --locked write_visual_export_fixtures -- --ignored --no
 ./scripts/bundle-macos.sh
 open target/Breeze.app
 ```
+
+## Automated releases
+
+Pushing a SemVer tag (for example `v0.1.0` or `v0.2.0-rc.1`) triggers the [release workflow](.github/workflows/release.yml). The tag version must exactly match the workspace version in `Cargo.toml`. After checks and all four builds succeed, it publishes macOS Apple Silicon/Intel, Windows x64, and Linux x64 archives with SHA-256 checksums; prerelease tags are marked accordingly.
+
+These are unsigned development distributions, not production acceptance. See [release instructions and limitations](docs/releases.md) for versioning, prerequisites, artifact contents, and safe reruns. Python 3.11+ is used only for development/CI packaging and its tests, not by the application.
 
 ## Dependency constraints
 
