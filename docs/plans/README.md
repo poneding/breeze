@@ -32,3 +32,5 @@ Stages are independently testable, not a promise that every PDF can be edited. C
 These work-package documents were written before the corresponding code changes. Earlier broad stages remain the roadmap; STATUS records actual acceptance.
 
 4. [08 — Reading layouts and library refinement](08-reading-layout-and-library.md): user-requested density, tabs, categories, full thumbnails, and real reading layouts.
+
+5. [09 — Pixel-accurate display](09-pixel-accurate-display.md): device-resolution rendering and true viewport tiles, with an engine feasibility gate and a reproducible resolution-cost probe. This is a proposal, not a shipped rendering policy.
