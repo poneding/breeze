@@ -37,7 +37,7 @@ Continuous and two-page layouts remain proposed reading enhancements. Text selec
 
 ## Prototype baseline
 
-The compact UI direction is accepted. The prototype is read-only and implements single-page rendering, session-only library state, outlines, nearby thumbnails, and navigation. Annotation/editing controls remain previews; see [UI design](04-design.md).
+The compact UI direction is accepted. The source PDF remains read-only. The local reader now persists library/settings and reading state, supports search and glyph-bounds selection, and draws/saves independent sidecar annotations. Restricted annotation export is implemented, while original-content editing remains unavailable; see [delivery status](../plans/STATUS.md).
 
 The current category control assigns one category per entry. Whether the product should instead support multiple tags remains undecided; do not describe the current code as a multi-tag implementation.
 

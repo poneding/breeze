@@ -4,7 +4,7 @@
 
 - Breeze is a native, cross-format reading application. PDF is the first backend, not the application-wide document model.
 - The user accepted the compact prototype's general UI direction on September 29, 2026. This is design acceptance, not approval of production rendering, annotations, or structural editing.
-- The current repository contains the prototype, its tests, and the specifications needed for subsequent work. Do not restore historical experiments or review artifacts without a concrete need.
+- Implementation of the planned product was authorized on September 29, 2026. The repository now includes a local reader, persistence, and sidecar annotations; Restricted annotation export and opening-window policies have since been implemented; structural editing and production acceptance remain gated. Track implemented behavior in `docs/plans/STATUS.md`. Do not restore historical artifacts without a concrete need.
 - Read `docs/specs/README.md`, `00-product.md`, and `01-validation.md` before changing architecture. Read `docs/plans/README.md` before beginning a new implementation phase.
 - Keep technical specifications in `docs/specs/` and implementation plans in `docs/plans/`. Separate confirmed requirements, proposals, implemented behavior, and unverified assumptions.
 - Do not start sub-agents, commit, push, or publish unless the user explicitly requests it or an applicable instruction authorizes it.
@@ -29,9 +29,10 @@
 ## Stack and structure
 
 - Rust 2024, a Cargo workspace, and GPUI Kit native components. Pin critical dependencies and commit `Cargo.lock`.
-- `crates/breeze-core`: format-independent prototype navigation, modes, and zoom state; no GPUI or PDF-engine dependency.
-- `crates/breeze-pdf`: read-only PDF adapter and a bounded background worker; keep engine types out of the UI.
-- `crates/breeze-app`: application entry point and native UI. `appearance.rs` owns theme preferences and palettes; `commands.rs` owns bindings and command dispatch; `ui_tests.rs` exercises real components.
+- `crates/breeze-core`: format-independent navigation, reading layouts, user categories, modes, and zoom state; no GPUI or PDF-engine dependency.
+- `crates/breeze-pdf`: bounded PDF reading, glyphs/cache/search, and explicit annotation-copy export. `export.rs` verifies original-object signatures and publishes only to a new destination; it never edits the source file. Keep engine types out of the UI.
+- `crates/breeze-storage`: background application-state persistence, process locks, atomic writes, fingerprints, and conflict-checked annotation sidecars. Never write to a source PDF through this crate.
+- `crates/breeze-app`: application entry point and native UI. `appearance.rs` owns theme preferences and palettes; `commands.rs` owns bindings and command dispatch; `reading.rs` owns visible-range scheduling/virtualized layouts; `categories.rs` owns user category management; `ui_tests.rs` exercises real components. `persistence.rs`, `search.rs`, and `annotations.rs` own state/search/annotations; `export.rs` owns export UI jobs and `window_policy.rs` owns native opening policies.
 - `assets/samples`: the bundled project-authored sample used by the prototype and tests. Preserve required assets and third-party license notices.
 - `.github/workflows/ci.yml` and `scripts/bundle-macos.sh`: build checks and local macOS review packaging, not proof of cross-platform runtime acceptance.
 - Add crates only for existing responsibilities. Avoid empty layers, speculative plugins, generic backend frameworks, compatibility shims, or multiple-engine fallback systems.
@@ -39,6 +40,8 @@
 ## UI and design rules
 
 - Prefer GPUI Kit Button, TabBar, Input, Switch, Resizable, TitleBar, and Tooltip instead of recreating native control behavior.
+- Preserve the 34 px title bar, 38 px reader toolbar/navigation header, and 32 px status bar when adjusting typography or control density. Use full-width child rows for left-aligned Kit Button content.
+- Named categories are user-created, never newly seeded. Preserve stable IDs and unassign documents when a category is deleted.
 - Keep the UI compact and content-first. Do not reintroduce a branding area, promotional welcome cards, decorative sidebar footers, or unnecessary whitespace.
 - Place document tabs inside the native TitleBar. Use icon buttons for Home, Open, Settings, and other global commands; preserve accessibility labels and keyboard focus.
 - Use centered Outline/Thumbnails tabs. The navigation panel defaults to 208 logical pixels and resizes between 168 and 360; preserve its session width when collapsed.
@@ -46,13 +49,14 @@
 - Subscribe to system appearance changes rather than polling. Theme changes affect application chrome, not the PDF page's original colors.
 - Use native Tooltip with real Action bindings for shortcut display. Do not invent shortcuts or intercept text-input editing keys with page/zoom commands.
 - Use a consistent icon family, restrained separators, and a 4-pixel spacing system. Keep narrow-window controls accessible through layout or scrolling.
-- Clearly label previews, session-only settings, and unavailable features. Never show fictitious save, update, file-association, or editing success.
+- Clearly label implemented persistence versus preview-only selectors and unavailable features. Never show fictitious save, update, file-association, or editing success.
 
 ## Coding and data integrity
 
 - Use rustfmt and Clippy. Keep modules cohesive; do not put all logic in `main.rs`.
 - Forbid unsafe code in first-party crates. Propagate user-input and I/O errors with context; do not hide them with `unwrap` or `expect` outside tests.
 - Keep filesystem access, PDF parsing/rendering/export, and image codecs off the UI thread. Bound pending jobs and discard stale results after navigation or document changes.
+- Coalesce virtual-list measurement/visible callbacks before changing navigation or issuing work; measuring an offscreen item must not become a navigation event. Bind each page gesture to that surface's page and geometry.
 - Load pages on demand. Use explicit byte budgets for future caches; do not retain a texture for every page or rerender the entire document for one annotation.
 - Make RGBA/BGRA, premultiplied alpha, PDF/display coordinates, CropBox, rotation, UserUnit, and device scale explicit.
 - Structural edits must identify a content stream, operator, and resource usage. Isolate shared resources before changing one instance; preserve unrelated operations and validate saved output by reopening it.
@@ -73,6 +77,8 @@ cargo run --locked -p breeze-app
 - UI changes require native visual inspection as well as unit/component tests. Report any locked-screen, platform, or tool limitation instead of marking unperformed checks as passed.
 - Distinguish a CI configuration from a completed CI run, and an installed cross-compilation target from native runtime validation.
 - Benchmark in Release with hardware, OS, dimensions, sample count, cold/warm conditions, p50/p95, and memory scope recorded. Library marketing numbers are not application measurements.
+- For manual UI testing, set `BREEZE_DATA_DIR` to an isolated directory under `target/`; do not contaminate the user's normal library or source PDFs.
+- Treat PDF export as distinct from a sidecar save. Do not mark annotations saved after export or change standard UTF-16 note encoding to accommodate a reader defect. Exported notes are disclosed sticky notes, not inline FreeText.
 - Keep generated screenshots, test reports, bundles, and scratch outputs out of version control. Use `target/` for disposable local outputs.
 
 ## Git and commit convention

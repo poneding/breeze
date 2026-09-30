@@ -11,7 +11,7 @@ Existing-content editing must target the original content stream, operator, or s
 
 Insertion is a separate operation. A background rectangle explicitly requested for a text block is valid only when the text itself is genuinely edited; it must not conceal unchanged source text.
 
-The prototype exposes no PDF-write API. Historical operator-edit experiments demonstrate only limited feasibility, not a production editor. See [engine assessment](01-validation.md).
+The reader writes independent annotation sidecars and restricted annotated PDF copies, but exposes no original-content editing API. Historical operator-edit experiments demonstrate only limited feasibility, not a production editor. See [engine assessment](01-validation.md).
 
 ## Proposed structural-editing pipeline
 
@@ -36,7 +36,7 @@ The prototype exposes no PDF-write API. Historical operator-edit experiments dem
 | Image delete | Remove the selected usage, not every occurrence of a shared XObject |
 | Nested/shared forms | Isolate the relevant reference chain before modification |
 
-Background color, opacity, and typography preview controls in the current UI do not establish these PDF-editing capabilities.
+Original-content editing controls remain previews and do not establish these PDF-editing capabilities. Annotation color/width/opacity are implemented independently.
 
 ## Annotation model and export
 
@@ -74,3 +74,9 @@ Do not flatten all annotations merely to make screenshots look correct. Flatteni
 - Unsupported operations explain the reason and never silently degrade.
 
 The editing engine, interaction mapping, and representative corpus require a separate implementation plan and explicit review of fidelity/performance trade-offs.
+
+## Implemented sidecar workflow
+
+Completed gestures create native overlays in PDF user-space coordinates. Ink erasure, per-page annotation removal, and bounded undo/redo modify only annotation state. A 500 ms debounce writes sidecars with a source SHA-256 and optimistic sidecar revision checks. Read/write/conflict errors remain visible and disable automatic overwrite. Save As selects a new non-clobbering destination and persists its association. Close/quit is refused while annotations are dirty or a save is pending; normal closing also waits for application-state persistence.
+
+Current text selection is a glyph-center rectangular selection; rotated glyph runs and unavailable extraction are not guessed. Notes have an anchor and text, not full rich-text editing. Wavy lines are free paths. Restricted standard annotation export is implemented. Notes are explicitly exported as Unicode sticky notes with an icon, not as guessed-font inline FreeText. Existing annotations are preserved, not imported into editable history. Forms/widgets, signatures, encryption, unsupported UserUnit, and existing destinations are rejected. See [work package 05](../plans/05-annotation-export.md).

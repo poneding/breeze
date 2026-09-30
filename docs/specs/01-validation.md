@@ -8,7 +8,7 @@
 | `pdf_oxide` 0.3.78 | Provisional read-only parser/renderer, not a production fidelity approval |
 | `office_oxide` 0.1.9 | Keep the verified transitive version in `Cargo.lock` |
 | High-level PDF DOM editing | Rejected as the product's precise structural-editing implementation |
-| `lopdf` | Previously explored for controlled operator edits; not a current runtime or workspace dependency |
+| `lopdf` 0.45.0 | Adopted for restricted annotation-copy export; not approved as a complete structural editor |
 | Alternative native PDF engines | Not authorized |
 
 The exploratory executable, raw reports, screenshots, and temporary fixtures were removed during repository cleanup. The observations below are retained as a **historical decision record**, not as a currently reproducible benchmark suite. Recreate focused, versioned tests before relying on them for a production decision.
@@ -65,3 +65,15 @@ Windows and Linux native behavior remains unverified. System-theme event deliver
 - [lopdf](https://docs.rs/lopdf/0.45.0/lopdf/): the version used in the retired structural-editing experiment
 
 References describe upstream capabilities, not measured application guarantees.
+
+## Current development measurement
+
+The implemented reader now has a bounded result cache and a focused ignored Release performance test. See [delivery status](../plans/STATUS.md) for its sample-only observations. Those results do not replace the historical real-paper or independent-font findings above.
+
+## Follow-up: annotation interoperability
+
+The restricted annotation exporter preserves standard UTF-16 note strings and explicit vector appearances. A controlled eleven-kind fixture passed Poppler/PDFKit rendering, pypdf/PDFKit exact Unicode note decoding, and unchanged-background pixel comparison in Poppler. These tools are external validators, not application engines.
+
+A new reader limitation was confirmed in `pdf_oxide 0.3.78`, `src/annotations.rs`: high-level Contents decoding uses `String::from_utf8_lossy` even when the PDF string has a UTF-16 BOM. Do not encode invalid UTF-8 PDF 1.7 strings to hide this. Any future imported-note UI needs a tested PDF text-string decoding adapter or a verified upstream correction.
+
+See [work package 05](../plans/05-annotation-export.md) and [delivery status](../plans/STATUS.md) for scope. Existing font fidelity, tail latency, and platform acceptance risks remain unresolved.

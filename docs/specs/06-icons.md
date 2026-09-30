@@ -44,6 +44,7 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Fit page / fit width | `maximize` / `move-horizontal` | `Maximize` / `MoveHorizontal` |
 | Actual size | `scan` | `Scan` |
 | Zoom in / out | `plus` / `minus` | `Plus` / `Minus` |
+| Export annotated PDF | `download` | `Download` |
 | Prototype capability information | `info` | `Info` |
 
 `Scan` and `Minus` currently serve more than one meaning in different tool areas; keep tooltips clear or choose distinct alternatives during further refinement.

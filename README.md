@@ -1,80 +1,103 @@
 # Breeze
 
-A compact, native Rust reading application built with GPUI Kit. PDF is the first document backend; the product is not limited to PDF.
+A compact, native Rust reading application built with GPUI Kit. PDF is the first backend, not the product's format boundary.
 
-**Status:** the compact prototype's general UI direction has been accepted. Production annotations, structural editing, persistence, and cross-platform runtime acceptance are still pending. See the [planning status](docs/plans/README.md).
+**Current delivery:** a local reader with durable library/settings, search, glyph-based rectangular selection, and fingerprinted sidecar annotations. Restricted standard-annotation export and opening-window policies are implemented; original-content PDF editing and production acceptance remain gated. See the [implementation roadmap](docs/plans/README.md) and [delivery status](docs/plans/STATUS.md).
 
 ## Run
 
 ```sh
 cargo run --locked -p breeze-app
-# Open a local PDF without modifying the original.
 cargo run --locked -p breeze-app -- /absolute/path/document.pdf
 ```
 
-The bundled sample is project-authored and available from the Home screen. The prototype currently uses Chinese UI strings; repository documentation and code comments are in English.
+The bundled eight-page sample is available from Home. The UI currently uses Chinese strings; documentation and code comments are English.
 
 ### Development environment
 
-- Rust 1.97 or newer; the configured CI toolchain is 1.97.1.
-- macOS 15 or newer with Xcode Command Line Tools.
-- Windows 10 or newer with the MSVC Rust target, Visual Studio C++ Build Tools, Windows SDK, and CMake.
-- Linux: Ubuntu 24.04 is the initial baseline, with the GPUI system libraries listed in [CI](.github/workflows/ci.yml), a graphical Wayland or X11 session, and a working Vulkan driver.
+- Rust 1.97 or newer; CI specifies 1.97.1.
+- macOS 15+ with Xcode Command Line Tools.
+- Windows 10+ with MSVC Rust, Visual Studio C++ Build Tools, Windows SDK, and CMake.
+- Ubuntu 24.04 is the initial Linux baseline; install the libraries in [CI](.github/workflows/ci.yml), use a graphical Wayland/X11 session, and provide a working Vulkan driver.
 
-The previous native checks ran on an Apple M1 Pro with macOS 15.7.9. Windows and Linux runtime behavior remains unverified. System libraries and build tools do not change the Rust document-engine requirement. No WebView, Node.js, or Python runtime is required by the application.
+Native development checks have run on an Apple M1 Pro with macOS 15.7.9. Windows/Linux runtime acceptance is still pending. No WebView, Node.js, or Python runtime is required.
 
-For a local macOS review bundle:
+## Daily workflow
+
+1. Open a local PDF or the bundled sample. Use tabs, the outline, the full scrollable thumbnail list, page input, and fit/zoom controls to navigate.
+2. Use Primary+F for document search; result buttons navigate to their page. Primary means Command on macOS and Control on Windows/Linux.
+3. In Reading mode, drag a rectangle over recognized horizontal glyphs and use Primary+C to copy the selected text.
+4. Switch to Annotate, select a tool, and draw. For a note, enter text in the properties panel, then place it on the page.
+5. Changes autosave after a 500 ms pause to `<filename>.breeze.json`; Primary+S saves immediately. Primary+Shift+S selects a new sidecar destination. The original PDF is not modified.
+6. Use Primary+Z / Primary+Shift+Z to undo/redo annotations outside text inputs. The eraser only removes ink. The annotation list can remove other annotation types.
+7. Use Primary+Shift+E or the export button to write annotations into a **new PDF**. Existing files are never overwritten. Text notes become standard sticky-note icons with the full Unicode text in their popup; export does not acknowledge pending sidecar saves.
+
+Use the status-bar layout menu for Single, Continuous, or Spread reading; Primary+Shift+L cycles them. Spread pairs pages 1–2, 3–4, and so on. Continuous mode updates the current-page indicator as you scroll.
+
+Create categories with the + button next to Categories on Home. Select a category to rename/delete it; use each document's category menu to assign it. Deleting a category moves its documents to Unassigned without deleting files. New libraries contain no seeded named categories.
+
+Favorites, user categories, appearance, sidebar width, layout, and reading state persist automatically. Restoring open documents and restoring page positions are independent settings.
+
+## Local data and safety
+
+State is stored under the OS local application-data directory in `Breeze/state.json`. The built-in sample's sidecar lives in the same directory. External-document annotations default to a document-adjacent sidecar; an explicitly selected alternative is associated with the library entry.
+
+Use an isolated directory for development/testing:
 
 ```sh
-./scripts/bundle-macos.sh
-open target/Breeze.app
+BREEZE_DATA_DIR="$PWD/target/manual-state" cargo run --locked -p breeze-app
 ```
 
-The bundle is a development artifact, not a signed or notarized release.
+Only one process may write a given state directory. Invalid state, changed source fingerprints, externally edited sidecars/state, and write failures are reported rather than silently overwritten. Normal closing waits for state persistence and refuses to discard dirty/in-flight annotations. If a write error blocks closing, correct the destination/conflict; do not force-quit and assume unsaved changes were persisted.
 
-## Prototype capabilities
+The reader currently caps PDF input at 256 MiB and 20,000 pages and uses trusted documents while broader malformed-input/decoder-memory validation is pending. The worker result cache is limited to 32 MiB; UI page and thumbnail caches have separate 64 MiB / 8 MiB budgets and count limits. These account for retained result data, not total engine, transient CPU/GPU upload, or process memory.
 
-- Compact document tabs inside the native title bar; icon-based global commands.
-- Session-only recent documents, favorites, category selection, and per-document reading position.
-- Background PDF rendering, opening local files, page navigation, page-number entry, zoom, fit-to-page, and fit-to-width.
-- Embedded outlines and up to four nearby thumbnails; a collapsible navigation panel with a 168–360-pixel resize range.
-- Follow System, Light, and Dark appearance modes with independently selected light/dark palettes. Warm white and dark gray are defaults; four additional palette pairs are available.
-- Reading, annotation, and editing mode UI, native shortcut tooltips, and independent style previews.
+## Current limitations
 
-**Not implemented:** annotation drawing/saving, text selection/search, original text/image editing, PDF export, continuous/spread layouts, persisted settings, full localization, file associations, and updates. Editing controls are previews; the prototype does not cover or replace original content to fake editing. Use trusted documents while parser/resource-limit validation is incomplete.
+- No original text/image editing or PDF content insertion. Editing controls remain previews, with no cover-up implementation.
+- Annotation export is restricted: encrypted, signed, form/widget, and non-default-UserUnit documents are rejected; original/alias/existing destinations are never overwritten. Export preserves existing annotations but does not import them into editable Breeze history. It is not a sanitizer or an archival/signature-preserving converter.
+- Page rasterization remains fixed at 144 DPI, capped at four megapixels. Zoom does not request higher-resolution tiles. Extremely dense visible-page ranges can hit the cache budget; affected pages report the limit rather than repeatedly evicting/rerendering one another.
+- Text selection uses glyph bounding boxes, not general paragraph/complex-script selection. Rotated glyph runs are excluded. Scans require region tools; no OCR is performed.
+- Outline and thumbnail lists are virtualized. Named outline destinations remain unsupported. Search is a bounded-result linear scan, not an indexed full-text service.
+- Theme preferences, restoration, and opening-window policies work. Default keeps geometry; Maximized maximizes a newly opened document; Fit Document sizes once within available display space without changing zoom. Final native rechecking after the position-aware sizing fix remains pending. Language/update selectors, file associations, signing, and automatic updates are not implemented.
+- Engine font fidelity and real-document tail latency remain release risks. Passing the controlled sample tests is not broad PDF compatibility certification.
 
 ## Repository
 
 ```text
 crates/
-  breeze-core/    Navigation and prototype state without UI/engine dependencies
-  breeze-pdf/     Read-only PDF adapter and bounded rendering worker
-  breeze-app/     Native UI, themes, commands, and component tests
-assets/          Required sample and third-party license notices
-docs/specs/      Current product and technical specifications
-docs/plans/      Planning status and subsequent implementation plans
-scripts/         Local packaging helper
-.github/         Cross-platform build/test workflow
+  breeze-core/       Reader state, annotation geometry, and history
+  breeze-pdf/        PDF reading/search/cache and protected annotation-copy export
+  breeze-storage/    Background state storage, atomic writes, and sidecars
+  breeze-app/        Native UI, persistence integration, tools, and tests
+assets/              Required sample and third-party notices
+docs/specs/          Product and technical specifications
+docs/plans/          Implementation work packages and delivery status
+scripts/             Local packaging helper
+.github/             Cross-platform build/test workflow
 ```
 
-Start with the [specification index](docs/specs/README.md), [engine assessment](docs/specs/01-validation.md), [UI design](docs/specs/04-design.md), and [icon map](docs/specs/06-icons.md). Contribution rules, including single-line Conventional Commits, are in [AGENTS.md](AGENTS.md).
+See [AGENTS.md](AGENTS.md) for contributor rules and single-line Conventional Commits, the [specification index](docs/specs/README.md) for design constraints, and the [icon map](docs/specs/06-icons.md) for Lucide selections.
 
-## Validate
+## Validate and package
 
 ```sh
 cargo fmt --all -- --check
 cargo test --workspace --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings
+# Scoped sample-only performance probe; not a release acceptance benchmark.
+cargo test -p breeze-pdf --release --locked report_sample_render_and_cache_cost -- --ignored --nocapture
+# Generate isolated annotation-export fixtures for independent visual checks.
+cargo test -p breeze-pdf --locked write_visual_export_fixtures -- --ignored --nocapture
+# Local macOS development bundle, not signed/notarized distribution.
+./scripts/bundle-macos.sh
+open target/Breeze.app
 ```
 
-Tests include navigation boundaries, background rendering, pixel conversion, native component interactions, shortcuts, resize limits, and palette selection. They do not substitute for native GPU, IME, or window-control testing on each platform.
+## Dependency constraints
 
-## Dependency constraints and known risks
+GPUI Kit is pinned to 0.7.0, PDF Oxide to 0.3.78, and the annotation writer (`lopdf`) to 0.45.0. Other previously locked dependency versions were retained. Keep the lockfile's `office_oxide` at 0.1.9 until its pairing is revalidated. Do not blanket-update dependencies, patch the Cargo registry, or replace the pure Rust engine to hide a fidelity/performance failure. The high-level PDF DOM editor is not an approved structural-editing path.
 
-- `gpui-kit` is pinned to 0.7.0 and `pdf_oxide` to 0.3.78.
-- Keep the lockfile's `office_oxide` at 0.1.9 until its pairing is revalidated: 0.1.12 failed to compile with the evaluated PDF library.
-- The PDF engine is a provisional read-only choice. Earlier probes found a rendering tail-latency miss and a suspected standard-font substitution defect.
-- The PDF library's high-level DOM editing path is not an acceptable structural editor for this project.
-- Preserve these constraints when changing dependencies; do not perform an unreviewed blanket `cargo update` or patch the local Cargo registry.
+PDF Oxide's high-level annotation Contents decoder has a known UTF-16 issue. Exported Unicode notes were independently verified with pypdf and PDFKit; standard encoding is not changed to hide that reader defect. External verification tools (Poppler, PDFKit, and pypdf) are not application dependencies.
 
-Historical screenshots, raw reports, and standalone experimental tools have been removed. Their decision-relevant findings and limitations remain in the specifications. Build caches and live review bundles belong under ignored `target/`, not in Git.
+Generated screenshots, reports, bundles, and test state belong under ignored `target/`, not in version control.

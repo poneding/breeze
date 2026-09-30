@@ -18,7 +18,7 @@ Native title bar: window controls | Home | document tabs | Open | theme | Settin
 | Outline / Thumbnails tabs | Reading / Annotate / Edit + contextual tools       |
 |                           +---------------------------------------------------+
 | Embedded outline or       | Document viewport              | optional         |
-| nearby thumbnails         |                                | properties       |
+| scrollable thumbnails         |                                | properties       |
 |                           +---------------------------------------------------+
 |                           | Page navigation | layout | fit mode | zoom        |
 +---------------------------+---------------------------------------------------+
@@ -34,7 +34,7 @@ Current logical dimensions:
 | Page margin | 12 px |
 | Navigation panel | Default 208 px; resize range 168–360 px |
 | Main reader split | Minimum 430 px |
-| Root UI text / Kit base font | 12 px / 14 px |
+| Root UI text / Kit base font | 13 px / 15 px |
 
 Use Kit's resizable panels and centered segmented Outline/Thumbnails tabs. Remember the sidebar's session width when collapsed. Fit calculations follow the measured panel width, not a hard-coded value. Center thumbnails horizontally; constrain long outline labels to their available width.
 
@@ -44,7 +44,7 @@ The page itself retains the document's font and colors. UI density changes do no
 
 Home is a compact document list with recent/favorite/category filters. Library entries refer to original files; do not silently import copies. The built-in sample is clearly identified and is not fabricated user history.
 
-The current reader is single-page. It displays real embedded outline data, at most 300 outline entries, and up to four nearby thumbnails. Text selection/search and continuous/spread layouts are not implemented. State must never label an old rendered page as a newly requested page.
+The reader supports Single, Continuous, and Spread layouts, persisted independently per document. Outline and thumbnail navigation are virtualized across the document; raster requests cover visible ranges, not every page. Cancellable search and rectangular glyph selection/copy are implemented. Every displayed surface carries its page identity, including annotation gestures. State must never label an old rendered page as a newly requested page.
 
 The prototype raster is fixed at 144 DPI; zoom currently changes display size. Do not claim adaptive high-DPI rendering. Actual Size uses 72 document points to 96 logical pixels, not physical-centimeter calibration.
 
@@ -65,15 +65,15 @@ Separate `ThemePreference` from `ColorScheme`:
 | Light forest | Dark forest |
 | Pale violet gray | Dusk violet |
 
-Apply palette changes to both application chrome and Kit components. PDF pages are not inverted or tinted. Current settings are session-only; persistence is not implemented.
+Apply palette changes to both application chrome and Kit components. PDF pages are not inverted or tinted. Theme preference, palettes, library state, and restoration switches persist locally. Language/update selectors remain behavior previews. Opening-window policies are implemented separately from page zoom and applied once for new/restored active documents.
 
 ## Annotation and editing modes
 
-All twelve requested annotation tools must remain discoverable. Contextual controls belong near the selected tool or in the optional properties panel. Do not give unused properties permanent viewport space.
+All twelve requested annotation tools now operate on the independent sidecar layer. Contextual controls belong near the selected tool or in the optional properties panel. Do not give unused properties permanent viewport space.
 
-Editing offers text, image, insert-text, and insert-image entry points. The independent style preview is explicitly not a PDF overlay editor. Applying edits/export stays unavailable until true structural editing is implemented and validated.
+Editing offers text, image, insert-text, and insert-image entry points. The independent style preview is explicitly not a PDF overlay editor. Applying original-content edits stays unavailable until structural editing is validated. Annotation export is a separate enabled, restricted workflow with explicit destination and sticky-note semantics.
 
-Use concise capability tooltips instead of a permanent banner where the prototype boundary can still be understood clearly. Never imply successful file changes.
+Show annotation load/save/conflict state in the properties panel. Use concise capability tooltips for unavailable PDF editing/export paths. Never imply successful file changes.
 
 ## Tooltips, accessibility, and shortcuts
 
@@ -96,9 +96,18 @@ Use Kit's native `Tooltip`, `Tooltip::action`, and `Button::tooltip_with_action`
 | Zoom in / out | Primary+= / Primary+- |
 | Actual size / fit page / fit width | Primary+0 / 9 / 8 |
 | Cycle theme mode | Primary+Shift+T |
+| Export annotated PDF copy | Primary+Shift+E |
 
-Do not occupy macOS Command+H with Home. Page and zoom bindings exclude the Input context. Mode shortcuts only change the current UI mode; they do not imply document-writing capability.
+Do not occupy macOS Command+H with Home. Page and zoom bindings exclude the Input context. Mode shortcuts switch UI modes. Primary+F opens search; Primary+C copies the selected glyph text; Primary+S saves annotations; Primary+Shift+S chooses a new sidecar destination; Primary+Z / Primary+Shift+Z undo/redo annotations outside Input. Primary+Shift+E exports annotations to a new PDF. The source PDF is never overwritten by these commands.
 
 ## Required native checks
 
 In addition to component tests, inspect titlebar dragging/double-click/window controls, narrow-window reachability, long tab labels, theme changes, tooltip placement, IME, and keyboard navigation. Windows and Linux require their own native validation. Never record unavailable or interrupted checks as passed.
+
+## September 30 refinement
+
+Use Kit Small controls instead of XSmall: the default 15 px rem gives global icon buttons a 22.5 px hit box. Keep the title bar, toolbar, navigation header, and status bar heights unchanged. Left alignment must be applied to a full-width child row inside Kit Button; outer `justify_start` alone does not override the component's centered content container.
+
+Document tabs have one four-corner rounded surface, an elevated active background, separators only between adjacent inactive open documents, and an inset close button revealed on hover. Reserve close-button space to prevent text reflow. Primary+W remains available without hovering.
+
+Named library categories are user-owned. A fresh library has only the Unassigned filter, not preset named categories. Create/rename/delete controls live in the compact Home sidebar; assignments use an explicit menu rather than cycling hard-coded options.

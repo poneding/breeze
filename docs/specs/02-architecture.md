@@ -4,11 +4,14 @@
 
 ```text
 breeze-app -> breeze-core
-           -> breeze-pdf -> pdf_oxide
+           -> breeze-pdf -> pdf_oxide (reading)
+                         -> lopdf (annotation-copy export)
+           -> breeze-storage -> breeze-core
 ```
 
 - `breeze-core` owns navigation, zoom, and mode state without UI or PDF-engine types.
-- `breeze-pdf` owns the read-only adapter, loading, rasterization, outlines, thumbnails, and worker queue.
+- `breeze-pdf` owns reading, rasterization, outlines, thumbnails, and the worker queue, plus a separate protected annotation-copy exporter. Source-content editing is not exposed.
+- `breeze-storage` owns background state writes, process locking, atomic JSON, fingerprints, and optimistic sidecar revision checks.
 - `breeze-app` owns the native window, document sessions, Home/Reader/Settings views, appearance preferences, command dispatch, and component tests.
 
 The initial exploratory tool is no longer part of the workspace. Do not add empty storage/platform/editor crates ahead of concrete responsibilities. No dynamic plugins, generic event bus, script runtime, or multiple-engine fallback framework is needed.
@@ -26,21 +29,21 @@ The initial exploratory tool is no longer part of the workspace. Do not add empt
 
 A single background worker owns the current engine document and renderers. At most one job is waiting: a newer request replaces the pending job. A running synchronous render is not preempted. UI generations reject stale results after navigation or a document change.
 
-The current output is a 144-DPI page capped at four megapixels plus up to four nearby thumbnails. The UI retains the current preview rather than a texture for every page. Thumbnail work currently completes before the combined result is presented; production scheduling should prioritize the visible page and deliver lower-priority thumbnails separately.
+Pages use 144-DPI rasters capped at four megapixels; thumbnails are separate 24-DPI requests capped at 120,000 pixels and do not extract glyphs. Document page dimensions and outline metadata are collected once per loaded document. The worker retains its 32 MiB accounted result budget and one running/one replaceable pending job. The UI serially schedules visible full pages before visible thumbnails; source/generation checks and range checks reject stale results. UI resident caches are capped at 64 MiB/eight page results and 8 MiB/64 thumbnails. Cache accounting excludes engine internals, frame-held references, and transient CPU/GPU upload copies; it is not an RSS bound. Visible entries are protected from mutual eviction. Budget exhaustion reports an explicit per-page error instead of causing render thrashing.
 
 The engine returns premultiplied RGBA. The adapter swaps red/blue channels in the worker for GPUI's BGRA `RenderImage`. The display path avoids PNG encoding/decoding, and rendering the UI must not allocate a new page texture on every frame.
 
-Zoom currently scales the fixed raster. Adaptive resolution, byte-budgeted LRU caches, continuous scrolling, and real tile rendering are not implemented. The output-pixel cap is not a complete memory limit.
+Zoom scales the fixed raster. Continuous reading uses GPUI Kit variable-size virtualization; Single and Spread construct only the displayed pages. Outline and thumbnails use uniform virtual lists. Measurement and visible-range callbacks are coalesced before updating navigation or scheduling, so offscreen measurement rows cannot trigger continuous repainting. Adaptive resolution and real tile rendering remain unimplemented.
 
 ## Geometry
 
 A production page transform must include PDF user space, CropBox origin/intersection, UserUnit, page rotation, the vertical-axis flip, logical zoom, device scale, and viewport offset. Hit testing and annotation placement require the inverse transform.
 
-Do not assume that `page_height - y` is sufficient for rotated/cropped pages. Verify each engine API's coordinate convention. The prototype displays the engine raster and does not claim to implement exact text-selection geometry.
+Do not assume that `page_height - y` is sufficient for rotated/cropped pages. Verify each engine API's coordinate convention. The current implementation maps user-space glyph bounding boxes through CropBox/quarter-turn rotation for rectangular selection and markup. It is not an exact general glyph-outline/complex-script selection engine; rotated text runs are excluded from text selection.
 
 ## Target data model
 
-These are future responsibilities, not implemented persistence contracts:
+The current typed JSON schema implements library/settings and annotation fields below. The edit-transaction row remains a future responsibility:
 
 | Model | Required information |
 |---|---|
@@ -50,7 +53,7 @@ These are future responsibilities, not implemented persistence contracts:
 | Edit transaction | Source fingerprint, object/stream reference, operator or usage identity, before/after data, affected resources, undo command |
 | UI transient state | Hover, selected tool, drag draft, popup, focus, request generation |
 
-Future persistence should use the OS application-data directory for preferences/library metadata and a document-adjacent `name.pdf.breeze.json` annotation sidecar. Report unwritable locations and ask for an explicit destination; do not silently redirect to an alternative store.
+Implemented persistence uses the OS local application-data directory for preferences/library metadata (or `BREEZE_DATA_DIR`) and a document-adjacent `name.pdf.breeze.json` annotation sidecar. Report unwritable locations and ask for an explicit destination; do not silently redirect to an alternative store.
 
 Source fingerprint mismatches stop automatic sidecar application. Original files are not overwritten by default. Use temporary-file replacement for durable writes, and avoid migration frameworks before there is a real supported historical schema.
 
@@ -59,3 +62,17 @@ Source fingerprint mismatches stop automatic sidecar application. Original files
 Cache keys need content revision, page, render/device scale, rotation, and color policy. Annotation drafts should be an independent drawing layer, not a reason to rerasterize the PDF page on every pointer event.
 
 A structural edit invalidates only affected pages and resource users. Dragging updates a transient preview; pointer-up commits one undoable operation. Parsing, font subsetting, saving, and output validation stay off the UI thread.
+
+## Current safety limits
+
+PDF input is capped at 256 MiB and 20,000 pages. State JSON is capped at 4 MiB, sidecars at 16 MiB, annotation count at 5,000, combined annotation geometry at 100,000 points/quads, current-page glyph output at 50,000, and search results at 300. Undo retains at most 50 snapshots within an 8 MiB estimated geometry/text budget. These are application limits, not a hard limit on engine decoding memory.
+
+## Annotation export and opening policies
+
+Export captures an immutable source fingerprint and annotation list, writes a temporary new PDF with vector normal appearances, verifies source-object signatures and annotation structure, rechecks the source, and publishes without clobbering a destination. It is a single background job with separate UI progress/receipt state; it does not modify sidecar acknowledgements. Existing annotation arrays are copied before appending so shared arrays remain intact.
+
+Opening policies are applied once to an accepted load generation. Fit Document accounts for the current window origin and waits for a native bounds event when restoring a maximized window. It does not poll or change page zoom. Foreground page-load tasks are owned and cancelled on replacement/Home/close instead of remaining detached after their view's lifetime.
+
+## User categories and state version 2
+
+`breeze-core::library::Category` contains a stable numeric ID and user name. Zero means Unassigned. Names are trimmed, case-insensitively unique, and limited to 40 characters; at most 100 named categories are stored. Deletion unassigns entries and does not reuse an ID. State version 2 persists the category collection, next ID, and each document's layout. A narrow version-1 transition preserves only legacy named categories actually referenced by saved documents; fresh states do not seed them. Invalid category references/IDs/names reject state loading rather than being silently rewritten.
