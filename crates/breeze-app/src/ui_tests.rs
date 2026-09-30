@@ -1184,3 +1184,30 @@ fn category_colors_and_inline_hover_actions_work(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn category_popover_dismisses_and_keeps_invalid_input_open(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| view.show_home(cx));
+        window.render_frame(cx);
+        let before = window.find("unassigned-category").bounds();
+        window.click("new-category", cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).category_form);
+        assert!(window.find("category-editor").visible());
+        assert_eq!(window.find("unassigned-category").bounds(), before);
+        window.press("escape", cx);
+        window.render_frame(cx);
+        assert!(!view.read(cx).category_form);
+        window.click("new-category", cx);
+        window.render_frame(cx);
+        window.click("save-category", cx);
+        assert!(view.read(cx).category_form);
+        assert!(!view.read(cx).message.is_empty());
+        window.render_frame(cx);
+        window.click("cancel-category", cx);
+        assert!(!view.read(cx).category_form);
+    })
+    .unwrap();
+}

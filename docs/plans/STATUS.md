@@ -2,7 +2,7 @@
 
 The accepted compact UI has progressed into a local reader with durable state, sidecar annotations, restricted standard-PDF annotation export, and opening-window policies. It is **not** a completed production PDF content editor.
 
-Library presentation refinements are tracked item by item in [work package 10](10-library-presentation.md).
+Library presentation refinements are tracked item by item in [work package 10](10-library-presentation.md). Follow-up Popover, row, grid, and empty-state changes are recorded in [work package 11](11-library-interactions.md).
 
 ## Current implementation
 

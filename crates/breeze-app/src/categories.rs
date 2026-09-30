@@ -4,6 +4,7 @@ use breeze_core::library::{Category, CategoryColor, validate_name};
 use gpui_kit::component::{
     Icon, Theme,
     menu::{DropdownMenu, PopupMenuItem},
+    popover::Popover,
 };
 
 pub(super) fn left_button(
@@ -113,22 +114,16 @@ impl Breeze {
                     )
                     .child(div().flex_1())
                     .child(
-                        Button::new("new-category")
-                            .ghost()
-                            .small()
-                            .icon(IconName::Plus)
-                            .accessibility_label("新建分类")
-                            .tooltip("新建分类")
-                            .on_click(cx.listener(|this, _, window, cx| {
-                                this.category_edit = None;
-                                this.category_color = CategoryColor::default();
-                                this.category_form = true;
-                                this.category_input.update(cx, |input, cx| {
-                                    input.set_value("", window, cx);
-                                    input.focus(window, cx);
-                                });
-                                cx.notify();
-                            })),
+                        self.category_popover(
+                            Button::new("new-category")
+                                .ghost()
+                                .small()
+                                .icon(IconName::Plus)
+                                .accessibility_label("新建分类")
+                                .tooltip("新建分类"),
+                            None,
+                            cx,
+                        ),
                     ),
             )
             .child(
@@ -167,34 +162,22 @@ impl Breeze {
                             .w(px(44.))
                             .flex_shrink_0()
                             .gap_1()
-                            .invisible()
-                            .group_hover("category-row", |s| s.visible())
+                            .when(
+                                !(self.category_form && self.category_edit == Some(id)),
+                                |d| d.invisible().group_hover("category-row", |s| s.visible()),
+                            )
                             .child(
-                                Button::new(("rename-category", id))
-                                    .ghost()
-                                    .small()
-                                    .size(px(20.))
-                                    .icon(IconName::Pencil)
-                                    .accessibility_label(format!("重命名分类：{}", category.name))
-                                    .tooltip("重命名分类")
-                                    .on_click(cx.listener(move |this, _, window, cx| {
-                                        this.category_form = true;
-                                        this.category_edit = Some(id);
-                                        if let Some(category) = this
-                                            .categories
-                                            .iter()
-                                            .find(|category| category.id == id)
-                                        {
-                                            this.category_color = category.color;
-                                        }
-                                        let name = this.category_name(id);
-                                        this.category_input.update(cx, |input, cx| {
-                                            input.set_value(name, window, cx);
-                                            input.focus(window, cx);
-                                            input.select_all(window, cx);
-                                        });
-                                        cx.notify();
-                                    })),
+                                self.category_popover(
+                                    Button::new(("rename-category", id))
+                                        .ghost()
+                                        .small()
+                                        .size(px(20.))
+                                        .icon(IconName::Pencil)
+                                        .accessibility_label(format!("修改分类：{}", category.name))
+                                        .tooltip("修改分类"),
+                                    Some(id),
+                                    cx,
+                                ),
                             )
                             .child(
                                 Button::new(("delete-category", id))
@@ -210,49 +193,93 @@ impl Breeze {
                             ),
                     )
             }))
-            .when(self.category_form, |d| {
-                d.child(Input::new(&self.category_input).small())
-                    .children(CategoryColor::ALL.chunks(4).map(|colors| {
-                        row().gap_1().children(colors.iter().copied().map(|color| {
-                            Button::new(("category-color", color as usize))
-                                .ghost()
-                                .small()
-                                .size(px(24.))
-                                .icon(
-                                    Icon::new(IconName::Tag)
-                                        .small()
-                                        .text_color(category_tint(color, cx)),
-                                )
-                                .selected(self.category_color == color)
-                                .accessibility_label(format!("分类颜色：{}", color_label(color)))
-                                .tooltip(color_label(color))
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.category_color = color;
-                                    cx.notify();
-                                }))
-                        }))
-                    }))
-                    .child(
-                        row()
-                            .gap_1()
-                            .child(
-                                Button::new("save-category")
-                                    .small()
-                                    .label("保存")
-                                    .on_click(cx.listener(|this, _, _, cx| this.save_category(cx))),
-                            )
-                            .child(
-                                Button::new("cancel-category")
-                                    .ghost()
-                                    .small()
-                                    .label("取消")
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.category_form = false;
-                                        cx.notify();
-                                    })),
-                            ),
-                    )
+    }
+    fn category_popover(
+        &self,
+        trigger: Button,
+        editing: Option<usize>,
+        cx: &mut Context<Self>,
+    ) -> Popover {
+        let view = cx.entity();
+        let editor = view.clone();
+        Popover::new(("category-popover", editing.unwrap_or(0)))
+            .open(self.category_form && self.category_edit == editing)
+            .track_focus(&self.category_input.read(cx).focus_handle(cx))
+            .trigger(trigger)
+            .on_open_change(move |open, window, cx| {
+                view.update(cx, |this, cx| {
+                    if *open {
+                        this.category_edit = editing;
+                        this.category_form = true;
+                        this.category_color = editing
+                            .and_then(|id| this.categories.iter().find(|c| c.id == id))
+                            .map(|c| c.color)
+                            .unwrap_or_default();
+                        let name = editing.map(|id| this.category_name(id)).unwrap_or_default();
+                        this.message.clear();
+                        this.category_input.update(cx, |input, cx| {
+                            input.set_value(name, window, cx);
+                            input.select_all(window, cx);
+                        });
+                    } else if this.category_edit == editing {
+                        this.category_form = false;
+                    }
+                    cx.notify();
+                });
             })
+            .content(move |_, _, cx| editor.update(cx, |this, cx| this.category_editor(cx)))
+    }
+    fn category_editor(&self, cx: &mut Context<Self>) -> AnyElement {
+        column()
+            .id("category-editor")
+            .test_support()
+            .w(px(216.))
+            .gap_2()
+            .child(Input::new(&self.category_input).small())
+            .children(CategoryColor::ALL.chunks(4).map(|colors| {
+                row().gap_1().children(colors.iter().copied().map(|color| {
+                    Button::new(("category-color", color as usize))
+                        .ghost()
+                        .small()
+                        .size(px(24.))
+                        .icon(
+                            Icon::new(IconName::Tag)
+                                .small()
+                                .text_color(category_tint(color, cx)),
+                        )
+                        .selected(self.category_color == color)
+                        .accessibility_label(format!("分类颜色：{}", color_label(color)))
+                        .tooltip(color_label(color))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.category_color = color;
+                            cx.notify();
+                        }))
+                }))
+            }))
+            .child(
+                row()
+                    .gap_1()
+                    .child(
+                        Button::new("save-category")
+                            .small()
+                            .label("保存")
+                            .on_click(cx.listener(|this, _, _, cx| this.save_category(cx))),
+                    )
+                    .child(
+                        Button::new("cancel-category")
+                            .ghost()
+                            .small()
+                            .label("取消")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.category_form = false;
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .when(!self.message.is_empty(), |d| {
+                d.child(div().text_size(px(12.)).child(self.message.clone()))
+            })
+            .into_any_element()
     }
     pub(super) fn toggle_category(&mut self, index: usize, id: usize, cx: &mut Context<Self>) {
         if id != 0 && !self.categories.iter().any(|category| category.id == id) {
