@@ -34,3 +34,5 @@ These work-package documents were written before the corresponding code changes.
 4. [08 — Reading layouts and library refinement](08-reading-layout-and-library.md): user-requested density, tabs, categories, full thumbnails, and real reading layouts.
 
 5. [09 — Pixel-accurate display](09-pixel-accurate-display.md): device-resolution rendering and true viewport tiles, with an engine feasibility gate and a reproducible resolution-cost probe. This is a proposal, not a shipped rendering policy.
+
+6. [10 — Library presentation and categories](10-library-presentation.md): seven separately committed improvements to navigation, rows, covers, Open controls, and category memberships/colors.

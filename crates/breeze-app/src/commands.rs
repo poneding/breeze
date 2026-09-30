@@ -83,6 +83,7 @@ impl Breeze {
         } else if action.as_any().is::<Home>() {
             self.show_home(cx);
         } else if action.as_any().is::<Preferences>() {
+            self.covers.cancel();
             self.screen = Screen::Settings;
             cx.notify();
         } else if action.as_any().is::<CycleTheme>() {

@@ -31,6 +31,8 @@ pub(super) struct SavedState {
     pub preference: ThemePreference,
     pub light: ColorScheme,
     pub dark: ColorScheme,
+    #[serde(default)]
+    pub library_grid: bool,
     pub sidebar: bool,
     pub width: f32,
     pub thumbnails: bool,
@@ -56,6 +58,7 @@ impl Default for SavedState {
             preference: ThemePreference::System,
             light: ColorScheme::Neutral,
             dark: ColorScheme::Neutral,
+            library_grid: false,
             sidebar: true,
             width: 208.,
             thumbnails: false,
@@ -151,6 +154,7 @@ impl Breeze {
             preference: self.theme_preference,
             light: self.light_scheme,
             dark: self.dark_scheme,
+            library_grid: self.library_grid,
             sidebar: self.sidebar,
             width: self.navigation_width.clamp(168., 360.),
             thumbnails: self.thumbs,
@@ -251,6 +255,7 @@ impl Breeze {
         self.dark = state.preference.resolve(self.system_appearance);
         self.light_scheme = state.light;
         self.dark_scheme = state.dark;
+        self.library_grid = state.library_grid;
         self.sidebar = state.sidebar;
         self.navigation_width = state.width;
         self.thumbs = state.thumbnails;

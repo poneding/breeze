@@ -11,6 +11,7 @@ use annotations::DocumentAnnotations;
 use persistence::SavedState;
 mod categories;
 mod commands;
+mod covers;
 mod home;
 mod raster;
 mod reader;
@@ -142,6 +143,9 @@ struct Breeze {
     sidebar: bool,
     thumbs: bool,
     library_filter: usize,
+    library_grid: bool,
+    library_width: f32,
+    covers: covers::LibraryCovers,
     categories: Vec<breeze_core::library::Category>,
     next_category_id: usize,
     category_input: Entity<InputState>,
@@ -275,6 +279,9 @@ impl Breeze {
             sidebar: true,
             thumbs: false,
             library_filter: 0,
+            library_grid: false,
+            library_width: 800.,
+            covers: covers::LibraryCovers::default(),
             categories: Vec::new(),
             next_category_id: 1,
             category_input,
@@ -315,6 +322,7 @@ impl Breeze {
         )
     }
     fn show_home(&mut self, cx: &mut Context<Self>) {
+        self.covers.clear(cx);
         self.page_task = None;
         self.reading.cancel();
         self.raster.cancel();
@@ -345,6 +353,7 @@ impl Breeze {
         self.load(cx);
     }
     fn load(&mut self, cx: &mut Context<Self>) {
+        self.covers.cancel();
         self.page_task = None;
         self.reading.cancel();
         self.raster.cancel();
