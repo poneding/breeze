@@ -11,3 +11,9 @@ The sample was generated during the initial technical investigation. Its one-off
 The application uses the SVG catalog embedded by `gpui-kit-assets`; this directory does not contain a second icon implementation. Preserve `licenses/LICENSE-LUCIDE.txt` with redistributed Lucide assets.
 
 The function-to-icon map and selection guidance are maintained in [the icon specification](../docs/specs/06-icons.md). Other dependency licenses remain governed by their respective crates; this notice is not a complete release-license audit.
+
+## Breeze identity
+
+`brand/` contains the project-authored Breeze logo and platform icon assets. These
+are application identity assets, not replacements for the Lucide command icons.
+See [the brand asset guide](brand/README.md) for sources and usage.

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="#82715B">
+  <title>Breeze mark</title>
+  <desc>A monochrome pair of softly rounded wind-lifted pages; no background.</desc>
+  <g transform="translate(512 500) scale(1.25) translate(-520 -492)">
+  <path d="M320 322 C429 277 535 394 690 310 Q713 297 705 323 L666 437 Q663 447 654 452 C521 524 420 402 320 457 Q306 465 306 449 L306 344 Q306 329 320 322 Z"/>
+  <path d="M320 489 C435 433 552 583 715 477 Q739 461 731 489 L685 629 Q681 642 670 650 C529 748 419 606 321 662 Q306 671 306 653 L306 513 Q306 496 320 489 Z"/>
+  </g>
+</svg>

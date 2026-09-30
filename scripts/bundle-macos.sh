@@ -8,7 +8,8 @@ if [ "$(uname -s)" != Darwin ]; then
 fi
 cargo build --locked -p breeze-app
 bundle="$PWD/target/Breeze.app"
-mkdir -p "$bundle/Contents/MacOS"
+mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
+cp assets/brand/Breeze.icns "$bundle/Contents/Resources/Breeze.icns"
 cp target/debug/breeze-app "$bundle/Contents/MacOS/Breeze.next"
 mv "$bundle/Contents/MacOS/Breeze.next" "$bundle/Contents/MacOS/Breeze"
 cat > "$bundle/Contents/Info.plist" <<'PLIST'
@@ -19,6 +20,7 @@ cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>Breeze</string>
 <key>CFBundleDisplayName</key><string>Breeze</string>
 <key>CFBundleExecutable</key><string>Breeze</string>
+<key>CFBundleIconFile</key><string>Breeze.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>NSHighResolutionCapable</key><true/>
