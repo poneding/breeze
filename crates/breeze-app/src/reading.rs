@@ -1,11 +1,7 @@
 //! Visible-range scheduling. At most one UI request is awaiting the bounded PDF worker.
 use crate::*;
 use gpui_kit::component::ElementExt;
-use gpui_kit::component::{
-    VirtualListScrollHandle,
-    menu::{DropdownMenu, PopupMenuItem},
-    v_virtual_list,
-};
+use gpui_kit::component::{VirtualListScrollHandle, v_virtual_list};
 use std::{
     collections::{HashMap, VecDeque},
     ops::Range,
@@ -64,6 +60,7 @@ struct PageMetrics {
     width: f32,
     height: f32,
     zoom: Zoom,
+    layout: ReadingLayout,
     items: Rc<Vec<Size<gpui_kit::Pixels>>>,
     widest: usize,
 }
@@ -83,6 +80,7 @@ pub(super) struct ReadingView {
     pub pages_scroll: VirtualListScrollHandle,
     pub thumbs_scroll: UniformListScrollHandle,
     metrics: Option<PageMetrics>,
+    pub zoom_remainder: f32,
 }
 impl Default for ReadingView {
     fn default() -> Self {
@@ -102,6 +100,7 @@ impl Default for ReadingView {
             pages_scroll: VirtualListScrollHandle::new(),
             thumbs_scroll: UniformListScrollHandle::new(),
             metrics: None,
+            zoom_remainder: 0.,
         }
     }
 }
@@ -148,6 +147,24 @@ fn page_scale(points: (f32, f32), width: f32, height: f32, zoom: Zoom) -> f32 {
         Zoom::Percent(n) => n as f32 / 100. * 96. / 72.,
     }
     .max(0.01)
+}
+fn row_geometry(
+    sizes: &[(f32, f32)],
+    pages: Range<usize>,
+    width: f32,
+    height: f32,
+    zoom: Zoom,
+) -> (f32, f32, f32) {
+    let row_width = pages.clone().map(|i| sizes[i].0).sum::<f32>();
+    let row_height = pages.clone().map(|i| sizes[i].1).fold(0., f32::max);
+    let gap = if pages.len() == 2 { 12. } else { 0. };
+    let scale = page_scale(
+        (row_width, row_height),
+        width - 24. - gap,
+        height - 24.,
+        zoom,
+    );
+    (row_width * scale + gap, row_height * scale, scale)
 }
 impl Breeze {
     pub(super) fn defer_visible(
@@ -212,7 +229,7 @@ impl Breeze {
             if self.reading.wanted_pages != range {
                 self.reading.errors.retain(|(thumb, _), _| *thumb);
             }
-            if self.books[self.active].state.layout == ReadingLayout::Continuous
+            if self.books[self.active].state.layout.is_continuous()
                 && !range.is_empty()
                 && self.gesture.is_empty()
                 && !self.loading
@@ -348,33 +365,9 @@ impl Breeze {
     }
     pub(super) fn set_layout(&mut self, layout: ReadingLayout, cx: &mut Context<Self>) {
         self.books[self.active].state.layout = layout;
+        self.reading_preferences.layout = layout;
+        self.reading.metrics = None;
         self.load(cx);
-    }
-    pub(super) fn layout_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let view = cx.entity();
-        let selected = self.books[self.active].state.layout;
-        Button::new("layout")
-            .ghost()
-            .small()
-            .icon(IconName::PanelsTopLeft)
-            .label(self.books[self.active].state.layout.label())
-            .tooltip_with_action(
-                "切换阅读布局：单页 / 连续 / 双页",
-                &CycleLayout,
-                Some("Breeze"),
-            )
-            .dropdown_menu(move |mut menu, window, _| {
-                for layout in ReadingLayout::ALL {
-                    menu = menu.item(
-                        PopupMenuItem::new(layout.label())
-                            .checked(selected == layout)
-                            .on_click(window.listener_for(&view, move |this, _, _, cx| {
-                                this.set_layout(layout, cx)
-                            })),
-                    );
-                }
-                menu
-            })
     }
     pub(super) fn outline_view(
         &self,
@@ -543,12 +536,15 @@ impl Breeze {
         {
             div()
                 .id(("page-frame", page))
+                .test_support()
                 .flex_shrink_0()
                 .child(self.page_surface(page, &preview, width, height, cx))
                 .into_any_element()
         } else {
             let p = self.p();
             div()
+                .id(("page-frame", page))
+                .test_support()
                 .w(px(width))
                 .h(px(height))
                 .flex_shrink_0()
@@ -576,11 +572,8 @@ impl Breeze {
                 .into_any_element()
         }
     }
-    pub(super) fn pages_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+    fn reading_viewport_size(&self, window: &Window) -> (f32, f32) {
         let state = &self.books[self.active].state;
-        let page = state.navigation.page();
-        let layout = state.layout;
-        let zoom = state.zoom;
         let width = (f32::from(window.viewport_size().width)
             - if self.sidebar {
                 self.navigation_width
@@ -595,14 +588,59 @@ impl Breeze {
             - 32.
             - if self.search_open { 34. } else { 0. })
         .max(100.);
+        (width, height)
+    }
+    pub(super) fn display_zoom(&self, window: &Window) -> f32 {
+        let state = &self.books[self.active].state;
+        if let Zoom::Percent(n) = state.zoom {
+            return n as f32;
+        }
+        let (width, height) = self.reading_viewport_size(window);
+        let sizes = &self.reading.sizes;
+        if sizes.is_empty() {
+            return 100.;
+        }
+        let range = state.layout.pages(state.navigation.page(), sizes.len());
+        row_geometry(sizes, range, width, height, state.zoom).2 * 75.
+    }
+    pub(super) fn pages_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
+        let state = &self.books[self.active].state;
+        let page = state.navigation.page();
+        let layout = state.layout;
+        let zoom = state.zoom;
+        let (width, height) = self.reading_viewport_size(window);
         let p = self.p();
+        let view = cx.entity();
         let viewport = div()
             .id("document-viewport")
             .test_support()
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .bg(p.canvas);
+            .bg(p.canvas)
+            .child(
+                canvas(
+                    |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+                    move |_, hitbox, window, _| {
+                        window.on_mouse_event(
+                            move |event: &ScrollWheelEvent, phase, window, cx| {
+                                // Capture before either the virtual list or the single-page scroller.
+                                if phase == DispatchPhase::Capture
+                                    && hitbox.should_handle_scroll(window)
+                                    && event.modifiers.secondary()
+                                    && !event.modifiers.alt
+                                    && !event.modifiers.shift
+                                {
+                                    cx.stop_propagation();
+                                    view.update(cx, |this, cx| this.scroll_zoom(event, window, cx));
+                                }
+                            },
+                        );
+                    },
+                )
+                .absolute()
+                .size_full(),
+            );
         if self.preview.is_none() && self.reading.sizes.is_empty() {
             return viewport
                 .flex()
@@ -626,20 +664,16 @@ impl Breeze {
         } else {
             self.reading.sizes.clone()
         };
-        if layout == ReadingLayout::Continuous {
+        if layout.is_continuous() {
             let metrics = &mut self.reading.metrics;
-            if metrics
-                .as_ref()
-                .is_none_or(|m| m.width != width || m.height != height || m.zoom != zoom)
-            {
-                let items: Vec<_> = sizes
-                    .iter()
-                    .map(|points| {
-                        let scale = page_scale(*points, width - 24., height - 24., zoom);
-                        size(
-                            px((points.0 * scale + 24.).max(width)),
-                            px(points.1 * scale + 24.),
-                        )
+            if metrics.as_ref().is_none_or(|m| {
+                m.width != width || m.height != height || m.zoom != zoom || m.layout != layout
+            }) {
+                let items: Vec<_> = (0..sizes.len().div_ceil(layout.columns()))
+                    .map(|row| {
+                        let range = layout.pages(row * layout.columns(), sizes.len());
+                        let (w, h, _) = row_geometry(&sizes, range, width, height, zoom);
+                        size(px((w + 24.).max(width)), px(h + 24.))
                     })
                     .collect();
                 let widest = items
@@ -652,12 +686,13 @@ impl Breeze {
                     width,
                     height,
                     zoom,
+                    layout,
                     items: Rc::new(items),
                     widest,
                 });
                 self.reading
                     .pages_scroll
-                    .scroll_to_item(page, ScrollStrategy::Top);
+                    .scroll_to_item(layout.row(page), ScrollStrategy::Top);
             }
             let items = metrics
                 .as_ref()
@@ -672,16 +707,18 @@ impl Breeze {
                         "continuous-pages",
                         items,
                         move |this, range, _, cx| {
-                            let wanted = range.clone();
+                            let wanted = range.start * layout.columns()
+                                ..(range.end * layout.columns()).min(sizes.len());
+                            let first_row = range.start;
                             let generation = this.generation;
                             range
                                 .map(|index| {
-                                    let (pw, ph) = sizes[index];
-                                    let scale =
-                                        page_scale((pw, ph), width - 24., height - 24., zoom);
+                                    let pages = layout.pages(index * layout.columns(), sizes.len());
+                                    let (_, _, scale) =
+                                        row_geometry(&sizes, pages.clone(), width, height, zoom);
                                     row()
                                         .id(("continuous-page", index))
-                                        .when(index == wanted.start, |d| {
+                                        .when(index == first_row, |d| {
                                             let view = cx.entity();
                                             let wanted = wanted.clone();
                                             d.on_prepaint(move |_, _, cx| {
@@ -697,7 +734,15 @@ impl Breeze {
                                         .justify_center()
                                         .items_start()
                                         .py_3()
-                                        .child(this.page_item(index, pw * scale, ph * scale, cx))
+                                        .gap_3()
+                                        .children(pages.map(|page| {
+                                            this.page_item(
+                                                page,
+                                                sizes[page].0 * scale,
+                                                sizes[page].1 * scale,
+                                                cx,
+                                            )
+                                        }))
                                 })
                                 .collect()
                         },
@@ -711,22 +756,14 @@ impl Breeze {
         let range = layout.pages(page, sizes.len());
         let wanted = range.clone();
         self.defer_visible(wanted, false, cx);
-        let spread_width = range.clone().map(|i| sizes[i].0).sum::<f32>();
-        let spread_height = range.clone().map(|i| sizes[i].1).fold(0., f32::max);
-        let gap = if range.len() == 2 { 12. } else { 0. };
-        let scale = page_scale(
-            (spread_width, spread_height),
-            width - 24. - gap,
-            height - 24.,
-            zoom,
-        );
+        let (row_width, _, scale) = row_geometry(&sizes, range.clone(), width, height, zoom);
         viewport
             .overflow_scroll()
             .p_3()
             .child(
                 row()
                     .min_w_full()
-                    .w(px(spread_width * scale + gap))
+                    .w(px(row_width))
                     .gap_3()
                     .items_start()
                     .justify_center()

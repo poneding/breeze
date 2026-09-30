@@ -284,33 +284,8 @@ impl Breeze {
                     }),
             )
             .child(self.layout_button(cx))
-            .child(
-                self.command("fit-page", IconName::Maximize, "适合页面", &FitPage, cx)
-                    .selected(s.zoom == Zoom::FitPage),
-            )
-            .child(
-                self.command(
-                    "fit-width",
-                    IconName::MoveHorizontal,
-                    "适合页宽",
-                    &FitWidth,
-                    cx,
-                )
-                .selected(s.zoom == Zoom::FitWidth),
-            )
-            .child(
-                self.command("actual-size", IconName::Scan, "实际大小", &ActualSize, cx)
-                    .selected(s.zoom == Zoom::Percent(100)),
-            )
             .child(self.command("zoom-out", IconName::Minus, "缩小", &ZoomOut, cx))
-            .child(
-                div()
-                    .min_w(px(56.))
-                    .text_center()
-                    .text_size(px(11.))
-                    .text_color(p.muted)
-                    .child(s.zoom.label()),
-            )
+            .child(self.zoom_button(cx))
             .child(self.command("zoom-in", IconName::Plus, "放大", &ZoomIn, cx))
             .into_any_element()
     }

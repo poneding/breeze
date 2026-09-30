@@ -16,9 +16,10 @@ mod reader;
 mod reading;
 mod settings;
 mod style;
+mod view_controls;
 use anyhow::Result;
 use appearance::{ColorScheme, ThemePreference};
-use breeze_core::{Mode, ReaderState, ReadingLayout, Zoom};
+use breeze_core::{Mode, ReaderState, ReadingLayout, ReadingPreferences, Zoom};
 use breeze_pdf::{PdfWorker, Pixels, Source};
 use gpui_kit::component::{ResizableState, TitleBar};
 use gpui_kit::{
@@ -163,6 +164,7 @@ struct Breeze {
     background: usize,
     remember_files: bool,
     remember_position: bool,
+    reading_preferences: ReadingPreferences,
     language: usize,
     update_policy: usize,
     window_policy: usize,
@@ -303,6 +305,7 @@ impl Breeze {
             background: 0,
             remember_files: true,
             remember_position: true,
+            reading_preferences: ReadingPreferences::default(),
             language: 0,
             update_policy: 0,
             window_policy: 0,
@@ -363,9 +366,10 @@ impl Breeze {
             self.reading = reading::ReadingView::default();
             self.reading.source = Some(source);
         }
-        self.reading
-            .pages_scroll
-            .scroll_to_item(current, ScrollStrategy::Top);
+        self.reading.pages_scroll.scroll_to_item(
+            self.books[self.active].state.layout.row(current),
+            ScrollStrategy::Top,
+        );
         self.reading
             .thumbs_scroll
             .scroll_to_item(current, ScrollStrategy::Center);
@@ -401,9 +405,10 @@ impl Breeze {
                         {
                             this.reading = reading::ReadingView::default();
                             this.reading.source = Some(this.books[this.active].source.clone());
-                            this.reading
-                                .pages_scroll
-                                .scroll_to_item(page.page, ScrollStrategy::Top);
+                            this.reading.pages_scroll.scroll_to_item(
+                                this.books[this.active].state.layout.row(page.page),
+                                ScrollStrategy::Top,
+                            );
                             this.reading
                                 .thumbs_scroll
                                 .scroll_to_item(page.page, ScrollStrategy::Center);
@@ -523,7 +528,11 @@ impl Breeze {
             title,
             favorite: false,
             category: 0,
-            state: ReaderState::default(),
+            state: ReaderState {
+                layout: self.reading_preferences.layout,
+                zoom: self.reading_preferences.zoom,
+                ..Default::default()
+            },
             opened: false,
             last_opened: 0,
             annotations: DocumentAnnotations::default(),

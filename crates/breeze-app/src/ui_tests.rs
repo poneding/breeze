@@ -1,4 +1,5 @@
 use super::*;
+use gpui_kit::InputEvent as _;
 use gpui_kit::test::TestWindowExt;
 
 fn app(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
@@ -529,7 +530,7 @@ fn categories_are_user_owned_and_layout_roundtrips(cx: &mut TestAppContext) {
             assert_eq!(view.categories.len(), 1);
             assert_eq!(view.categories[0].id, 2);
             assert_eq!(view.books[0].category, 2);
-            assert_eq!(view.snapshot().version, 2);
+            assert_eq!(view.snapshot().version, 4);
         });
     })
     .unwrap();
@@ -716,6 +717,173 @@ fn remembered_page_number_does_not_allocate_placeholder_pages(cx: &mut TestAppCo
         window.render_frame(cx);
         assert!(view.read(cx).preview.is_none());
         assert!(view.read(cx).reading.sizes.is_empty());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn status_panels_keep_layout_axes_independent_and_restore_view_memory(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            view.read(cx).books[0].state.layout,
+            ReadingLayout::Continuous
+        );
+        window.click("layout", cx);
+        window.press("down", cx);
+        window.press("down", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            view.read(cx).books[0].state.layout,
+            ReadingLayout::ContinuousSpread
+        );
+        window.click("layout", cx);
+        window.press("down", cx);
+        window.press("down", cx);
+        window.press("down", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).books[0].state.layout, ReadingLayout::Spread);
+        window.click("zoom", cx);
+        window.press("down", cx);
+        window.press("down", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).books[0].state.zoom, Zoom::FitWidth);
+        window.focus(&view.read(cx).focus.clone(), cx);
+        window.press("secondary-0", cx);
+        window.press("secondary-+", cx);
+        assert_eq!(view.read(cx).books[0].state.zoom, Zoom::Percent(125));
+        window.press("secondary--", cx);
+        window.press("secondary-shift-=", cx);
+        assert_eq!(view.read(cx).books[0].state.zoom, Zoom::Percent(125));
+        view.update(cx, |view, cx| {
+            view.remember_position = false;
+            let saved: SavedState =
+                serde_json::from_slice(&serde_json::to_vec(&view.snapshot()).unwrap()).unwrap();
+            view.books[0].state = ReaderState::default();
+            view.restore(saved, cx);
+            assert_eq!(view.books[0].state.layout, ReadingLayout::Spread);
+            assert_eq!(view.books[0].state.zoom, Zoom::Percent(125));
+            assert_eq!(
+                view.reading_preferences,
+                ReadingPreferences {
+                    layout: ReadingLayout::Spread,
+                    zoom: Zoom::Percent(125)
+                }
+            );
+            view.open_canonical_path(PathBuf::from("/nonexistent/new-view-test.pdf"), cx);
+            assert_eq!(view.books[1].state.layout, ReadingLayout::Spread);
+            assert_eq!(view.books[1].state.zoom, Zoom::Percent(125));
+        });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn modified_wheel_zooms_without_scrolling_and_plain_wheel_still_scrolls(cx: &mut TestAppContext) {
+    let page = rendered_sample();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.reading.sizes = page.page_sizes.clone();
+            view.preview = Some(Preview::from_page(page).unwrap());
+            view.books[0].state.zoom = Zoom::Percent(100);
+            view.loading = true;
+        });
+        window.render_frame(cx);
+        window.hover("document-viewport", cx);
+        let position = window.find("document-viewport").bounds().center();
+        let primary = if cfg!(target_os = "macos") {
+            Modifiers {
+                platform: true,
+                ..Default::default()
+            }
+        } else {
+            Modifiers {
+                control: true,
+                ..Default::default()
+            }
+        };
+        let before = view.read(cx).reading.pages_scroll.offset();
+        window.dispatch_event(
+            ScrollWheelEvent {
+                position,
+                delta: ScrollDelta::Lines(point(0., -1.)),
+                modifiers: primary,
+                ..Default::default()
+            }
+            .to_platform_input(),
+            cx,
+        );
+        assert_eq!(view.read(cx).books[0].state.zoom, Zoom::Percent(75));
+        assert_eq!(view.read(cx).reading.pages_scroll.offset(), before);
+        window.render_frame(cx);
+        let before = view.read(cx).reading.pages_scroll.offset();
+        window.scroll("document-viewport", ScrollDelta::Lines(point(0., -6.)), cx);
+        assert_eq!(view.read(cx).books[0].state.zoom, Zoom::Percent(75));
+        assert!(
+            view.read(cx).reading.pages_scroll.offset().y < before.y,
+            "before {:?}, after {:?}, pages {}, viewport {:?}",
+            before,
+            view.read(cx).reading.pages_scroll.offset(),
+            view.read(cx).reading.sizes.len(),
+            window.find("document-viewport").bounds()
+        );
+        view.update(cx, |view, cx| view.set_zoom(Zoom::FitWidth, cx));
+        window.render_frame(cx);
+        let fitted = view.read(cx).display_zoom(window);
+        window.focus(&view.read(cx).focus.clone(), cx);
+        window.press("secondary--", cx);
+        assert_eq!(
+            view.read(cx).books[0].state.zoom,
+            Zoom::Percent((fitted.round() as i16 - 25).clamp(25, 200) as u16)
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn continuous_spreads_virtualize_pairs_and_reach_odd_final_page(cx: &mut TestAppContext) {
+    let page = rendered_sample();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.reading.sizes = Arc::new(vec![page.points; 121]);
+            let preview = Preview::from_page(page).unwrap();
+            view.reading.insert(0, preview.clone());
+            view.preview = Some(preview);
+            view.books[0].state.navigation.set_total(121);
+            view.books[0].state.layout = ReadingLayout::ContinuousSpread;
+            view.loading = true;
+        });
+        window.render_frame(cx);
+        let left = window.find(("page-frame", 0usize)).bounds();
+        let right = window.find(("page-frame", 1usize)).bounds();
+        assert!(right.left() >= left.right());
+        view.update(cx, |view, _| {
+            view.reading
+                .pages_scroll
+                .scroll_to_item(60, ScrollStrategy::Top)
+        });
+        window.render_frame(cx);
+        assert!(window.find(("page-frame", 120usize)).visible());
+        view.update(cx, |view, cx| {
+            view.loading = false;
+            view.schedule_visible(120..121, false, cx);
+        });
+        assert_eq!(view.read(cx).books[0].state.navigation.page(), 120);
     })
     .unwrap();
 }

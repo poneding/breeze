@@ -36,6 +36,8 @@ pub(super) struct SavedState {
     pub thumbnails: bool,
     pub remember_files: bool,
     pub remember_position: bool,
+    #[serde(default)]
+    pub reading_preferences: ReadingPreferences,
     pub language: usize,
     pub updates: usize,
     pub window: usize,
@@ -46,7 +48,7 @@ fn first_category_id() -> usize {
 impl Default for SavedState {
     fn default() -> Self {
         Self {
-            version: 2,
+            version: 4,
             books: Vec::new(),
             active: 0,
             categories: Vec::new(),
@@ -59,6 +61,7 @@ impl Default for SavedState {
             thumbnails: false,
             remember_files: true,
             remember_position: true,
+            reading_preferences: ReadingPreferences::default(),
             language: 0,
             updates: 0,
             window: 0,
@@ -67,7 +70,7 @@ impl Default for SavedState {
 }
 impl SavedState {
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(matches!(self.version, 1 | 2), "Unsupported state version");
+        anyhow::ensure!(matches!(self.version, 1..=4), "Unsupported state version");
         anyhow::ensure!(self.books.len() <= 4096, "Too many library entries");
         anyhow::ensure!(
             self.width.is_finite() && (168.0..=360.0).contains(&self.width),
@@ -100,6 +103,9 @@ impl SavedState {
                 "Invalid category name"
             );
         }
+        if let Zoom::Percent(n) = self.reading_preferences.zoom {
+            anyhow::ensure!((25..=200).contains(&n), "Invalid default zoom");
+        }
         for b in &self.books {
             anyhow::ensure!(
                 (if self.version == 1 {
@@ -119,7 +125,7 @@ impl SavedState {
 impl Breeze {
     pub(super) fn snapshot(&self) -> SavedState {
         SavedState {
-            version: 2,
+            version: 4,
             books: self
                 .books
                 .iter()
@@ -150,6 +156,7 @@ impl Breeze {
             thumbnails: self.thumbs,
             remember_files: self.remember_files,
             remember_position: self.remember_position,
+            reading_preferences: self.reading_preferences,
             language: self.language,
             updates: self.update_policy,
             window: self.window_policy,
@@ -238,6 +245,7 @@ impl Breeze {
         self.thumbs = state.thumbnails;
         self.remember_files = state.remember_files;
         self.remember_position = state.remember_position;
+        self.reading_preferences = state.reading_preferences;
         self.language = state.language;
         self.update_policy = state.updates;
         self.window_policy = state.window;
@@ -412,5 +420,39 @@ mod tests {
         let state = SavedState::default();
         let bytes = serde_json::to_vec(&state).unwrap();
         assert_eq!(serde_json::from_slice::<SavedState>(&bytes).unwrap(), state);
+    }
+    #[test]
+    fn reading_preferences_roundtrip_and_legacy_layouts_survive() {
+        let mut state = SavedState::default();
+        for layout in ReadingLayout::ALL {
+            for zoom in [Zoom::FitPage, Zoom::FitWidth, Zoom::Percent(137)] {
+                state.reading_preferences = ReadingPreferences { layout, zoom };
+                let bytes = serde_json::to_vec(&state).unwrap();
+                let restored: SavedState = serde_json::from_slice(&bytes).unwrap();
+                restored.validate().unwrap();
+                assert_eq!(restored, state);
+            }
+        }
+        let mut legacy = serde_json::to_value(SavedState::default()).unwrap();
+        legacy["version"] = 3.into();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("reading_preferences");
+        let restored: SavedState = serde_json::from_value(legacy).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(restored.reading_preferences, ReadingPreferences::default());
+        for (json, layout) in [
+            ("Single", ReadingLayout::Single),
+            ("Continuous", ReadingLayout::Continuous),
+            ("Spread", ReadingLayout::Spread),
+        ] {
+            assert_eq!(
+                serde_json::from_value::<ReadingLayout>(json.into()).unwrap(),
+                layout
+            );
+        }
+        state.reading_preferences.zoom = Zoom::Percent(0);
+        assert!(state.validate().is_err());
     }
 }

@@ -24,6 +24,8 @@ pub fn bind(cx: &mut App) {
         KeyBinding::new("pagedown", NextPage, Some("Breeze && !Input")),
         KeyBinding::new("pageup", PreviousPage, Some("Breeze && !Input")),
         KeyBinding::new("secondary-=", ZoomIn, Some("Breeze && !Input")),
+        KeyBinding::new("secondary-+", ZoomIn, Some("Breeze && !Input")),
+        KeyBinding::new("secondary-shift-=", ZoomIn, Some("Breeze && !Input")),
         KeyBinding::new("secondary--", ZoomOut, Some("Breeze && !Input")),
         KeyBinding::new("secondary-0", ActualSize, Some("Breeze && !Input")),
         KeyBinding::new("secondary-9", FitPage, Some("Breeze && !Input")),
@@ -120,7 +122,8 @@ impl Breeze {
             } else if action.as_any().is::<CycleLayout>() {
                 let next = match self.books[self.active].state.layout {
                     ReadingLayout::Single => ReadingLayout::Continuous,
-                    ReadingLayout::Continuous => ReadingLayout::Spread,
+                    ReadingLayout::Continuous => ReadingLayout::ContinuousSpread,
+                    ReadingLayout::ContinuousSpread => ReadingLayout::Spread,
                     ReadingLayout::Spread => ReadingLayout::Single,
                 };
                 self.set_layout(next, cx);
@@ -172,11 +175,10 @@ impl Breeze {
                 self.tool = 0;
                 cx.notify();
             } else {
-                let s = &mut self.books[self.active].state;
-                s.zoom = if action.as_any().is::<ZoomIn>() {
-                    s.zoom.step(25)
+                let zoom = if action.as_any().is::<ZoomIn>() {
+                    self.stepped_zoom(25, window)
                 } else if action.as_any().is::<ZoomOut>() {
-                    s.zoom.step(-25)
+                    self.stepped_zoom(-25, window)
                 } else if action.as_any().is::<FitPage>() {
                     Zoom::FitPage
                 } else if action.as_any().is::<FitWidth>() {
@@ -184,9 +186,9 @@ impl Breeze {
                 } else if action.as_any().is::<ActualSize>() {
                     Zoom::Percent(100)
                 } else {
-                    s.zoom
+                    return;
                 };
-                cx.notify();
+                self.set_zoom(zoom, cx);
             }
         }
     }
@@ -374,7 +376,7 @@ fn action_label(action: &dyn Action) -> &'static str {
     name!(ZoomIn, "放大");
     name!(ZoomOut, "缩小");
     name!(FitPage, "适合页面");
-    name!(FitWidth, "适合页宽");
+    name!(FitWidth, "适合宽度");
     name!(ActualSize, "实际大小");
     name!(ShowOutline, "目录");
     name!(ShowThumbnails, "缩略图");

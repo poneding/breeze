@@ -44,7 +44,11 @@ The page itself retains the document's font and colors. UI density changes do no
 
 Home is a compact document list with recent/favorite/category filters. Library entries refer to original files; do not silently import copies. The built-in sample is clearly identified and is not fabricated user history.
 
-The reader supports Single, Continuous, and Spread layouts, persisted independently per document. Outline and thumbnail navigation are virtualized across the document; raster requests cover visible ranges, not every page. Cancellable search and rectangular glyph selection/copy are implemented. Every displayed surface carries its page identity, including annotation gestures. State must never label an old rendered page as a newly requested page.
+The reader has independent one/two-page and continuous-scrolling choices, defaulting to continuous single-page reading. Its status menu places Single (`rectangle-vertical`) and Two pages (`columns-2`) above a separator, with Continuous (`gallery-vertical`) below it. The trigger shows an icon and 单页 / 双页 / 连续单页 / 连续双页. Continuous two-page reading virtualizes spreads and retains a lone final page for odd page counts. Outline and thumbnail navigation are virtualized across the document; raster requests cover visible ranges, not every page. Cancellable search and rectangular glyph selection/copy are implemented. Every displayed surface carries its page identity, including annotation gestures. State must never label an old rendered page as a newly requested page.
+
+Fit Page, Fit Width, and Actual Size share one status dropdown with the current icon/label (or a custom percentage). Zoom In/Out buttons remain available. Primary+0 selects Actual Size; modified-wheel events zoom without also scrolling the document. Percentage zoom remains bounded to 25–200%, and stepping from a fit mode starts at the actual displayed scale. Keyboard zoom does not consume Input editing keys.
+
+Layout and zoom persist per document independently of the reading-position switch. State version 4 also remembers the last chosen layout/zoom as defaults for new documents; older states retain each explicit document layout/zoom and default new-document preferences to continuous single-page / Fit Page.
 
 The prototype raster is fixed at 144 DPI; zoom currently changes display size. Do not claim adaptive high-DPI rendering. Actual Size uses 72 document points to 96 logical pixels, not physical-centimeter calibration.
 
@@ -93,7 +97,7 @@ Use Kit's native `Tooltip`, `Tooltip::action`, and `Button::tooltip_with_action`
 | Reading / Annotate / Edit | Primary+1 / 2 / 3 |
 | Outline / Thumbnails | Primary+Shift+O / Primary+Shift+M |
 | Favorite | Primary+D |
-| Zoom in / out | Primary+= / Primary+- |
+| Zoom in / out | Primary++ (also Primary+=) / Primary+-; Primary+wheel over the document |
 | Actual size / fit page / fit width | Primary+0 / 9 / 8 |
 | Cycle theme mode | Primary+Shift+T |
 | Export annotated PDF copy | Primary+Shift+E |

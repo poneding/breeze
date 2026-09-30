@@ -25,7 +25,7 @@ These are requirements, not a list of completed prototype features.
 | Insertion | New text and image objects, separate from replacement of existing content |
 | Settings | Default-file association, language, theme, update policy, opening-window behavior, session restoration, and reading-position restoration |
 
-Continuous and two-page layouts remain proposed reading enhancements. Text selection is a prerequisite for semantic text markup; search is a proposed companion capability rather than a completed feature.
+Single/two-page arrangement and continuous scrolling are independent reading settings, with continuous single-page as the default. Layout and zoom choices are remembered. Text selection is a prerequisite for semantic text markup; consult delivery status for the implemented selection and search subset.
 
 ## Scope boundaries
 

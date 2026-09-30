@@ -34,7 +34,7 @@ impl Zoom {
     pub fn label(self) -> String {
         match self {
             Self::FitPage => "适合页面".into(),
-            Self::FitWidth => "适合页宽".into(),
+            Self::FitWidth => "适合宽度".into(),
             Self::Percent(n) => format!("{n}%"),
         }
     }
@@ -87,39 +87,66 @@ impl PageNavigation {
 }
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ReadingLayout {
-    #[default]
     Single,
+    #[default]
     Continuous,
     Spread,
+    ContinuousSpread,
 }
 impl ReadingLayout {
-    pub const ALL: [Self; 3] = [Self::Single, Self::Continuous, Self::Spread];
+    pub const ALL: [Self; 4] = [
+        Self::Single,
+        Self::Spread,
+        Self::Continuous,
+        Self::ContinuousSpread,
+    ];
+    pub fn is_continuous(self) -> bool {
+        matches!(self, Self::Continuous | Self::ContinuousSpread)
+    }
+    pub fn is_spread(self) -> bool {
+        matches!(self, Self::Spread | Self::ContinuousSpread)
+    }
+    pub fn columns(self) -> usize {
+        if self.is_spread() { 2 } else { 1 }
+    }
+    pub fn with_spread(self, spread: bool) -> Self {
+        match (spread, self.is_continuous()) {
+            (false, false) => Self::Single,
+            (true, false) => Self::Spread,
+            (false, true) => Self::Continuous,
+            (true, true) => Self::ContinuousSpread,
+        }
+    }
+    pub fn with_continuous(self, continuous: bool) -> Self {
+        (if continuous {
+            Self::Continuous
+        } else {
+            Self::Single
+        })
+        .with_spread(self.is_spread())
+    }
+    pub fn row(self, page: usize) -> usize {
+        page / self.columns()
+    }
     pub fn label(self) -> &'static str {
         match self {
             Self::Single => "单页",
-            Self::Continuous => "连续",
+            Self::Continuous => "连续单页",
+            Self::ContinuousSpread => "连续双页",
             Self::Spread => "双页",
         }
     }
     pub fn pages(self, page: usize, total: usize) -> std::ops::Range<usize> {
         let page = page.min(total.saturating_sub(1));
-        let start = if self == Self::Spread {
-            page / 2 * 2
-        } else {
-            page
-        };
+        let start = if self.is_spread() { page / 2 * 2 } else { page };
         start
             ..start
-                .saturating_add(if self == Self::Spread { 2 } else { 1 })
+                .saturating_add(if self.is_spread() { 2 } else { 1 })
                 .min(total)
     }
     pub fn step(self, page: usize, total: usize, forward: bool) -> usize {
-        let stride = if self == Self::Spread { 2 } else { 1 };
-        let start = if self == Self::Spread {
-            page / 2 * 2
-        } else {
-            page
-        };
+        let stride = if self.is_spread() { 2 } else { 1 };
+        let start = if self.is_spread() { page / 2 * 2 } else { page };
         if forward {
             let next = start.saturating_add(stride);
             if next < total { next } else { page }
@@ -127,6 +154,21 @@ impl ReadingLayout {
             page
         } else {
             start.saturating_sub(stride)
+        }
+    }
+}
+/// Last chosen view settings seed newly opened documents.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ReadingPreferences {
+    pub layout: ReadingLayout,
+    pub zoom: Zoom,
+}
+impl Default for ReadingPreferences {
+    fn default() -> Self {
+        Self {
+            layout: ReadingLayout::default(),
+            zoom: Zoom::FitPage,
         }
     }
 }
@@ -143,7 +185,7 @@ impl Default for ReaderState {
         Self {
             navigation: PageNavigation::default(),
             zoom: Zoom::FitPage,
-            layout: ReadingLayout::Single,
+            layout: ReadingLayout::default(),
             mode: Mode::Read,
         }
     }
@@ -172,6 +214,29 @@ mod tests {
             assert_eq!(layout.step(1, 5, true), 2);
             assert_eq!(layout.step(1, 5, false), 0);
         }
+    }
+    #[test]
+    fn layout_choices_are_independent_and_default_to_continuous_single() {
+        assert_eq!(ReaderState::default().layout, ReadingLayout::Continuous);
+        for layout in ReadingLayout::ALL {
+            for spread in [false, true] {
+                let next = layout.with_spread(spread);
+                assert_eq!(next.is_spread(), spread);
+                assert_eq!(next.is_continuous(), layout.is_continuous());
+            }
+            for continuous in [false, true] {
+                let next = layout.with_continuous(continuous);
+                assert_eq!(next.is_continuous(), continuous);
+                assert_eq!(next.is_spread(), layout.is_spread());
+            }
+        }
+        let layout = ReadingLayout::ContinuousSpread;
+        assert_eq!(layout.pages(1, 5), 0..2);
+        assert_eq!(layout.pages(4, 5), 4..5);
+        assert_eq!(layout.row(4), 2);
+        assert_eq!(layout.step(1, 5, true), 2);
+        assert_eq!(layout.step(4, 5, true), 4);
+        assert_eq!(layout.step(4, 5, false), 2);
     }
     #[test]
     fn navigation_clamps() {
