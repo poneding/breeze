@@ -3,6 +3,9 @@ use gpui_kit::InputEvent as _;
 use gpui_kit::test::TestWindowExt;
 
 pub(super) fn app(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
+    // This integration fixture owns a real PDF worker thread. Allow its wakeups
+    // instead of treating them as deterministic scheduler violations.
+    cx.background_executor.allow_parking();
     cx.update(|cx| {
         gpui_kit::init(cx);
         commands::bind(cx);
@@ -1121,6 +1124,63 @@ fn multiple_categories_survive_restore_and_independent_deletion(cx: &mut TestApp
             view.toggle_category(0, 0, cx);
             assert!(view.books[0].categories.is_empty());
         });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn category_colors_and_inline_hover_actions_work(cx: &mut TestAppContext) {
+    use breeze_core::library::CategoryColor;
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| view.show_home(cx));
+        window.render_frame(cx);
+        window.click("new-category", cx);
+        window.render_frame(cx);
+        for color in CategoryColor::ALL {
+            window.click(("category-color", color as usize), cx);
+            assert_eq!(view.read(cx).category_color, color);
+        }
+        view.update(cx, |view, cx| {
+            view.category_input
+                .update(cx, |input, cx| input.set_value("Colored tag", window, cx));
+        });
+        window.render_frame(cx);
+        window.click("save-category", cx);
+        assert_eq!(view.read(cx).categories[0].color, CategoryColor::Pink);
+        window.render_frame(cx);
+        window.hover("home-tab", cx);
+        assert!(!window.find(("rename-category", 1usize)).visible());
+        assert!(!window.find(("delete-category", 1usize)).visible());
+        window.hover(("category-row", 1usize), cx);
+        assert!(window.find(("rename-category", 1usize)).visible());
+        assert!(window.find(("delete-category", 1usize)).visible());
+        let row = window.find(("category-row", 1usize)).bounds();
+        let rename = window.find(("rename-category", 1usize)).bounds();
+        let delete = window.find(("delete-category", 1usize)).bounds();
+        assert_eq!(rename.origin.y, delete.origin.y);
+        assert!(rename.origin.y >= row.origin.y && delete.bottom() <= row.bottom());
+        assert!(delete.right() <= row.right());
+        window.click(("rename-category", 1usize), cx);
+        assert_eq!(view.read(cx).category_color, CategoryColor::Pink);
+        view.update(cx, |view, cx| {
+            view.category_input
+                .update(cx, |input, cx| input.set_value("Renamed", window, cx));
+        });
+        window.render_frame(cx);
+        window.click("save-category", cx);
+        view.update(cx, |view, cx| {
+            let state =
+                serde_json::from_slice(&serde_json::to_vec(&view.snapshot()).unwrap()).unwrap();
+            view.restore(state, cx);
+            assert_eq!(view.categories[0].name, "Renamed");
+            assert_eq!(view.categories[0].color, CategoryColor::Pink);
+        });
+        window.render_frame(cx);
+        window.hover(("category-row", 1usize), cx);
+        window.click(("delete-category", 1usize), cx);
+        assert!(view.read(cx).categories.is_empty());
+        assert_eq!(view.read(cx).books.len(), 1);
     })
     .unwrap();
 }

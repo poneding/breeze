@@ -1,14 +1,21 @@
 //! Explicit category management and assignment; deleting a category never removes a file.
 use crate::*;
-use breeze_core::library::{Category, validate_name};
+use breeze_core::library::{Category, CategoryColor, validate_name};
 use gpui_kit::component::{
-    Icon,
+    Icon, Theme,
     menu::{DropdownMenu, PopupMenuItem},
 };
 
 pub(super) fn left_button(
     id: impl Into<ElementId>,
     icon: IconName,
+    label: impl Into<SharedString>,
+) -> Button {
+    left_button_icon(id, Icon::new(icon).small(), label)
+}
+fn left_button_icon(
+    id: impl Into<ElementId>,
+    icon: Icon,
     label: impl Into<SharedString>,
 ) -> Button {
     let label = label.into();
@@ -24,7 +31,7 @@ pub(super) fn left_button(
                 .test_support()
                 .w_full()
                 .gap_2()
-                .child(Icon::new(icon).small())
+                .child(icon)
                 .child(
                     div()
                         .flex_1()
@@ -54,11 +61,16 @@ impl Breeze {
                 if let Some(id) = self.category_edit {
                     if let Some(category) = self.categories.iter_mut().find(|c| c.id == id) {
                         category.name = name;
+                        category.color = self.category_color;
                     }
                 } else if self.categories.len() < 100 && self.next_category_id < usize::MAX - 3 {
                     let id = self.next_category_id;
                     self.next_category_id += 1;
-                    self.categories.push(Category { id, name });
+                    self.categories.push(Category {
+                        id,
+                        name,
+                        color: self.category_color,
+                    });
                     self.library_filter = id + 3;
                 } else {
                     self.message = "最多支持 100 个分类".into();
@@ -92,7 +104,13 @@ impl Breeze {
             .child(
                 row()
                     .mt_2()
-                    .child(style::eyebrow("分类", p).px_2())
+                    .child(
+                        row()
+                            .px_2()
+                            .gap_2()
+                            .child(Icon::new(IconName::Tags).small().text_color(p.muted))
+                            .child(style::eyebrow("分类", p)),
+                    )
                     .child(div().flex_1())
                     .child(
                         Button::new("new-category")
@@ -103,6 +121,7 @@ impl Breeze {
                             .tooltip("新建分类")
                             .on_click(cx.listener(|this, _, window, cx| {
                                 this.category_edit = None;
+                                this.category_color = CategoryColor::default();
                                 this.category_form = true;
                                 this.category_input.update(cx, |input, cx| {
                                     input.set_value("", window, cx);
@@ -113,7 +132,7 @@ impl Breeze {
                     ),
             )
             .child(
-                left_button("unassigned-category", IconName::Folder, "未分类")
+                left_button("unassigned-category", IconName::Tag, "未分类")
                     .selected(self.library_filter == 3)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.library_filter = 3;
@@ -122,73 +141,117 @@ impl Breeze {
             )
             .children(self.categories.iter().map(|category| {
                 let id = category.id;
-                left_button(
-                    ("category-nav", id),
-                    IconName::Folder,
-                    category.name.clone(),
-                )
-                .selected(self.library_filter == id + 3)
-                .on_click(cx.listener(move |this, _, _, cx| {
-                    this.library_filter = id + 3;
-                    cx.notify();
-                }))
+                row()
+                    .id(("category-row", id))
+                    .test_support()
+                    .group("category-row")
+                    .w_full()
+                    .child(
+                        left_button_icon(
+                            ("category-nav", id),
+                            Icon::new(IconName::Tag)
+                                .small()
+                                .text_color(category_tint(category.color, cx)),
+                            category.name.clone(),
+                        )
+                        .flex_1()
+                        .min_w_0()
+                        .selected(self.library_filter == id + 3)
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.library_filter = id + 3;
+                            cx.notify();
+                        })),
+                    )
+                    .child(
+                        row()
+                            .w(px(44.))
+                            .flex_shrink_0()
+                            .gap_1()
+                            .invisible()
+                            .group_hover("category-row", |s| s.visible())
+                            .child(
+                                Button::new(("rename-category", id))
+                                    .ghost()
+                                    .small()
+                                    .size(px(20.))
+                                    .icon(IconName::Pencil)
+                                    .accessibility_label(format!("重命名分类：{}", category.name))
+                                    .tooltip("重命名分类")
+                                    .on_click(cx.listener(move |this, _, window, cx| {
+                                        this.category_form = true;
+                                        this.category_edit = Some(id);
+                                        if let Some(category) = this
+                                            .categories
+                                            .iter()
+                                            .find(|category| category.id == id)
+                                        {
+                                            this.category_color = category.color;
+                                        }
+                                        let name = this.category_name(id);
+                                        this.category_input.update(cx, |input, cx| {
+                                            input.set_value(name, window, cx);
+                                            input.focus(window, cx);
+                                            input.select_all(window, cx);
+                                        });
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(
+                                Button::new(("delete-category", id))
+                                    .ghost()
+                                    .small()
+                                    .size(px(20.))
+                                    .icon(IconName::Trash)
+                                    .accessibility_label(format!("删除分类：{}", category.name))
+                                    .tooltip("删除分类；保留文档及其他分类")
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.delete_category(id, cx)
+                                    })),
+                            ),
+                    )
             }))
-            .when(self.library_filter > 3, |d| {
-                let id = self.library_filter - 3;
-                d.child(
-                    row()
-                        .gap_1()
-                        .child(
-                            Button::new("rename-category")
-                                .ghost()
-                                .small()
-                                .label("重命名")
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.category_form = true;
-                                    this.category_edit = Some(id);
-                                    let name = this.category_name(id);
-                                    this.category_input.update(cx, |input, cx| {
-                                        input.set_value(name, window, cx);
-                                        input.focus(window, cx);
-                                        input.select_all(window, cx);
-                                    });
-                                    cx.notify();
-                                })),
-                        )
-                        .child(
-                            Button::new("delete-category")
-                                .ghost()
-                                .small()
-                                .icon(IconName::Trash)
-                                .accessibility_label("删除分类")
-                                .tooltip("删除分类；保留文档及其他分类")
-                                .on_click(
-                                    cx.listener(move |this, _, _, cx| this.delete_category(id, cx)),
-                                ),
-                        ),
-                )
-            })
             .when(self.category_form, |d| {
-                d.child(Input::new(&self.category_input).small()).child(
-                    row()
-                        .gap_1()
-                        .child(
-                            Button::new("save-category")
-                                .small()
-                                .label("保存")
-                                .on_click(cx.listener(|this, _, _, cx| this.save_category(cx))),
-                        )
-                        .child(
-                            Button::new("cancel-category")
+                d.child(Input::new(&self.category_input).small())
+                    .children(CategoryColor::ALL.chunks(4).map(|colors| {
+                        row().gap_1().children(colors.iter().copied().map(|color| {
+                            Button::new(("category-color", color as usize))
                                 .ghost()
                                 .small()
-                                .label("取消")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.category_form = false;
+                                .size(px(24.))
+                                .icon(
+                                    Icon::new(IconName::Tag)
+                                        .small()
+                                        .text_color(category_tint(color, cx)),
+                                )
+                                .selected(self.category_color == color)
+                                .accessibility_label(format!("分类颜色：{}", color_label(color)))
+                                .tooltip(color_label(color))
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.category_color = color;
                                     cx.notify();
-                                })),
-                        ),
-                )
+                                }))
+                        }))
+                    }))
+                    .child(
+                        row()
+                            .gap_1()
+                            .child(
+                                Button::new("save-category")
+                                    .small()
+                                    .label("保存")
+                                    .on_click(cx.listener(|this, _, _, cx| this.save_category(cx))),
+                            )
+                            .child(
+                                Button::new("cancel-category")
+                                    .ghost()
+                                    .small()
+                                    .label("取消")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.category_form = false;
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
             })
     }
     pub(super) fn toggle_category(&mut self, index: usize, id: usize, cx: &mut Context<Self>) {
@@ -254,4 +317,35 @@ impl Breeze {
                 menu
             })
     }
+}
+
+fn color_label(color: CategoryColor) -> &'static str {
+    match color {
+        CategoryColor::Red => "红色",
+        CategoryColor::Orange => "橙色",
+        CategoryColor::Amber => "琥珀色",
+        CategoryColor::Green => "绿色",
+        CategoryColor::Teal => "青色",
+        CategoryColor::Blue => "蓝色",
+        CategoryColor::Violet => "紫色",
+        CategoryColor::Pink => "粉色",
+    }
+}
+fn category_tint(color: CategoryColor, cx: &App) -> Hsla {
+    let (light, dark) = match color {
+        CategoryColor::Red => (0xdc2626, 0xf87171),
+        CategoryColor::Orange => (0xc2410c, 0xfb923c),
+        CategoryColor::Amber => (0xa16207, 0xfbbf24),
+        CategoryColor::Green => (0x15803d, 0x4ade80),
+        CategoryColor::Teal => (0x0f766e, 0x2dd4bf),
+        CategoryColor::Blue => (0x2563eb, 0x60a5fa),
+        CategoryColor::Violet => (0x7c3aed, 0xa78bfa),
+        CategoryColor::Pink => (0xbe185d, 0xf472b6),
+    };
+    rgb(if Theme::global(cx).is_dark() {
+        dark
+    } else {
+        light
+    })
+    .into()
 }

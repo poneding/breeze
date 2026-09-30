@@ -160,6 +160,26 @@ mod tests {
     use super::*;
     use gpui_kit::test::TestWindowExt;
     #[gpui_kit::test]
+    async fn visible_covers_complete_without_opening_documents(cx: &mut TestAppContext) {
+        use gpui_kit::test::TestAppContextExt;
+        let (handle, view) = crate::ui_tests::app(cx);
+        let before = view.read_with(cx, |view, _| view.snapshot().books);
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, cx| view.show_home(cx));
+            window.render_frame(cx);
+        })
+        .unwrap();
+        cx.wait_for(handle, std::time::Duration::from_secs(10), |_, cx| {
+            view.read(cx).covers.image(&Source::Sample).is_some()
+        })
+        .await;
+        view.read_with(cx, |view, _| {
+            assert!(view.covers.image(&Source::Sample).unwrap().is_ok());
+            assert!(view.screen == Screen::Home);
+            assert_eq!(view.snapshot().books, before);
+        });
+    }
+    #[gpui_kit::test]
     fn library_cover_and_grid_preserve_reader_state(cx: &mut TestAppContext) {
         let worker = PdfWorker::new().unwrap();
         let page =

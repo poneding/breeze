@@ -8,7 +8,7 @@ Library presentation refinements are tracked item by item in [work package 10](1
 
 | Area | Delivered behavior |
 |---|---|
-| Library | All Documents appears first with `library-big`; persistent entries, recent ordering, name filtering, favorites, user-created/renamable/deletable categories with explicit assignment, and removal without deleting source files |
+| Library | All Documents first; whole-row opening, aligned list/cover-grid views, empty new libraries, persisted multi-category memberships and eight tag colors, inline hover actions, favorites/filtering, and removal without deleting source files |
 | Preferences | Persistent appearance/palettes, sidebar width, independent file/position restoration, and opening-window policy |
 | State integrity | Background/coalesced JSON, process locking, bounded inputs, atomic replacement, external-revision checks, and normal-close acknowledgement |
 | Reading | Single/Continuous/Spread layouts; virtualized full outline/thumbnail lists; visible-range scheduling; 32 MiB worker, 64 MiB UI-page, and 8 MiB UI-thumbnail budgets; page navigation and zoom |

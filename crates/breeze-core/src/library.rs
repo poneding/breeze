@@ -1,10 +1,36 @@
-//! User-owned categories; zero is the unassigned sentinel, never a named category.
+//! User-owned categories with stable nonzero identifiers.
 use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Category {
     pub id: usize,
     pub name: String,
+    #[serde(default)]
+    pub color: CategoryColor,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CategoryColor {
+    Red,
+    Orange,
+    Amber,
+    Green,
+    Teal,
+    #[default]
+    Blue,
+    Violet,
+    Pink,
+}
+impl CategoryColor {
+    pub const ALL: [Self; 8] = [
+        Self::Red,
+        Self::Orange,
+        Self::Amber,
+        Self::Green,
+        Self::Teal,
+        Self::Blue,
+        Self::Violet,
+        Self::Pink,
+    ];
 }
 pub fn validate_name(
     name: &str,
@@ -34,6 +60,7 @@ mod tests {
         let categories = vec![Category {
             id: 1,
             name: "Work".into(),
+            color: CategoryColor::default(),
         }];
         assert_eq!(
             validate_name(" Work ", &categories, Some(1)),

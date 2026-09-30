@@ -263,6 +263,7 @@ impl Breeze {
                 .map(|(id, name)| breeze_core::library::Category {
                     id,
                     name: name.into(),
+                    color: breeze_core::library::CategoryColor::default(),
                 })
                 .collect();
             state.next_category_id = 3;
@@ -446,11 +447,33 @@ impl Breeze {
 mod tests {
     use super::*;
     #[test]
+    fn category_colors_roundtrip_and_legacy_categories_default_to_blue() {
+        use breeze_core::library::{Category, CategoryColor};
+        let legacy: Category = serde_json::from_str(r#"{"id":1,"name":"Work"}"#).unwrap();
+        assert_eq!(legacy.color, CategoryColor::Blue);
+        for color in CategoryColor::ALL {
+            let category = Category {
+                color,
+                ..legacy.clone()
+            };
+            assert_eq!(
+                serde_json::from_str::<Category>(&serde_json::to_string(&category).unwrap())
+                    .unwrap(),
+                category
+            );
+        }
+        assert!(
+            serde_json::from_str::<Category>(r#"{"id":1,"name":"Work","color":"Unknown"}"#)
+                .is_err()
+        );
+    }
+    #[test]
     fn memberships_are_validated_and_legacy_fields_are_read_only() {
         let mut state = SavedState {
             categories: vec![breeze_core::library::Category {
                 id: 1,
                 name: "Research".into(),
+                color: breeze_core::library::CategoryColor::default(),
             }],
             next_category_id: 2,
             ..Default::default()

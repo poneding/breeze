@@ -114,4 +114,4 @@ Use Kit Small controls instead of XSmall: the default 15 px rem gives global ico
 
 Document tabs have one four-corner rounded surface, an elevated active background, separators only between adjacent inactive open documents, and an inset close button revealed on hover. Reserve close-button space to prevent text reflow. Primary+W remains available without hovering.
 
-Named library categories are user-owned. A fresh library has only the Unassigned filter, not preset named categories. Create/rename/delete controls live in the compact Home sidebar; assignments use an explicit menu rather than cycling hard-coded options.
+Named library categories are user-owned. A fresh library has only the Unassigned filter, not preset named categories. The category group uses `tags`; each category uses `tag` with one of eight persistent colors (red, orange, amber, green, teal, blue, violet, pink). Create/rename forms allow choosing the color. Rename/delete icon buttons occupy the same sidebar row and appear only on hover. Assignment menus independently check multiple categories; deleting one preserves other memberships.
