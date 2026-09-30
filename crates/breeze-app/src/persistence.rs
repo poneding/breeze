@@ -48,7 +48,7 @@ fn first_category_id() -> usize {
 impl Default for SavedState {
     fn default() -> Self {
         Self {
-            version: 4,
+            version: 5,
             books: Vec::new(),
             active: 0,
             categories: Vec::new(),
@@ -70,7 +70,7 @@ impl Default for SavedState {
 }
 impl SavedState {
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(matches!(self.version, 1..=4), "Unsupported state version");
+        anyhow::ensure!(matches!(self.version, 1..=5), "Unsupported state version");
         anyhow::ensure!(self.books.len() <= 4096, "Too many library entries");
         anyhow::ensure!(
             self.width.is_finite() && (168.0..=360.0).contains(&self.width),
@@ -125,7 +125,7 @@ impl SavedState {
 impl Breeze {
     pub(super) fn snapshot(&self) -> SavedState {
         SavedState {
-            version: 4,
+            version: 5,
             books: self
                 .books
                 .iter()
@@ -222,6 +222,17 @@ impl Breeze {
         .detach();
     }
     pub(super) fn restore(&mut self, mut state: SavedState, cx: &mut Context<Self>) {
+        if state.version < 5 {
+            // Earlier snapshots treated every 100% value as Actual Size.
+            if state.reading_preferences.zoom == Zoom::Percent(100) {
+                state.reading_preferences.zoom = Zoom::ActualSize;
+            }
+            for book in &mut state.books {
+                if book.zoom == Zoom::Percent(100) {
+                    book.zoom = Zoom::ActualSize;
+                }
+            }
+        }
         if state.version == 1 {
             // Preserve only legacy categories actually assigned to a document.
             state.categories = [(1, "灵感与设计"), (2, "工作与学习")]
@@ -425,7 +436,13 @@ mod tests {
     fn reading_preferences_roundtrip_and_legacy_layouts_survive() {
         let mut state = SavedState::default();
         for layout in ReadingLayout::ALL {
-            for zoom in [Zoom::FitPage, Zoom::FitWidth, Zoom::Percent(137)] {
+            for zoom in [
+                Zoom::FitPage,
+                Zoom::FitWidth,
+                Zoom::ActualSize,
+                Zoom::Percent(100),
+                Zoom::Percent(137),
+            ] {
                 state.reading_preferences = ReadingPreferences { layout, zoom };
                 let bytes = serde_json::to_vec(&state).unwrap();
                 let restored: SavedState = serde_json::from_slice(&bytes).unwrap();

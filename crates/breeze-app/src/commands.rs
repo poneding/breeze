@@ -184,7 +184,7 @@ impl Breeze {
                 } else if action.as_any().is::<FitWidth>() {
                     Zoom::FitWidth
                 } else if action.as_any().is::<ActualSize>() {
-                    Zoom::Percent(100)
+                    Zoom::ActualSize
                 } else {
                     return;
                 };

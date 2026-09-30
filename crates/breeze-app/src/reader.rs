@@ -91,7 +91,7 @@ impl Breeze {
                     .child(self.pages_view(window, cx))
                     .when(mode != Mode::Read, |d| d.child(self.inspector(mode, cx))),
             )
-            .child(self.status(cx));
+            .child(self.status(window, cx));
         if self.sidebar {
             div().flex_1().min_h_0().child(
                 h_resizable("reader-split")
@@ -220,7 +220,7 @@ impl Breeze {
                     }),
             )
     }
-    fn status(&self, cx: &mut Context<Self>) -> AnyElement {
+    fn status(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let p = self.p();
         let s = &self.books[self.active].state;
         let visible = s.layout.pages(s.navigation.page(), s.navigation.total());
@@ -284,8 +284,17 @@ impl Breeze {
                     }),
             )
             .child(self.layout_button(cx))
-            .child(self.command("zoom-out", IconName::Minus, "缩小", &ZoomOut, cx))
             .child(self.zoom_button(cx))
+            .child(self.command("zoom-out", IconName::Minus, "缩小", &ZoomOut, cx))
+            .child(
+                div()
+                    .id("zoom-percent")
+                    .test_support()
+                    .min_w(px(48.))
+                    .text_center()
+                    .text_size(px(12.))
+                    .child(format!("{:.0}%", self.display_zoom(window))),
+            )
             .child(self.command("zoom-in", IconName::Plus, "放大", &ZoomIn, cx))
             .into_any_element()
     }

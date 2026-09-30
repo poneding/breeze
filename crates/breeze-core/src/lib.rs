@@ -28,6 +28,7 @@ impl Mode {
 pub enum Zoom {
     FitPage,
     FitWidth,
+    ActualSize,
     Percent(u16),
 }
 impl Zoom {
@@ -35,15 +36,18 @@ impl Zoom {
         match self {
             Self::FitPage => "适合页面".into(),
             Self::FitWidth => "适合宽度".into(),
-            Self::Percent(n) => format!("{n}%"),
+            Self::ActualSize => "实际大小".into(),
+            Self::Percent(_) => "自定义比例".into(),
         }
     }
-    pub fn step(self, delta: i16) -> Self {
-        let current = match self {
-            Self::Percent(n) => n as i16,
-            _ => 100,
+    /// Move to the next grid boundary in the requested direction, including from fit scales.
+    pub fn step_percent(current: f32, forward: bool) -> Self {
+        let step = if forward {
+            (current / 25.).floor() + 1.
+        } else {
+            (current / 25.).ceil() - 1.
         };
-        Self::Percent((current + delta).clamp(25, 200) as u16)
+        Self::Percent((step * 25.).clamp(25., 200.) as u16)
     }
 }
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -265,8 +269,19 @@ mod tests {
     }
     #[test]
     fn zoom_bounded() {
-        assert_eq!(Zoom::Percent(25).step(-25), Zoom::Percent(25));
-        assert_eq!(Zoom::Percent(200).step(25), Zoom::Percent(200));
+        for (current, smaller, larger) in [
+            (167., 150, 175),
+            (175., 150, 200),
+            (174.9, 150, 175),
+            (175.1, 175, 200),
+            (25., 25, 50),
+            (200., 175, 200),
+            (12., 25, 25),
+            (260., 200, 200),
+        ] {
+            assert_eq!(Zoom::step_percent(current, false), Zoom::Percent(smaller));
+            assert_eq!(Zoom::step_percent(current, true), Zoom::Percent(larger));
+        }
     }
     #[test]
     fn tabs_do_not_share_navigation() {

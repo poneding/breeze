@@ -526,7 +526,7 @@ fn categories_are_user_owned_and_layout_roundtrips(cx: &mut TestAppContext) {
             assert_eq!(view.categories.len(), 1);
             assert_eq!(view.categories[0].id, 2);
             assert_eq!(view.books[0].category, 2);
-            assert_eq!(view.snapshot().version, 4);
+            assert_eq!(view.snapshot().version, 5);
         });
     })
     .unwrap();
@@ -844,7 +844,7 @@ fn modified_wheel_zooms_without_scrolling_and_plain_wheel_still_scrolls(cx: &mut
         window.press("secondary--", cx);
         assert_eq!(
             view.read(cx).books[0].state.zoom,
-            Zoom::Percent((fitted.round() as i16 - 25).clamp(25, 200) as u16)
+            Zoom::step_percent(fitted.round(), false)
         );
     })
     .unwrap();
@@ -927,6 +927,96 @@ fn actual_page_surfaces_request_new_pixels_after_zoom_and_display_changes(cx: &m
         assert!(scales.iter().all(|s| (*s - 8. / 3.).abs() < 0.001));
         view.update(cx, |view, cx| view.show_home(cx));
         assert!(view.read(cx).raster.requested_scales().is_empty());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn zoom_mode_is_separate_from_computed_percentage_and_snaps_to_grid(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| {
+            view.reading.sizes = Arc::new(vec![(612., 792.); 8]);
+            view.loading = true;
+            view.set_zoom(Zoom::FitWidth, cx);
+        });
+        window.render_frame(cx);
+        let fit = view.read(cx).display_zoom(window);
+        assert!((fit - 768. / 612. * 75.).abs() < 0.01);
+        assert!(window.find("zoom").bounds().right() <= window.find("zoom-out").bounds().left());
+        assert!(
+            window.find("zoom-out").bounds().right() <= window.find("zoom-percent").bounds().left()
+        );
+        window.press("secondary-b", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).books[0].state.zoom, Zoom::FitWidth);
+        assert!(view.read(cx).display_zoom(window) > fit);
+        window.press("secondary-0", cx);
+        assert_eq!(view.read(cx).books[0].state.zoom, Zoom::ActualSize);
+        assert_eq!(view.read(cx).display_zoom(window), 100.);
+        window.click("zoom", cx);
+        for _ in 0..4 {
+            window.press("down", cx);
+        }
+        window.press("enter", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).books[0].state.zoom, Zoom::Percent(100));
+        assert_eq!(view.read(cx).books[0].state.zoom.label(), "自定义比例");
+        assert_eq!(view.read(cx).display_zoom(window), 100.);
+        window.focus(&view.read(cx).focus.clone(), cx);
+        for (key, expected) in [("secondary-+", 175), ("secondary--", 150)] {
+            view.update(cx, |view, cx| view.set_zoom(Zoom::Percent(167), cx));
+            window.press(key, cx);
+            assert_eq!(view.read(cx).books[0].state.zoom, Zoom::Percent(expected));
+            assert_eq!(
+                view.read(cx).reading_preferences.zoom,
+                Zoom::Percent(expected)
+            );
+        }
+        window.press("secondary-0", cx);
+        window.click("zoom-out", cx);
+        assert_eq!(view.read(cx).books[0].state.zoom, Zoom::Percent(75));
+        window.press("secondary-9", cx);
+        assert_eq!(view.read(cx).books[0].state.zoom, Zoom::FitPage);
+        window.click("zoom-in", cx);
+        assert!(matches!(
+            view.read(cx).books[0].state.zoom,
+            Zoom::Percent(_)
+        ));
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn actual_size_and_custom_100_restore_as_distinct_modes(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            for zoom in [
+                Zoom::FitPage,
+                Zoom::FitWidth,
+                Zoom::ActualSize,
+                Zoom::Percent(100),
+                Zoom::Percent(167),
+            ] {
+                view.set_zoom(zoom, cx);
+                let state =
+                    serde_json::from_slice(&serde_json::to_vec(&view.snapshot()).unwrap()).unwrap();
+                view.set_zoom(Zoom::FitPage, cx);
+                view.restore(state, cx);
+                assert_eq!(view.books[0].state.zoom, zoom);
+                assert_eq!(view.reading_preferences.zoom, zoom);
+            }
+            view.set_zoom(Zoom::Percent(100), cx);
+            let mut legacy = view.snapshot();
+            legacy.version = 4;
+            view.restore(legacy, cx);
+            assert_eq!(view.books[0].state.zoom, Zoom::ActualSize);
+            assert_eq!(view.reading_preferences.zoom, Zoom::ActualSize);
+        });
     })
     .unwrap();
 }

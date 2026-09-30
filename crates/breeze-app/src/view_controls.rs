@@ -17,7 +17,7 @@ impl Breeze {
             } else if selected.is_spread() {
                 IconName::Columns2
             } else {
-                IconName::RectangleVertical
+                IconName::File
             })
             .label(selected.label())
             .accessibility_label(format!("阅读布局：{}", selected.label()))
@@ -26,7 +26,7 @@ impl Breeze {
                 menu.check_side(Side::Right)
                     .item(
                         PopupMenuItem::new("单页")
-                            .icon(IconName::RectangleVertical)
+                            .icon(IconName::File)
                             .checked(!selected.is_spread())
                             .on_click(window.listener_for(&view, |this, _, _, cx| {
                                 this.set_layout(
@@ -65,11 +65,11 @@ impl Breeze {
     pub(super) fn zoom_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let selected = self.books[self.active].state.zoom;
         let view = cx.entity();
-        let (icon, label) = match selected {
+        let (icon, label): (_, String) = match selected {
             Zoom::FitPage => (IconName::Maximize, "适合页面".into()),
             Zoom::FitWidth => (IconName::MoveHorizontal, "适合宽度".into()),
-            Zoom::Percent(100) => (IconName::Scan, "实际大小".into()),
-            Zoom::Percent(_) => (IconName::ZoomIn, selected.label()),
+            Zoom::ActualSize => (IconName::Scan, "实际大小".into()),
+            Zoom::Percent(_) => (IconName::SlidersHorizontal, "自定义比例".into()),
         };
         Button::new("zoom")
             .ghost()
@@ -101,10 +101,20 @@ impl Breeze {
                     .item(
                         PopupMenuItem::new("实际大小")
                             .icon(IconName::Scan)
-                            .checked(selected == Zoom::Percent(100))
+                            .checked(selected == Zoom::ActualSize)
                             .action(Box::new(ActualSize))
                             .on_click(window.listener_for(&view, |this, _, window, cx| {
                                 this.execute(&ActualSize, window, cx)
+                            })),
+                    )
+                    .item(
+                        PopupMenuItem::new("自定义比例")
+                            .icon(IconName::SlidersHorizontal)
+                            .checked(matches!(selected, Zoom::Percent(_)))
+                            .on_click(window.listener_for(&view, |this, _, window, cx| {
+                                let percent =
+                                    this.display_zoom(window).round().clamp(25., 200.) as u16;
+                                this.set_zoom(Zoom::Percent(percent), cx);
                             })),
                     )
             })
@@ -118,7 +128,7 @@ impl Breeze {
     }
 
     pub(super) fn stepped_zoom(&self, delta: i16, window: &Window) -> Zoom {
-        Zoom::Percent((self.display_zoom(window).round() + delta as f32).clamp(25., 200.) as u16)
+        Zoom::step_percent(self.display_zoom(window).round(), delta > 0)
     }
 
     pub(super) fn scroll_zoom(
@@ -131,7 +141,15 @@ impl Breeze {
             return;
         }
         let delta = match event.delta {
-            ScrollDelta::Lines(delta) => delta.y * 25.,
+            ScrollDelta::Lines(delta) => {
+                if delta.y.is_finite() && delta.y != 0. {
+                    self.set_zoom(
+                        Zoom::step_percent(self.display_zoom(window).round(), delta.y > 0.),
+                        cx,
+                    );
+                }
+                return;
+            }
             ScrollDelta::Pixels(delta) => f32::from(delta.y) * 0.25,
         };
         if !delta.is_finite() || delta == 0. {

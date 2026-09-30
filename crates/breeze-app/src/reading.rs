@@ -166,6 +166,7 @@ fn page_scale(points: (f32, f32), width: f32, height: f32, zoom: Zoom) -> f32 {
     match zoom {
         Zoom::FitPage => (width / points.0).min(height / points.1),
         Zoom::FitWidth => width / points.0,
+        Zoom::ActualSize => 96. / 72.,
         Zoom::Percent(n) => n as f32 / 100. * 96. / 72.,
     }
     .max(0.01)
@@ -622,8 +623,10 @@ impl Breeze {
     }
     pub(super) fn display_zoom(&self, window: &Window) -> f32 {
         let state = &self.books[self.active].state;
-        if let Zoom::Percent(n) = state.zoom {
-            return n as f32;
+        match state.zoom {
+            Zoom::Percent(n) => return n as f32,
+            Zoom::ActualSize => return 100.,
+            _ => {}
         }
         let (width, height) = self.reading_viewport_size(window);
         let sizes = &self.reading.sizes;
