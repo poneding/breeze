@@ -5,6 +5,7 @@ use gpui_kit::component::TitleBar;
 pub fn bind(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("secondary-o", Open, Some("Breeze")),
+        KeyBinding::new("secondary-shift-l", CycleLayout, Some("Breeze && !Input")),
         KeyBinding::new("secondary-,", Preferences, Some("Breeze")),
         KeyBinding::new("secondary-shift-h", Home, Some("Breeze")),
         KeyBinding::new("secondary-w", CloseTab, Some("Breeze")),
@@ -27,6 +28,17 @@ pub fn bind(cx: &mut App) {
         KeyBinding::new("secondary-0", ActualSize, Some("Breeze && !Input")),
         KeyBinding::new("secondary-9", FitPage, Some("Breeze && !Input")),
         KeyBinding::new("secondary-8", FitWidth, Some("Breeze && !Input")),
+        KeyBinding::new("secondary-s", SaveAnnotations, Some("Breeze")),
+        KeyBinding::new("secondary-shift-e", ExportPdf, Some("Breeze")),
+        KeyBinding::new("secondary-shift-s", SaveAnnotationsAs, Some("Breeze")),
+        KeyBinding::new("secondary-z", UndoAnnotation, Some("Breeze && !Input")),
+        KeyBinding::new(
+            "secondary-shift-z",
+            RedoAnnotation,
+            Some("Breeze && !Input"),
+        ),
+        KeyBinding::new("secondary-f", SearchDocument, Some("Breeze")),
+        KeyBinding::new("secondary-c", CopySelection, Some("Breeze && !Input")),
         KeyBinding::new("secondary-q", Quit, None),
     ]);
 }
@@ -43,7 +55,7 @@ impl Breeze {
         let click_action = action.boxed_clone();
         Button::new(id)
             .ghost()
-            .xsmall()
+            .small()
             .icon(icon)
             .accessibility_label(label.into())
             .tooltip_with_action(
@@ -61,6 +73,9 @@ impl Breeze {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.restoring || self.closing {
+            return;
+        }
         if action.as_any().is::<Open>() {
             self.choose_file(cx);
         } else if action.as_any().is::<Home>() {
@@ -88,7 +103,38 @@ impl Breeze {
                 self.open_book(tabs[(current + step) % tabs.len()], cx);
             }
         } else if self.screen == Screen::Reader {
-            if action.as_any().is::<CloseTab>() {
+            if action.as_any().is::<ExportPdf>() {
+                self.choose_pdf_export(cx);
+            } else if action.as_any().is::<SaveAnnotations>() {
+                self.save_annotations(cx);
+            } else if action.as_any().is::<SaveAnnotationsAs>() {
+                self.save_annotations_as(cx);
+            } else if action.as_any().is::<UndoAnnotation>() {
+                self.books[self.active].annotations.history.undo();
+                self.schedule_annotation_save(self.active, cx);
+                cx.notify();
+            } else if action.as_any().is::<RedoAnnotation>() {
+                self.books[self.active].annotations.history.redo();
+                self.schedule_annotation_save(self.active, cx);
+                cx.notify();
+            } else if action.as_any().is::<CycleLayout>() {
+                let next = match self.books[self.active].state.layout {
+                    ReadingLayout::Single => ReadingLayout::Continuous,
+                    ReadingLayout::Continuous => ReadingLayout::Spread,
+                    ReadingLayout::Spread => ReadingLayout::Single,
+                };
+                self.set_layout(next, cx);
+            } else if action.as_any().is::<CopySelection>() {
+                if !self.selected_text.is_empty() {
+                    cx.write_to_clipboard(ClipboardItem::new_string(self.selected_text.clone()));
+                }
+            } else if action.as_any().is::<SearchDocument>() {
+                self.search_open = !self.search_open;
+                self.sidebar = true;
+                self.search_input
+                    .update(cx, |input, cx| input.focus(window, cx));
+                cx.notify();
+            } else if action.as_any().is::<CloseTab>() {
                 self.close_book(self.active, cx);
             } else if action.as_any().is::<NextPage>() {
                 self.next_page(1, cx);
@@ -145,6 +191,11 @@ impl Breeze {
         }
     }
     pub(super) fn close_book(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.books[index].annotations.dirty() || self.books[index].annotations.saving {
+            self.message = "请先保存当前文档的批注，再关闭标签".into();
+            cx.notify();
+            return;
+        }
         self.books[index].opened = false;
         if self.active == index {
             if let Some(next) = self.books.iter().position(|b| b.opened) {
@@ -158,87 +209,157 @@ impl Breeze {
     }
     pub(super) fn header(&self, cx: &mut Context<Self>) -> TitleBar {
         let p = self.p();
-        TitleBar::new().bg(p.panel).border_color(p.line).child(
-            row()
-                .size_full()
-                .min_w_0()
-                .gap_1()
-                .pr_2()
-                .child(
-                    self.command("home-tab", IconName::House, "主页", &Home, cx)
-                        .selected(self.screen == Screen::Home),
-                )
-                .child(
-                    row()
-                        .id("document-tabs")
-                        .h_full()
-                        .flex_1()
-                        .min_w_0()
-                        .overflow_x_scroll()
-                        .gap_1()
-                        .children(self.books.iter().enumerate().filter(|(_, b)| b.opened).map(
-                            |(index, book)| {
-                                row()
-                                    .h(px(28.))
-                                    .min_w(px(120.))
-                                    .max_w(px(228.))
-                                    .gap_1()
-                                    .px_1()
-                                    .rounded_t_md()
-                                    .when(
-                                        self.screen == Screen::Reader && index == self.active,
-                                        |d| d.bg(p.bg),
-                                    )
-                                    .child(
-                                        Button::new(("document", index))
-                                            .ghost()
-                                            .xsmall()
-                                            .max_w(px(190.))
-                                            .overflow_hidden()
-                                            .icon(IconName::FileText)
-                                            .label(book.title.clone())
-                                            .tooltip(book.title.clone())
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.open_book(index, cx)
-                                            })),
-                                    )
-                                    .child(
-                                        Button::new(("close", index))
-                                            .ghost()
-                                            .xsmall()
-                                            .icon(IconName::X)
-                                            .accessibility_label("关闭标签")
-                                            .tooltip_with_action(
-                                                "关闭标签",
-                                                &CloseTab,
-                                                Some("Breeze"),
-                                            )
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.close_book(index, cx)
-                                            })),
-                                    )
-                            },
-                        )),
-                )
-                .child(self.command("open", IconName::FolderOpen, "打开文档", &Open, cx))
-                .child(self.command(
-                    "theme",
-                    if self.theme_preference == ThemePreference::System {
-                        IconName::Monitor
-                    } else if self.dark {
-                        IconName::Moon
-                    } else {
-                        IconName::Sun
-                    },
-                    "主题模式",
-                    &CycleTheme,
-                    cx,
-                ))
-                .child(
-                    self.command("settings", IconName::Settings2, "设置", &Preferences, cx)
-                        .selected(self.screen == Screen::Settings),
-                ),
-        )
+        TitleBar::new()
+            .on_close_window(cx.listener(|this, _, window, cx| {
+                if this.request_close(window, cx) {
+                    window.remove_window();
+                }
+            }))
+            .bg(p.panel)
+            .border_color(p.line)
+            .child(
+                row()
+                    .id("titlebar-content")
+                    .test_support()
+                    .size_full()
+                    .min_w_0()
+                    .gap_1()
+                    .pr_2()
+                    .child(
+                        self.command("home-tab", IconName::House, "主页", &Home, cx)
+                            .selected(self.screen == Screen::Home),
+                    )
+                    .child(
+                        row()
+                            .id("document-tabs")
+                            .h_full()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_x_scroll()
+                            .gap_1()
+                            .children(self.books.iter().enumerate().filter(|(_, b)| b.opened).map(
+                                |(index, book)| {
+                                    let active =
+                                        self.screen == Screen::Reader && index == self.active;
+                                    row()
+                                        .h(px(28.))
+                                        .gap_1()
+                                        .when(
+                                            !active
+                                                && self.books[..index]
+                                                    .iter()
+                                                    .enumerate()
+                                                    .rfind(|(_, b)| b.opened)
+                                                    .is_some_and(|(previous, _)| {
+                                                        !(self.screen == Screen::Reader
+                                                            && previous == self.active)
+                                                    }),
+                                            |d| d.child(div().w(px(1.)).h(px(14.)).bg(p.line)),
+                                        )
+                                        .child(
+                                            row()
+                                                .id(("document-tab", index))
+                                                .group("document-tab")
+                                                .h(px(28.))
+                                                .min_w(px(128.))
+                                                .max_w(px(228.))
+                                                .px_2()
+                                                .gap_1()
+                                                .rounded_md()
+                                                .when(active, |d| d.bg(p.bg).shadow_sm())
+                                                .hover(move |s| {
+                                                    s.bg(if active { p.bg } else { p.tint })
+                                                })
+                                                .on_click(cx.listener(
+                                                    move |this, _, window, cx| {
+                                                        window.focus(&this.focus, cx);
+                                                        this.open_book(index, cx);
+                                                    },
+                                                ))
+                                                .child(
+                                                    Button::new(("document", index))
+                                                        .ghost()
+                                                        .small()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .accessibility_label(book.title.clone())
+                                                        .tooltip(book.title.clone())
+                                                        .child(
+                                                            row()
+                                                                .w_full()
+                                                                .gap_1()
+                                                                .child(
+                                                                    gpui_kit::component::Icon::new(
+                                                                        IconName::FileText,
+                                                                    )
+                                                                    .small(),
+                                                                )
+                                                                .child(
+                                                                    div()
+                                                                        .flex_1()
+                                                                        .min_w_0()
+                                                                        .text_ellipsis()
+                                                                        .child(book.title.clone()),
+                                                                ),
+                                                        )
+                                                        .on_click(cx.listener(
+                                                            move |this, _, window, cx| {
+                                                                cx.stop_propagation();
+                                                                window.focus(&this.focus, cx);
+                                                                this.open_book(index, cx);
+                                                            },
+                                                        )),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .w(px(24.))
+                                                        .h(px(24.))
+                                                        .invisible()
+                                                        .group_hover("document-tab", |s| {
+                                                            s.visible()
+                                                        })
+                                                        .child(
+                                                            Button::new(("close", index))
+                                                                .ghost()
+                                                                .small()
+                                                                .icon(IconName::X)
+                                                                .accessibility_label("关闭标签")
+                                                                .tooltip_with_action(
+                                                                    "关闭标签",
+                                                                    &CloseTab,
+                                                                    Some("Breeze"),
+                                                                )
+                                                                .on_click(cx.listener(
+                                                                    move |this, _, _, cx| {
+                                                                        cx.stop_propagation();
+                                                                        this.close_book(index, cx);
+                                                                    },
+                                                                )),
+                                                        ),
+                                                ),
+                                        )
+                                },
+                            )),
+                    )
+                    .child(self.command("open", IconName::FolderOpen, "打开文档", &Open, cx))
+                    .child(self.command(
+                        "theme",
+                        if self.theme_preference == ThemePreference::System {
+                            IconName::Monitor
+                        } else if self.dark {
+                            IconName::Moon
+                        } else {
+                            IconName::Sun
+                        },
+                        "主题模式",
+                        &CycleTheme,
+                        cx,
+                    ))
+                    .child(
+                        self.command("settings", IconName::Settings2, "设置", &Preferences, cx)
+                            .selected(self.screen == Screen::Settings),
+                    ),
+            )
     }
 }
 fn action_label(action: &dyn Action) -> &'static str {
@@ -249,6 +370,14 @@ fn action_label(action: &dyn Action) -> &'static str {
             }
         };
     }
+    name!(SaveAnnotations, "保存批注旁置文件");
+    name!(ExportPdf, "导出批注 PDF · 新文件，不覆盖原件");
+    name!(SaveAnnotationsAs, "选择新的批注保存位置");
+    name!(UndoAnnotation, "撤销批注");
+    name!(RedoAnnotation, "重做批注");
+    name!(SearchDocument, "搜索文档");
+    name!(CycleLayout, "切换阅读布局");
+    name!(CopySelection, "复制选中文字");
     name!(Open, "打开文档");
     name!(Home, "主页");
     name!(Preferences, "设置");

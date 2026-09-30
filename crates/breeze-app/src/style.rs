@@ -40,7 +40,7 @@ pub fn apply(dark: bool, scheme: ColorScheme, cx: &mut App) {
     );
     let p = Palette::new(dark, scheme);
     Theme::update(cx, |t| {
-        t.font_size = px(14.);
+        t.font_size = px(15.);
         t.radius = px(5.);
         t.radius_lg = px(7.);
         t.colors.background = p.bg;
@@ -88,7 +88,7 @@ pub fn column() -> Div {
 }
 pub fn eyebrow(text: impl Into<SharedString>, p: Palette) -> Div {
     div()
-        .text_size(px(10.))
+        .text_size(px(11.))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(p.muted)
         .child(text.into())

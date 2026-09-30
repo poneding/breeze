@@ -1,7 +1,8 @@
 //! User preference is distinct from the currently resolved platform appearance.
 use gpui_kit::WindowAppearance;
+use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ThemePreference {
     #[default]
     System,
@@ -38,7 +39,7 @@ impl ThemePreference {
         }
     }
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ColorScheme {
     #[default]
     Neutral,

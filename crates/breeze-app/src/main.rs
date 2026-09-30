@@ -1,15 +1,24 @@
 #[cfg(test)]
 use core::prelude::v1::test;
 use gpui_kit::prelude::FluentBuilder;
+mod annotations;
 mod appearance;
+mod export;
+mod persistence;
+mod search;
+mod window_policy;
+use annotations::DocumentAnnotations;
+use persistence::SavedState;
+mod categories;
 mod commands;
 mod home;
 mod reader;
+mod reading;
 mod settings;
 mod style;
 use anyhow::Result;
 use appearance::{ColorScheme, ThemePreference};
-use breeze_core::{Mode, ReaderState, Zoom};
+use breeze_core::{Mode, ReaderState, ReadingLayout, Zoom};
 use breeze_pdf::{PdfWorker, Pixels, Source};
 use gpui_kit::component::{ResizableState, TitleBar};
 use gpui_kit::{
@@ -49,7 +58,15 @@ actions!(
         ZoomOut,
         ActualSize,
         FitPage,
-        FitWidth
+        FitWidth,
+        SaveAnnotations,
+        ExportPdf,
+        SaveAnnotationsAs,
+        UndoAnnotation,
+        RedoAnnotation,
+        SearchDocument,
+        CopySelection,
+        CycleLayout
     ]
 );
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -65,21 +82,56 @@ struct Book {
     category: usize,
     state: ReaderState,
     opened: bool,
+    last_opened: u64,
+    annotations: DocumentAnnotations,
 }
 struct Preview {
+    page: usize,
+    geometry: breeze_core::annotations::PageGeometry,
+    glyphs: Vec<breeze_pdf::Glyph>,
+    text_warning: Option<String>,
     image: Arc<RenderImage>,
     points: (f32, f32),
-    outline: Vec<breeze_pdf::Outline>,
-    thumbnails: Vec<(usize, Arc<RenderImage>)>,
+    outline: Arc<Vec<breeze_pdf::Outline>>,
+    bytes: usize,
     elapsed_ms: f64,
 }
 struct Breeze {
+    page_task: Option<Task<()>>,
+    reading: reading::ReadingView,
     worker: PdfWorker,
+    window_handle: AnyWindowHandle,
+    pending_window_policy: bool,
+    pending_fit: Option<window_policy::PendingFit>,
+    export_busy: bool,
+    export_notice: Option<String>,
+    last_export: Option<PathBuf>,
+    storage: Option<breeze_storage::StateStore<SavedState>>,
+    storage_ready: bool,
+    restoring: bool,
+    closing: bool,
+    close_ready: bool,
+    storage_error: Option<String>,
+    last_snapshot: Option<SavedState>,
+    state_save_generation: u64,
+    data_dir: Option<PathBuf>,
+    surface_bounds: Option<Bounds<gpui_kit::Pixels>>,
+    gesture: Vec<breeze_core::annotations::Point>,
+    selected_text: String,
+    search_input: Entity<InputState>,
+    search_open: bool,
+    search_busy: bool,
+    search_generation: u64,
+    search_hits: Vec<breeze_pdf::SearchHit>,
+    search_notice: String,
+    search_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    library_input: Entity<InputState>,
     _subscriptions: Vec<Subscription>,
     books: Vec<Book>,
     active: usize,
     screen: Screen,
     dark: bool,
+    system_appearance: WindowAppearance,
     theme_preference: ThemePreference,
     light_scheme: ColorScheme,
     dark_scheme: ColorScheme,
@@ -88,9 +140,14 @@ struct Breeze {
     sidebar: bool,
     thumbs: bool,
     library_filter: usize,
+    categories: Vec<breeze_core::library::Category>,
+    next_category_id: usize,
+    category_input: Entity<InputState>,
+    category_edit: Option<usize>,
+    category_form: bool,
     generation: u64,
     loading: bool,
-    preview: Option<Preview>,
+    preview: Option<Arc<Preview>>,
     message: String,
     page_input: Entity<InputState>,
     font_input: Entity<InputState>,
@@ -122,6 +179,24 @@ impl Breeze {
                 window.focus(&this.focus, cx);
             }
         });
+        let search_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder("搜索文档文字（回车）"));
+        let search_subscription = cx.subscribe(&search_input, |this, _, event, cx| {
+            if matches!(event, InputEvent::PressEnter { .. }) {
+                this.run_search(cx);
+            }
+        });
+        let library_input = cx.new(|cx| InputState::new(window, cx).placeholder("筛选文档名称"));
+        let library_observer = cx.observe(&library_input, |_, _, cx| cx.notify());
+        let category_input = cx.new(|cx| InputState::new(window, cx).placeholder("分类名称"));
+        let category_submission = cx.subscribe(&category_input, |this, _, event, cx| {
+            if this.category_form && matches!(event, InputEvent::PressEnter { .. }) {
+                this.save_category(cx);
+            }
+        });
+        let window_bounds_observer = cx.observe_window_bounds(window, |this, window, cx| {
+            this.on_native_window_bounds(window, cx)
+        });
         let navigation_split = cx.new(|_| ResizableState::default());
         let resize_observer = cx.observe(&navigation_split, |this, state, cx| {
             if let Some(width) = state.read(cx).sizes().first() {
@@ -133,6 +208,7 @@ impl Breeze {
             }
         });
         let appearance_observer = cx.observe_window_appearance(window, |this, window, cx| {
+            this.system_appearance = window.appearance();
             if this.theme_preference == ThemePreference::System {
                 let dark = this.theme_preference.resolve(window.appearance());
                 if this.dark != dark {
@@ -143,24 +219,59 @@ impl Breeze {
             }
         });
         Self {
+            page_task: None,
+            reading: reading::ReadingView::default(),
             worker,
+            window_handle: window.window_handle(),
+            pending_window_policy: false,
+            pending_fit: None,
+            export_busy: false,
+            export_notice: None,
+            last_export: None,
+            storage: None,
+            storage_ready: false,
+            restoring: false,
+            closing: false,
+            close_ready: false,
+            storage_error: None,
+            last_snapshot: None,
+            state_save_generation: 0,
+            data_dir: None,
+            surface_bounds: None,
+            gesture: Vec::new(),
+            selected_text: String::new(),
+            search_input,
+            search_open: false,
+            search_busy: false,
+            search_generation: 0,
+            search_hits: Vec::new(),
+            search_notice: String::new(),
+            search_cancel: None,
+            library_input,
             _subscriptions: vec![
                 subscription,
                 page_submission,
                 resize_observer,
                 appearance_observer,
+                window_bounds_observer,
+                search_subscription,
+                library_observer,
+                category_submission,
             ],
             books: vec![Book {
                 source: Source::Sample,
                 title: "Field notes · 阅读的留白".into(),
                 favorite: false,
-                category: 1,
+                category: 0,
                 state: ReaderState::default(),
                 opened: false,
+                last_opened: 0,
+                annotations: DocumentAnnotations::default(),
             }],
             active: 0,
             screen: Screen::Home,
             dark: ThemePreference::System.resolve(window.appearance()),
+            system_appearance: window.appearance(),
             theme_preference: ThemePreference::System,
             light_scheme: ColorScheme::Neutral,
             dark_scheme: ColorScheme::Neutral,
@@ -169,6 +280,11 @@ impl Breeze {
             sidebar: true,
             thumbs: false,
             library_filter: 0,
+            categories: Vec::new(),
+            next_category_id: 1,
+            category_input,
+            category_edit: None,
+            category_form: false,
             generation: 0,
             loading: false,
             preview: None,
@@ -203,24 +319,57 @@ impl Breeze {
         )
     }
     fn show_home(&mut self, cx: &mut Context<Self>) {
+        self.page_task = None;
+        self.reading.cancel();
+        self.cancel_search();
+        self.pending_window_policy = false;
+        self.pending_fit = None;
+        self.search_open = false;
         self.screen = Screen::Home;
         self.generation += 1;
         self.loading = false;
         cx.notify();
     }
     fn open_book(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.active != index {
+            self.cancel_search();
+            self.search_open = false;
+        }
+        self.pending_window_policy = !self.books[index].opened;
         self.active = index;
         self.tool = 0;
         self.books[index].opened = true;
+        self.books[index].last_opened = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         self.screen = Screen::Reader;
         self.message.clear();
         self.load(cx);
     }
     fn load(&mut self, cx: &mut Context<Self>) {
+        self.page_task = None;
+        self.reading.cancel();
+        self.pending_fit = None;
+        self.gesture.clear();
+        self.selected_text.clear();
+        self.surface_bounds = None;
         self.generation += 1;
         let generation = self.generation;
         self.loading = true;
-        self.preview = None;
+        let source = self.books[self.active].source.clone();
+        let current = self.books[self.active].state.navigation.page();
+        if self.reading.source.as_ref() != Some(&source) {
+            self.reading = reading::ReadingView::default();
+            self.reading.source = Some(source);
+        }
+        self.reading
+            .pages_scroll
+            .scroll_to_item(current, ScrollStrategy::Top);
+        self.reading
+            .thumbs_scroll
+            .scroll_to_item(current, ScrollStrategy::Center);
+        self.preview = self.reading.page(current);
         let receiver = match self.worker.request(
             self.books[self.active].source.clone(),
             self.books[self.active].state.navigation.page(),
@@ -228,12 +377,13 @@ impl Breeze {
             Ok(r) => r,
             Err(e) => {
                 self.loading = false;
+                self.pending_window_policy = false;
                 self.message = format!("{e:#}");
                 cx.notify();
                 return;
             }
         };
-        cx.spawn(async move |this, cx| {
+        self.page_task = Some(cx.spawn(async move |this, cx| {
             let result = receiver.await;
             let _ = this.update(cx, |this, cx| {
                 if generation != this.generation {
@@ -245,44 +395,68 @@ impl Breeze {
                         let nav = &mut this.books[this.active].state.navigation;
                         nav.set_total(page.total);
                         nav.go_to(page.page);
-                        let converted = (|| -> Result<Preview> {
-                            Ok(Preview {
-                                image: texture(page.pixels)?,
-                                points: page.points,
-                                outline: page.outline,
-                                thumbnails: page
-                                    .thumbnails
-                                    .into_iter()
-                                    .map(|(n, p)| Ok((n, texture(p)?)))
-                                    .collect::<Result<Vec<_>>>()?,
-                                elapsed_ms: page.elapsed_ms,
-                            })
-                        })();
+                        let fingerprint = page.fingerprint.clone();
+                        if !this.reading.fingerprint.is_empty()
+                            && this.reading.fingerprint != fingerprint
+                        {
+                            this.reading = reading::ReadingView::default();
+                            this.reading.source = Some(this.books[this.active].source.clone());
+                            this.reading
+                                .pages_scroll
+                                .scroll_to_item(page.page, ScrollStrategy::Top);
+                            this.reading
+                                .thumbs_scroll
+                                .scroll_to_item(page.page, ScrollStrategy::Center);
+                        }
+                        this.reading.sizes = page.page_sizes.clone();
+                        this.reading.fingerprint = fingerprint.clone();
+                        let page_index = page.page;
+                        let converted = Preview::from_page(page);
                         match converted {
-                            Ok(preview) => this.preview = Some(preview),
+                            Ok(preview) => {
+                                this.reading.insert(page_index, preview.clone());
+                                this.preview = Some(preview);
+                                this.prepare_annotations(fingerprint, cx);
+                                this.apply_opening_policy(cx);
+                            }
                             Err(e) => this.message = format!("{e:#}"),
                         }
                     }
                     Ok(Err(error)) => this.message = format!("{error:#}"),
                     Err(_) => this.message = "请求已取消，请重新打开文档".into(),
                 }
+                if this.preview.is_none() {
+                    this.pending_window_policy = false;
+                }
+                this.pump_visible(cx);
                 cx.notify();
             });
-        })
-        .detach();
+        }));
         cx.notify();
+    }
+    fn forget_book(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.books[index].annotations.dirty() || self.books[index].annotations.saving {
+            self.message = "请先保存批注，再移除资料库条目".into();
+            cx.notify();
+            return;
+        }
+        if self.books[index].source == Source::Sample {
+            return;
+        }
+        self.books.remove(index);
+        if self.active >= index {
+            self.active = self.active.saturating_sub(1);
+        }
+        self.show_home(cx);
     }
     fn next_page(&mut self, delta: i32, cx: &mut Context<Self>) {
         if self.screen != Screen::Reader {
             return;
         }
+        let layout = self.books[self.active].state.layout;
         let n = &mut self.books[self.active].state.navigation;
         let old = n.page();
-        if delta > 0 {
-            n.next()
-        } else {
-            n.previous()
-        }
+        n.go_to(layout.step(old, n.total(), delta > 0));
         if n.page() != old {
             self.load(cx);
         }
@@ -311,6 +485,22 @@ impl Breeze {
         .detach();
     }
     fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        let work = cx.background_spawn(async move {
+            std::fs::canonicalize(&path).map_err(|e| format!("无法打开 {}：{e}", path.display()))
+        });
+        cx.spawn(async move |this, cx| {
+            let result = work.await;
+            let _ = this.update(cx, |this, cx| match result {
+                Ok(path) => this.open_canonical_path(path, cx),
+                Err(error) => {
+                    this.message = error;
+                    cx.notify();
+                }
+            });
+        })
+        .detach();
+    }
+    fn open_canonical_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         if let Some(index) = self
             .books
             .iter()
@@ -323,13 +513,20 @@ impl Breeze {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "文档".into());
+        if self.books.len() >= 4096 {
+            self.message = "资料库条目已达上限".into();
+            cx.notify();
+            return;
+        }
         self.books.push(Book {
             source: Source::File(path),
             title,
             favorite: false,
             category: 0,
             state: ReaderState::default(),
-            opened: true,
+            opened: false,
+            last_opened: 0,
+            annotations: DocumentAnnotations::default(),
         });
         self.open_book(self.books.len() - 1, cx);
     }
@@ -359,16 +556,38 @@ impl Breeze {
 impl Render for Breeze {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.p();
-        let body = match self.screen {
-            Screen::Home => self.home(cx).into_any_element(),
-            Screen::Reader => self.reader(window, cx).into_any_element(),
-            Screen::Settings => self.settings(cx).into_any_element(),
+        if self.screen == Screen::Reader
+            && !self.page_input.read(cx).focus_handle(cx).is_focused(window)
+        {
+            let value = (self.books[self.active].state.navigation.page() + 1).to_string();
+            if self.page_input.read(cx).value().as_ref() != value {
+                self.page_input
+                    .update(cx, |input, cx| input.set_value(value, window, cx));
+            }
+        }
+        let body = if self.restoring || self.closing {
+            column()
+                .flex_1()
+                .items_center()
+                .justify_center()
+                .child(if self.closing {
+                    "正在保存本地状态…"
+                } else {
+                    "正在恢复本地阅读空间…"
+                })
+                .into_any_element()
+        } else {
+            match self.screen {
+                Screen::Home => self.home(cx).into_any_element(),
+                Screen::Reader => self.reader(window, cx).into_any_element(),
+                Screen::Settings => self.settings(cx).into_any_element(),
+            }
         };
         column()
             .size_full()
             .bg(p.bg)
             .text_color(p.text)
-            .text_size(px(12.))
+            .text_size(px(13.))
             .track_focus(&self.focus)
             .key_context("Breeze")
             .on_action(
@@ -443,7 +662,48 @@ impl Render for Breeze {
             .on_action(
                 cx.listener(|this, action: &FitWidth, window, cx| this.execute(action, window, cx)),
             )
+            .on_action(
+                cx.listener(|this, action: &ExportPdf, window, cx| {
+                    this.execute(action, window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, action: &SaveAnnotations, window, cx| {
+                this.execute(action, window, cx)
+            }))
+            .on_action(cx.listener(|this, action: &SaveAnnotationsAs, window, cx| {
+                this.execute(action, window, cx)
+            }))
+            .on_action(cx.listener(|this, action: &UndoAnnotation, window, cx| {
+                this.execute(action, window, cx)
+            }))
+            .on_action(cx.listener(|this, action: &RedoAnnotation, window, cx| {
+                this.execute(action, window, cx)
+            }))
+            .on_action(cx.listener(|this, action: &SearchDocument, window, cx| {
+                this.execute(action, window, cx)
+            }))
+            .on_action(cx.listener(|this, action: &CopySelection, window, cx| {
+                this.execute(action, window, cx)
+            }))
+            .on_action(cx.listener(|this, action: &CycleLayout, window, cx| {
+                this.execute(action, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &Quit, window, cx| {
+                if this.request_close(window, cx) {
+                    window.remove_window();
+                }
+            }))
             .child(self.header(cx))
+            .when_some(self.storage_error.clone(), |d, e| {
+                d.child(
+                    div()
+                        .px_3()
+                        .py_1()
+                        .text_size(px(12.))
+                        .text_color(rgb(0xb56b3c))
+                        .child(e),
+                )
+            })
             .child(body)
     }
 }
@@ -466,7 +726,7 @@ fn main() -> Result<()> {
                 cx,
             );
             commands::bind(cx);
-            cx.on_action(|_: &Quit, cx| cx.quit());
+
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     cx.quit();
@@ -488,12 +748,26 @@ fn main() -> Result<()> {
                     let view = cx.new(|cx| Breeze::new(worker, window, cx));
                     view.update(cx, |this, cx| {
                         window.focus(&this.focus, cx);
-                        window.set_window_title("Breeze · 紧凑原型 R2");
+                        window.set_window_title("Breeze · 本地阅读工作台");
                         this.apply_colors(cx);
-                        if let Some(path) = initial {
-                            this.open_path(path, cx);
-                        }
+                        this.initialize_storage(initial, cx);
                     });
+                    let closing = view.downgrade();
+                    window.on_window_should_close(cx, move |window, cx| {
+                        closing
+                            .update(cx, |this, cx| this.request_close(window, cx))
+                            .unwrap_or(true)
+                    });
+                    let flushing = view.clone();
+                    cx.on_app_quit(move |cx| {
+                        let future = flushing.read(cx).flush_state();
+                        async move {
+                            if let Some(future) = future {
+                                future.await;
+                            }
+                        }
+                    })
+                    .detach();
                     view
                 },
             );

@@ -1,11 +1,11 @@
 use crate::*;
 use gpui_kit::component::{
-    Icon, h_resizable, resizable_panel,
+    h_resizable, resizable_panel,
     tab::{Tab, TabBar},
     tooltip::Tooltip,
 };
 impl Breeze {
-    pub(super) fn reader(&self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+    pub(super) fn reader(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let p = self.p();
         let mode = self.books[self.active].state.mode;
         let main = column()
@@ -14,6 +14,8 @@ impl Breeze {
             .min_h_0()
             .child(
                 row()
+                    .id("reader-toolbar")
+                    .test_support()
                     .h(px(38.))
                     .flex_shrink_0()
                     .px_2()
@@ -30,7 +32,7 @@ impl Breeze {
                     .child(
                         TabBar::new("reader-modes")
                             .segmented()
-                            .xsmall()
+                            .small()
                             .selected_index(mode.index())
                             .on_click(cx.listener(|this, index, _, cx| {
                                 this.books[this.active].state.mode = Mode::from_index(*index);
@@ -43,7 +45,7 @@ impl Breeze {
                                     .build(window, cx)
                             }))
                             .child(Tab::new().label("标注").tooltip(|window, cx| {
-                                Tooltip::new("标注模式 · 工具预览")
+                                Tooltip::new("标注模式")
                                     .action(&AnnotateMode, Some("Breeze"))
                                     .build(window, cx)
                             }))
@@ -58,18 +60,21 @@ impl Breeze {
                     .child(
                         Button::new("preview-info")
                             .ghost()
-                            .xsmall()
+                            .small()
                             .icon(IconName::Info)
                             .accessibility_label("原型说明")
                             .tooltip(format!(
-                                "只读原型：标注/编辑仅预览，不修改PDF{}",
+                                "批注保存在旁置文件；原 PDF 不变。原文编辑仍未开放{}",
                                 self.preview
                                     .as_ref()
-                                    .map(|p| format!(
-                                        " · 本页后台准备 {:.0} ms（含缩略图）",
-                                        p.elapsed_ms
-                                    ))
+                                    .map(|p| format!(" · 本页后台准备 {:.0} ms", p.elapsed_ms))
                                     .unwrap_or_default()
+                                    + &self
+                                        .preview
+                                        .as_ref()
+                                        .and_then(|p| p.text_warning.clone())
+                                        .map(|w| format!(" · {w}"))
+                                        .unwrap_or_default()
                             )),
                     )
                     .child(
@@ -77,12 +82,13 @@ impl Breeze {
                             .selected(self.books[self.active].favorite),
                     ),
             )
+            .when(self.search_open, |d| d.child(self.search_bar(cx)))
             .child(
                 row()
                     .flex_1()
                     .min_h_0()
                     .items_stretch()
-                    .child(self.page_view(window, cx))
+                    .child(self.pages_view(window, cx))
                     .when(mode != Mode::Read, |d| d.child(self.inspector(mode, cx))),
             )
             .child(self.status(cx));
@@ -92,7 +98,7 @@ impl Breeze {
                     .with_state(&self.navigation_split)
                     .child(
                         resizable_panel()
-                            .size(px(208.))
+                            .size(px(self.navigation_width))
                             .size_range(px(168.)..px(360.))
                             .child(self.navigation(cx)),
                     )
@@ -110,7 +116,7 @@ impl Breeze {
         let tools: Vec<(IconName, &str)> = match mode {
             Mode::Read => vec![
                 (IconName::MousePointer2, "浏览"),
-                (IconName::Search, "搜索 · 待实现"),
+                (IconName::Search, "搜索"),
             ],
             Mode::Annotate => vec![
                 (IconName::Highlighter, "文本高亮"),
@@ -142,21 +148,27 @@ impl Breeze {
             .children(tools.into_iter().enumerate().map(|(i, (icon, label))| {
                 Button::new(("tool", i))
                     .ghost()
-                    .xsmall()
+                    .small()
                     .icon(icon)
                     .accessibility_label(label)
                     .tooltip(label)
                     .selected(self.tool == i)
-                    .disabled(mode == Mode::Read && i == 1)
-                    .on_click(cx.listener(move |this, _, _, cx| {
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        if mode == Mode::Read && i == 1 {
+                            this.execute(&SearchDocument, window, cx);
+                            return;
+                        }
+                        this.gesture.clear();
                         this.tool = i;
                         cx.notify()
                     }))
             }))
     }
     fn navigation(&self, cx: &mut Context<Self>) -> Div {
+        if self.search_open {
+            return self.search_results(cx);
+        }
         let p = self.p();
-        let current = self.books[self.active].state.navigation.page();
         column()
             .size_full()
             .min_w_0()
@@ -176,7 +188,7 @@ impl Breeze {
                     .child(
                         TabBar::new("nav-tabs")
                             .segmented()
-                            .xsmall()
+                            .small()
                             .selected_index(usize::from(self.thumbs))
                             .on_click(cx.listener(|this, index, _, cx| {
                                 this.thumbs = *index == 1;
@@ -199,179 +211,22 @@ impl Breeze {
                     .id("navigation-content")
                     .flex_1()
                     .min_h_0()
-                    .overflow_y_scroll()
-                    .p_2()
-                    .gap_2()
                     .when_some(self.preview.as_ref(), |this, preview| {
                         if self.thumbs {
-                            this.children(preview.thumbnails.iter().map(|(page, image)| {
-                                column()
-                                    .id(("thumbnail", *page))
-                                    .items_center()
-                                    .gap_1()
-                                    .p_2()
-                                    .rounded_md()
-                                    .border_1()
-                                    .border_color(if *page == current { p.accent } else { p.line })
-                                    .cursor_pointer()
-                                    .child(
-                                        img(image.clone())
-                                            .w(px((self.navigation_width - 32.).min(176.)))
-                                            .h(px((self.navigation_width - 32.).min(176.) * 1.294))
-                                            .object_fit(ObjectFit::Contain),
-                                    )
-                                    .child(
-                                        row()
-                                            .justify_center()
-                                            .text_size(px(11.))
-                                            .text_color(p.muted)
-                                            .child(format!("{:02}", page + 1)),
-                                    )
-                                    .on_click(cx.listener({
-                                        let page = *page;
-                                        move |this, _, _, cx| {
-                                            this.books[this.active].state.navigation.go_to(page);
-                                            this.load(cx)
-                                        }
-                                    }))
-                            }))
+                            this.child(self.thumbnails_view(cx))
                         } else {
-                            this.when(preview.outline.len() > 300, |this| {
-                                this.child(
-                                    div()
-                                        .text_size(px(10.))
-                                        .text_color(p.muted)
-                                        .child("原型仅显示前300条目录，完整虚拟树待实现"),
-                                )
-                            })
-                            .when(preview.outline.is_empty(), |this| {
-                                this.child(
-                                    div()
-                                        .text_size(px(12.))
-                                        .text_color(p.muted)
-                                        .child("此文档没有内嵌目录。可切换缩略图导航。"),
-                                )
-                            })
-                            .children(
-                                preview
-                                    .outline
-                                    .iter()
-                                    .take(300)
-                                    .enumerate()
-                                    .map(|(i, item)| {
-                                        let page = item.page;
-                                        column().pl(px((item.depth.min(6) * 10) as f32)).child(
-                                            Button::new(("outline", i))
-                                                .ghost()
-                                                .xsmall()
-                                                .max_w(px((self.navigation_width
-                                                    - 28.
-                                                    - (item.depth.min(6) * 10) as f32)
-                                                    .max(96.)))
-                                                .overflow_hidden()
-                                                .justify_start()
-                                                .label(item.title.clone())
-                                                .icon(IconName::ChevronRight)
-                                                .disabled(page.is_none())
-                                                .selected(page == Some(current))
-                                                .tooltip(if page.is_none() {
-                                                    "命名目的地尚未解析"
-                                                } else {
-                                                    "跳转到目录目标页"
-                                                })
-                                                .on_click(cx.listener(move |this, _, _, cx| {
-                                                    if let Some(page) = page {
-                                                        this.books[this.active]
-                                                            .state
-                                                            .navigation
-                                                            .go_to(page);
-                                                        this.load(cx)
-                                                    }
-                                                })),
-                                        )
-                                    }),
-                            )
+                            this.child(self.outline_view(preview.outline.clone(), cx))
                         }
-                    })
-                    .when(self.loading, |this| {
-                        this.child(div().text_color(p.muted).child("正在读取…"))
                     }),
             )
     }
-    fn page_view(&self, window: &mut Window, _cx: &mut Context<Self>) -> Stateful<Div> {
-        let p = self.p();
-        let state = &self.books[self.active].state;
-        let mut view = column()
-            .id("document-viewport")
-            .flex_1()
-            .min_w_0()
-            .min_h_0()
-            .overflow_scroll()
-            .bg(p.canvas)
-            .p_3();
-        if let Some(preview) = &self.preview {
-            let width = f32::from(window.viewport_size().width)
-                - (if self.sidebar {
-                    self.navigation_width
-                } else {
-                    0.
-                })
-                - (if state.mode == Mode::Read { 0. } else { 232. })
-                - 24.;
-            let height = f32::from(window.viewport_size().height) - 34. - 38. - 32. - 24.;
-            let (pw, ph) = preview.points;
-            let scale = match state.zoom {
-                Zoom::FitPage => (width / pw).min(height / ph),
-                Zoom::FitWidth => width / pw,
-                Zoom::Percent(n) => n as f32 / 100. * 96. / 72.,
-            }
-            .max(0.1);
-            view = view.child(
-                row().min_w_full().justify_center().child(
-                    img(preview.image.clone())
-                        .w(px(pw * scale))
-                        .h(px(ph * scale))
-                        .flex_shrink_0()
-                        .object_fit(ObjectFit::Contain)
-                        .border_1()
-                        .border_color(p.line)
-                        .shadow_md(),
-                ),
-            );
-        } else {
-            view = view.child(
-                column()
-                    .flex_1()
-                    .items_center()
-                    .justify_center()
-                    .gap_3()
-                    .text_color(p.muted)
-                    .child(Icon::new(if self.loading {
-                        IconName::BookOpen
-                    } else {
-                        IconName::TriangleAlert
-                    }))
-                    .child(if self.loading {
-                        "正在准备页面…".into()
-                    } else if self.message.is_empty() {
-                        "选择一个文档开始阅读".into()
-                    } else {
-                        self.message.clone()
-                    })
-                    .child(div().text_size(px(11.)).child(if self.loading {
-                        "后台解析与渲染，界面仍可操作"
-                    } else {
-                        "原文件没有被修改"
-                    })),
-            );
-        }
-        view
-    }
-    fn status(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn status(&self, cx: &mut Context<Self>) -> AnyElement {
         let p = self.p();
         let s = &self.books[self.active].state;
+        let visible = s.layout.pages(s.navigation.page(), s.navigation.total());
         row()
             .id("status-scroll")
+            .test_support()
             .overflow_x_scroll()
             .h(px(32.))
             .flex_shrink_0()
@@ -388,26 +243,22 @@ impl Breeze {
                     &PreviousPage,
                     cx,
                 )
-                .disabled(s.navigation.page() == 0),
+                .disabled(visible.start == 0),
             )
-            .child(div().text_size(px(11.)).child(format!(
+            .child(div().text_size(px(12.)).child(format!(
                 "{} / {}",
                 s.navigation.page() + 1,
                 s.navigation.total()
             )))
             .child(
                 self.command("next", IconName::ChevronRight, "下一页", &NextPage, cx)
-                    .disabled(s.navigation.page() + 1 == s.navigation.total()),
+                    .disabled(visible.end == s.navigation.total()),
             )
-            .child(
-                div()
-                    .w(px(42.))
-                    .child(Input::new(&self.page_input).xsmall()),
-            )
+            .child(div().w(px(42.)).child(Input::new(&self.page_input).small()))
             .child(
                 Button::new("jump")
                     .ghost()
-                    .xsmall()
+                    .small()
                     .icon(IconName::CornerDownLeft)
                     .accessibility_label("跳转到输入页码")
                     .tooltip_with_action(
@@ -422,22 +273,17 @@ impl Breeze {
                     .flex_1()
                     .min_w(px(50.))
                     .overflow_hidden()
-                    .text_size(px(10.))
+                    .text_size(px(11.))
                     .text_color(p.muted)
                     .child(if !self.message.is_empty() {
                         self.message.clone()
+                    } else if self.books[self.active].annotations.dirty() {
+                        "批注未保存".into()
                     } else {
-                        "只读预览".into()
+                        "原件未修改".into()
                     }),
             )
-            .child(
-                Button::new("layout")
-                    .ghost()
-                    .xsmall()
-                    .icon(IconName::PanelsTopLeft)
-                    .tooltip("单页 · 连续/双页待实现")
-                    .disabled(true),
-            )
+            .child(self.layout_button(cx))
             .child(
                 self.command("fit-page", IconName::Maximize, "适合页面", &FitPage, cx)
                     .selected(s.zoom == Zoom::FitPage),
@@ -461,11 +307,12 @@ impl Breeze {
                 div()
                     .min_w(px(56.))
                     .text_center()
-                    .text_size(px(10.))
+                    .text_size(px(11.))
                     .text_color(p.muted)
                     .child(s.zoom.label()),
             )
             .child(self.command("zoom-in", IconName::Plus, "放大", &ZoomIn, cx))
+            .into_any_element()
     }
     pub(super) fn submit_page(&mut self, cx: &mut Context<Self>) {
         let value = self.page_input.read(cx).value();
@@ -481,6 +328,9 @@ impl Breeze {
         }
     }
     fn inspector(&self, mode: Mode, cx: &mut Context<Self>) -> Div {
+        if mode == Mode::Annotate {
+            return self.annotation_inspector(cx);
+        }
         let p = self.p();
         let image_mode = mode == Mode::Edit && (self.tool == 1 || self.tool == 3);
         let text_mode =
@@ -518,14 +368,14 @@ impl Breeze {
                             column()
                                 .gap_2()
                                 .child(style::eyebrow("字体", p))
-                                .child(Input::new(&self.font_input).xsmall()),
+                                .child(Input::new(&self.font_input).small()),
                         )
                         .child(
                             row()
                                 .gap_2()
                                 .child(
                                     Button::new("font-size")
-                                        .xsmall()
+                                        .small()
                                         .label(format!("{} pt", self.font_size))
                                         .tooltip("点击切换示例字号")
                                         .on_click(cx.listener(|this, _, _, cx| {
@@ -540,7 +390,7 @@ impl Breeze {
                                 .child(
                                     Button::new("bold")
                                         .ghost()
-                                        .xsmall()
+                                        .small()
                                         .icon(IconName::Bold)
                                         .selected(self.bold)
                                         .on_click(cx.listener(|this, _, _, cx| {
@@ -551,7 +401,7 @@ impl Breeze {
                                 .child(
                                     Button::new("italic")
                                         .ghost()
-                                        .xsmall()
+                                        .small()
                                         .icon(IconName::Italic)
                                         .selected(self.italic)
                                         .on_click(cx.listener(|this, _, _, cx| {
@@ -563,38 +413,38 @@ impl Breeze {
                     })
                     .when(image_mode, |this| {
                         this.child(
-                            div().text_color(p.muted).text_size(px(12.)).child(
+                            div().text_color(p.muted).text_size(px(13.)).child(
                                 "选择原图的绘制实例，而不是覆盖原图。共享资源需按实例隔离。",
                             ),
                         )
                         .child(
                             Button::new("image-scale")
-                                .xsmall()
+                                .small()
                                 .label("缩放 · 未接入")
                                 .disabled(true),
                         )
                         .child(
                             Button::new("image-rotate")
-                                .xsmall()
+                                .small()
                                 .icon(IconName::RotateCw)
                                 .label("旋转 · 未接入")
                                 .disabled(true),
                         )
                         .child(
                             Button::new("image-delete")
-                                .xsmall()
+                                .small()
                                 .icon(IconName::Trash)
                                 .label("删除 · 未接入")
                                 .disabled(true),
                         )
                     })
                     .when(mode == Mode::Annotate && !text_mode, |this| {
-                        this.child(div().text_size(px(12.)).text_color(p.muted).child(
+                        this.child(div().text_size(px(13.)).text_color(p.muted).child(
                             "只预览工具参数，当前不在页面绘制。橡皮擦最终只处理笔迹，不修改原文。",
                         ))
                         .child(
                             Button::new("stroke-width")
-                                .xsmall()
+                                .small()
                                 .label(format!("线宽   {} px", self.font_size / 6))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.font_size = if this.font_size >= 30 {
@@ -630,7 +480,7 @@ impl Breeze {
                     )
                     .child(
                         Button::new("opacity")
-                            .xsmall()
+                            .small()
                             .label(format!("透明度   {}%", self.opacity))
                             .tooltip("点击切换 25 / 50 / 75 / 100%")
                             .on_click(cx.listener(|this, _, _, cx| {
@@ -655,7 +505,7 @@ impl Breeze {
                                 .map(|(i, icon)| {
                                     Button::new(("align", i))
                                         .ghost()
-                                        .xsmall()
+                                        .small()
                                         .icon(icon)
                                         .selected(self.alignment == i)
                                         .tooltip(["左对齐", "居中", "右对齐"][i])
@@ -668,7 +518,7 @@ impl Breeze {
                         )
                         .child(
                             Button::new("text-background")
-                                .xsmall()
+                                .small()
                                 .label(format!(
                                     "背景色   {}",
                                     ["浅松绿", "画布色", "面板色"][self.background]
@@ -679,7 +529,7 @@ impl Breeze {
                                 })),
                         )
                         .child(style::eyebrow("独立样式预览 · 非页面编辑", p))
-                        .child(Input::new(&self.text_input).xsmall())
+                        .child(Input::new(&self.text_input).small())
                         .child(
                             div()
                                 .p_4()
@@ -706,7 +556,7 @@ impl Breeze {
                         )
                         .child(
                             div()
-                                .text_size(px(11.))
+                                .text_size(px(12.))
                                 .text_color(p.muted)
                                 .child("字体名称为输入交互，暂不切换实际字体。"),
                         )
@@ -720,7 +570,7 @@ impl Breeze {
                     )
                     .child(
                         div()
-                            .text_size(px(11.))
+                            .text_size(px(12.))
                             .text_color(p.muted)
                             .child("不会遮盖原文，不会栅格化替换。当前无文件写入。"),
                     ),

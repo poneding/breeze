@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 [dependencies]
+serde.workspace = true
+serde_json.workspace = true
+breeze-storage.workspace = true
 anyhow.workspace = true
 gpui-kit.workspace = true
 breeze-core.workspace = true
@@ -14,4 +17,6 @@ image.workspace = true
 workspace = true
 
 [dev-dependencies]
+futures.workspace = true
+tempfile.workspace = true
 gpui-kit = { workspace = true, features = ["test-support"] }
