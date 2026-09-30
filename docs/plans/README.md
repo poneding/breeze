@@ -11,7 +11,7 @@ Implementation was authorized on September 29, 2026, after acceptance of the com
 | 3 | [Structural editing and PDF interoperability](03-editing-export.md) | Precise supported-object edits and independently validated export |
 | 4 | [Platform and release acceptance](04-release.md) | Native three-platform validation, packaging, and performance gates |
 
-Stages are independently testable, not a promise that every PDF can be edited. Current implementation status is maintained in [delivery status](STATUS.md). No Git commit or remote publication is implied by implementation authorization.
+Stages are independently testable, not a promise that every PDF can be edited. Current implementation status is maintained in [delivery status](STATUS.md). Completed and verified phases are committed locally as required by [AGENTS.md](../../AGENTS.md); remote pushes and publication still require separate authorization.
 
 ## Invariants
 

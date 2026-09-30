@@ -7,7 +7,7 @@
 - Implementation of the planned product was authorized on September 29, 2026. The repository now includes a local reader, persistence, and sidecar annotations; Restricted annotation export and opening-window policies have since been implemented; structural editing and production acceptance remain gated. Track implemented behavior in `docs/plans/STATUS.md`. Do not restore historical artifacts without a concrete need.
 - Read `docs/specs/README.md`, `00-product.md`, and `01-validation.md` before changing architecture. Read `docs/plans/README.md` before beginning a new implementation phase.
 - Keep technical specifications in `docs/specs/` and implementation plans in `docs/plans/`. Separate confirmed requirements, proposals, implemented behavior, and unverified assumptions.
-- Do not start sub-agents, commit, push, or publish unless the user explicitly requests it or an applicable instruction authorizes it.
+- Commit each completed and verified implementation phase promptly under the Git convention below; this is standing authorization for those local commits. Do not start sub-agents, push, or publish unless the user explicitly requests it or an applicable instruction authorizes it.
 
 ## Language
 
@@ -87,6 +87,7 @@ cargo run --locked -p breeze-app
 - Use lowercase types such as `feat`, `fix`, `refactor`, `docs`, `test`, `build`, `ci`, and `chore`.
 - Keep each commit message to **one concise English subject line**, preferably at most 72 characters, with no trailing period. Do not add a body, generated summary, or attribution trailer unless explicitly required by the user.
 - Group changes by logical purpose. Do not mix unrelated cleanup, behavior changes, or speculative refactors into one commit.
+- After completing and verifying each task phase, create its local commit before starting the next phase; do not accumulate multiple completed phases into a final bulk commit. Stage only that phase's changes and leave pre-existing user changes untouched. If checks fail or a phase is incomplete, report the blocker rather than committing it as completed.
 - Inspect the staged diff and run appropriate checks before committing. Use the configured Git identity; never invent an author or bypass hooks to force a commit.
 - Commit source, required assets, specifications, plans, and the lockfile. Never commit build output, logs, screenshots, private documents, or application sidecars.
 - Preserve user changes. Do not amend, reset, rebase, force-push, create a remote, or publish without explicit authorization.
