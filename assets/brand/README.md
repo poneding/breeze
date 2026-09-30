@@ -17,6 +17,12 @@ while preserving the outer tile and page proportions.
 The standalone monochrome mark uses warm ink (`#82715B`). The logo does not
 change document colors or UI palette preferences.
 
+The application tile has a softly curled lower-right corner that reveals an ivory
+paper layer underneath. A narrow highlight, warm underside gradient, and localized
+shadow describe the curl without a sharp triangular fold. The abstract two-page
+symbol remains the central identity; there is no fountain pen or realistic book.
+The standalone monochrome mark intentionally omits the tile curl.
+
 ## Files
 
 - `breeze-icon.svg`: editable 1024 × 1024 application icon master, with a rounded

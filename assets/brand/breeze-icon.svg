@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <title>Breeze application icon</title>
-  <desc>Two softly rounded, wind-lifted ivory pages on a warm paper-colored tile, with subtle layered depth.</desc>
+  <desc>Two softly rounded, wind-lifted ivory pages on a warm paper-colored tile, with subtle layered depth and a curled lower-right tile corner.</desc>
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="0.8" y2="1">
       <stop stop-color="#EAE2D5"/>
@@ -18,9 +18,26 @@
     <filter id="shadow" x="-25%" y="-25%" width="150%" height="160%" color-interpolation-filters="sRGB">
       <feDropShadow dx="0" dy="14" stdDeviation="14" flood-color="#766047" flood-opacity="0.22"/>
     </filter>
+    <linearGradient id="under-paper" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#D6C8B3"/>
+      <stop offset="1" stop-color="#F3EBDD"/>
+    </linearGradient>
+    <linearGradient id="curl" gradientUnits="userSpaceOnUse" x1="783" y1="816" x2="848" y2="883">
+      <stop stop-color="#FFFCF4"/>
+      <stop offset="0.3" stop-color="#F6EEDE"/>
+      <stop offset="0.68" stop-color="#D6C7AF"/>
+      <stop offset="1" stop-color="#B5A184"/>
+    </linearGradient>
+    <filter id="curl-shadow" x="-35%" y="-35%" width="180%" height="180%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="12" dy="18" stdDeviation="16" flood-color="#69563D" flood-opacity="0.28"/>
+    </filter>
+    <clipPath id="tile-clip">
+      <rect x="64" y="64" width="896" height="896" rx="200"/>
+    </clipPath>
   </defs>
-  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#tile)"/>
-  <rect x="65" y="65" width="894" height="894" rx="199" fill="none" stroke="#FFF9ED" stroke-opacity="0.45" stroke-width="2"/>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#under-paper)"/>
+  <path d="M264 64 H760 A200 200 0 0 1 960 264 V700 C958 766 943 786 889 790 C808 796 741 838 735 908 C732 948 714 960 684 960 H264 A200 200 0 0 1 64 760 V264 A200 200 0 0 1 264 64 Z" fill="url(#tile)"/>
+  <path d="M65 760 V264 A199 199 0 0 1 264 65 H760 A199 199 0 0 1 959 264 V700" fill="none" stroke="#FFF9ED" stroke-opacity="0.45" stroke-width="2"/>
   <g transform="translate(512 500) scale(1.25) translate(-520 -492)">
   <g filter="url(#shadow)">
     <path transform="translate(0 7)" fill="#C7B496" d="M320 322 C429 277 535 394 690 310 Q713 297 705 323 L666 437 Q663 447 654 452 C521 524 420 402 320 457 Q306 465 306 449 L306 344 Q306 329 320 322 Z"/>
@@ -30,5 +47,9 @@
     <path transform="translate(0 7)" fill="#CFBDA0" d="M320 489 C435 433 552 583 715 477 Q739 461 731 489 L685 629 Q681 642 670 650 C529 748 419 606 321 662 Q306 671 306 653 L306 513 Q306 496 320 489 Z"/>
     <path fill="url(#front-page)" d="M320 489 C435 433 552 583 715 477 Q739 461 731 489 L685 629 Q681 642 670 650 C529 748 419 606 321 662 Q306 671 306 653 L306 513 Q306 496 320 489 Z"/>
   </g>
+  </g>
+  <g clip-path="url(#tile-clip)">
+    <path d="M684 960 C714 960 732 948 735 908 C741 838 808 796 889 790 C943 786 958 766 960 700 C925 798 836 876 760 934 Q720 960 684 960 Z" fill="url(#curl)" filter="url(#curl-shadow)"/>
+    <path d="M689 959 C716 957 732 945 735 908 C741 838 808 796 889 790 C943 786 958 766 960 700" fill="none" stroke="#FFFCF5" stroke-width="3" stroke-linecap="round" stroke-opacity="0.8"/>
   </g>
 </svg>
