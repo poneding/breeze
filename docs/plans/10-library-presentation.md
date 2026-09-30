@@ -19,3 +19,4 @@ Each item requires formatting, workspace tests, Clippy, and native macOS review 
 ## Completed items
 
 - Item 1: All Documents now precedes Recent and Favorites and uses `LibraryBig`. Formatting, 81 workspace tests (three probes ignored), Clippy, and native macOS navigation/icon inspection passed.
+- Item 2: The row is a keyboard-accessible Kit Button; favorites, category menus, and removal stop event propagation. Formatting, 82 workspace tests, and Clippy passed. Native inspection confirmed row layout, favorite isolation, and category popup; Open updated isolated state, but the UI capture tool retained the old window after opening, so the post-open screenshot is unverified.

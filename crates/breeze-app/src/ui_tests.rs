@@ -1020,3 +1020,23 @@ fn actual_size_and_custom_100_restore_as_distinct_modes(cx: &mut TestAppContext)
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn library_row_opens_and_secondary_controls_do_not(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| view.show_home(cx));
+        window.render_frame(cx);
+        window.click(("favorite", 0usize), cx);
+        assert!(view.read(cx).books[0].favorite);
+        assert!(view.read(cx).screen == Screen::Home);
+        window.render_frame(cx);
+        window.click(("category", 0usize), cx);
+        assert!(view.read(cx).screen == Screen::Home);
+        window.press("escape", cx);
+        window.render_frame(cx);
+        window.click(("library-open", 0usize), cx);
+        assert!(view.read(cx).screen == Screen::Reader);
+    })
+    .unwrap();
+}

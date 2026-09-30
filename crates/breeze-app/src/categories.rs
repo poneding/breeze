@@ -216,6 +216,7 @@ impl Breeze {
                     .text_ellipsis()
                     .child(self.category_name(self.books[index].category)),
             )
+            .on_click(|_, _, cx| cx.stop_propagation())
             .dropdown_menu(move |mut menu, window, _| {
                 for (id, name) in &choices {
                     let id = *id;

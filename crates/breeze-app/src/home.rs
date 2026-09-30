@@ -111,12 +111,16 @@ impl Breeze {
                     )
                     .child(column().gap_1().children(filtered.iter().map(|(index, b)| {
                         let index = *index;
-                        row()
+                        Button::new(("library-open", index))
+                            .ghost()
+                            .small()
+                            .w_full()
+                            .accessibility_label(format!("阅读文档：{}", b.title))
+                            .on_click(cx.listener(move |this, _, _, cx| this.open_book(index, cx)))
                             .h(px(48.))
                             .px_2()
                             .gap_2()
                             .rounded_md()
-                            .hover(move |s| s.bg(p.panel))
                             .child(Icon::new(IconName::FileText).small().text_color(p.muted))
                             .child(
                                 column()
@@ -124,14 +128,11 @@ impl Breeze {
                                     .min_w_0()
                                     .items_start()
                                     .child(
-                                        Button::new(("library-open", index))
-                                            .ghost()
-                                            .small()
-                                            .justify_start()
-                                            .label(b.title.clone())
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.open_book(index, cx)
-                                            })),
+                                        div()
+                                            .w_full()
+                                            .text_left()
+                                            .text_ellipsis()
+                                            .child(b.title.clone()),
                                     )
                                     .child(div().text_size(px(11.)).text_color(p.muted).child(
                                         if b.source == Source::Sample {
@@ -162,6 +163,7 @@ impl Breeze {
                                     .accessibility_label("收藏")
                                     .tooltip("收藏 / 取消收藏")
                                     .on_click(cx.listener(move |this, _, _, cx| {
+                                        cx.stop_propagation();
                                         this.books[index].favorite = !this.books[index].favorite;
                                         cx.notify()
                                     })),
@@ -173,11 +175,10 @@ impl Breeze {
                                     .icon(IconName::ArrowUpRight)
                                     .accessibility_label("阅读文档")
                                     .tooltip("阅读文档")
-                                    .on_click(
-                                        cx.listener(move |this, _, _, cx| {
-                                            this.open_book(index, cx)
-                                        }),
-                                    ),
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        cx.stop_propagation();
+                                        this.open_book(index, cx)
+                                    })),
                             )
                             .when(b.source != Source::Sample, |d| {
                                 d.child(
@@ -188,6 +189,7 @@ impl Breeze {
                                         .accessibility_label("从资料库移除")
                                         .tooltip("移除条目，不删除文件")
                                         .on_click(cx.listener(move |this, _, _, cx| {
+                                            cx.stop_propagation();
                                             this.forget_book(index, cx)
                                         })),
                                 )
