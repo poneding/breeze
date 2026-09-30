@@ -13,3 +13,4 @@ Preserve saved documents, category memberships/colors, native control behavior, 
 
 - Item 1: Create/edit forms use controlled Kit Popovers with name/color controls. Save/cancel/Escape and invalid input are covered by component tests; the sidebar retains its layout. Formatting, 91 workspace tests, Clippy, and native macOS Popover inspection passed.
 - Item 2: Category rows now use a full-width Kit Button including their action region. Row hover stays visible over secondary controls; category/document actions use independent hover/active colors and stop click propagation. Formatting, 92 workspace tests, Clippy, and native row/Popover checks passed.
+- Item 3: Grid titles, reading positions, and categories are centered. Action rows reserve their space but appear only while the card is hovered. Geometry, hover transitions, and favorite isolation are tested. Formatting, 93 workspace tests, Clippy, and native grid inspection passed.

@@ -1243,3 +1243,31 @@ fn category_secondary_actions_do_not_select_the_row(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn grid_metadata_is_centered_and_actions_only_show_on_hover(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| {
+            view.show_home(cx);
+            view.library_grid = true;
+        });
+        window.render_frame(cx);
+        let card = window.find(("library-open", 0usize)).bounds();
+        for name in ["grid-title", "grid-position", "category"] {
+            let metadata = window.find((name, 0usize)).bounds();
+            assert!((metadata.center().x - card.center().x).abs() < px(1.));
+        }
+        window.hover("home-tab", cx);
+        assert!(!window.find(("favorite", 0usize)).visible());
+        window.hover(("library-open", 0usize), cx);
+        assert!(window.find(("favorite", 0usize)).visible());
+        window.click(("favorite", 0usize), cx);
+        assert!(view.read(cx).books[0].favorite);
+        assert!(view.read(cx).screen == Screen::Home);
+        window.hover("home-tab", cx);
+        assert!(!window.find(("favorite", 0usize)).visible());
+        assert_eq!(window.find(("library-open", 0usize)).bounds(), card);
+    })
+    .unwrap();
+}

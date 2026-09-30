@@ -210,6 +210,7 @@ mod tests {
             window.render_frame(cx);
             assert!(view.read(cx).library_grid);
             assert!(window.find(("library-open", 0usize)).bounds().size.height > px(200.));
+            window.hover(("library-open", 0usize), cx);
             window.click(("favorite", 0usize), cx);
             assert!(view.read(cx).screen == Screen::Home);
             view.update(cx, |view, cx| {

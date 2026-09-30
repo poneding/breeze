@@ -336,6 +336,7 @@ impl Breeze {
                 column()
                     .w_full()
                     .min_w_0()
+                    .items_center()
                     .gap_1()
                     .child(
                         div()
@@ -347,15 +348,20 @@ impl Breeze {
                     .child(
                         div()
                             .w_full()
-                            .text_left()
+                            .id(("grid-title", index))
+                            .test_support()
+                            .text_center()
                             .text_ellipsis()
                             .child(book.title.clone()),
                     )
                     .child(
                         div()
+                            .id(("grid-position", index))
+                            .test_support()
+                            .w_full()
                             .text_size(px(11.))
                             .text_color(p.muted)
-                            .text_left()
+                            .text_center()
                             .child(format!(
                                 "PDF · {}",
                                 if book.last_opened > 0 {
@@ -369,7 +375,9 @@ impl Breeze {
                     .child(
                         row()
                             .w_full()
-                            .justify_end()
+                            .justify_center()
+                            .invisible()
+                            .group_hover("library-row", |s| s.visible())
                             .child(self.library_actions(index, cx)),
                     ),
             )

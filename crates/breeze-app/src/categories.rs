@@ -372,7 +372,14 @@ impl Breeze {
             .flex_shrink_0()
             .accessibility_label(format!("分类（可多选）：{label}"))
             .tooltip(format!("分类（可多选）：{label}"))
-            .child(div().w_full().text_left().text_ellipsis().child(label))
+            .child(
+                div()
+                    .w_full()
+                    .text_left()
+                    .when(self.library_grid, |d| d.text_center())
+                    .text_ellipsis()
+                    .child(label),
+            )
             .on_click(|_, _, cx| cx.stop_propagation())
             .dropdown_menu(move |mut menu, window, _| {
                 for (id, name) in &choices {
