@@ -6,7 +6,7 @@ The accepted compact UI has progressed into a local reader with durable state, s
 
 | Area | Delivered behavior |
 |---|---|
-| Library | Persistent entries, recent ordering, name filtering, favorites, user-created/renamable/deletable categories with explicit assignment, and removal without deleting source files |
+| Library | All Documents appears first with `library-big`; persistent entries, recent ordering, name filtering, favorites, user-created/renamable/deletable categories with explicit assignment, and removal without deleting source files |
 | Preferences | Persistent appearance/palettes, sidebar width, independent file/position restoration, and opening-window policy |
 | State integrity | Background/coalesced JSON, process locking, bounded inputs, atomic replacement, external-revision checks, and normal-close acknowledgement |
 | Reading | Single/Continuous/Spread layouts; virtualized full outline/thumbnail lists; visible-range scheduling; 32 MiB worker, 64 MiB UI-page, and 8 MiB UI-thumbnail budgets; page navigation and zoom |

@@ -25,7 +25,8 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Settings | `settings-2` | `Settings2` |
 | System / light / dark appearance | `monitor` / `sun` / `moon` | `Monitor` / `Sun` / `Moon` |
 | Recent documents | `clock-3` | `Clock3` |
-| All documents / category | `files` / `folder` | `Files` / `Folder` |
+| All documents | `library-big` | `LibraryBig` |
+| Category | `folder` | `Folder` |
 | Favorite | `bookmark` | `Bookmark` |
 | Toggle navigation | `panel-left` | `PanelLeft` |
 | Reading pointer / search | `mouse-pointer-2` / `search` | `MousePointer2` / `Search` |

@@ -37,9 +37,9 @@ impl Breeze {
                     .border_color(p.line)
                     .children(
                         [
+                            (IconName::LibraryBig, "全部文档", 2),
                             (IconName::Clock3, "最近阅读", 0),
                             (IconName::Bookmark, "收藏", 1),
-                            (IconName::Files, "全部文档", 2),
                         ]
                         .into_iter()
                         .map(|(icon, label, index)| {
