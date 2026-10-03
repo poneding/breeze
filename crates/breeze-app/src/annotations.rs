@@ -4,6 +4,9 @@ use breeze_core::annotations::{Annotation, History, Kind, PageGeometry, Point as
 use breeze_storage::AnnotationFile;
 use gpui_kit::component::ElementExt;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Default)]
 pub(super) struct DocumentAnnotations {
     pub history: History,
@@ -97,22 +100,38 @@ impl Breeze {
         self.save_annotations_for(self.active, cx);
     }
     fn save_annotations_for(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.save_annotations_to(index, None, cx);
+    }
+    fn save_annotations_to(
+        &mut self,
+        index: usize,
+        new_path: Option<PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
         let book = &mut self.books[index];
         let a = &mut book.annotations;
-        if !a.ready || a.saving || a.error.is_some() {
+        let save_as = new_path.is_some();
+        if !a.ready
+            || a.saving
+            || a.source_conflict
+            || a.fingerprint.is_empty()
+            || (!save_as && a.error.is_some())
+        {
             self.message = "批注未就绪或存在冲突，不能保存".into();
             cx.notify();
             return;
         }
-        let Some(path) = a.path.clone() else {
+        let Some(path) = new_path.or_else(|| a.path.clone()) else {
             return;
         };
         let source = book.source.clone();
         let fingerprint = a.fingerprint.clone();
-        let revision = a.revision.clone();
+        let revision = if save_as { None } else { a.revision.clone() };
+        let original_path = a.path.clone();
         let items = a.history.items.clone();
         let saved = items.clone();
         a.saving = true;
+        a.autosave = None;
         let read_source = match &source {
             Source::File(p) => Some(p.clone()),
             Source::Sample => None,
@@ -136,20 +155,30 @@ impl Breeze {
                     return;
                 };
                 if book.annotations.fingerprint != saved_fingerprint
-                    || book.annotations.path.as_ref() != Some(&saved_path)
+                    || book.annotations.path != original_path
                 {
                     return;
                 }
                 book.annotations.saving = false;
                 match result {
                     Ok(revision) => {
+                        // Publish the association and acknowledgement as one UI transaction.
+                        // A failed Save As must leave the last good sidecar reachable.
+                        book.annotations.path = Some(saved_path);
                         book.annotations.revision = Some(revision);
                         book.annotations.saved = saved;
+                        if !book.annotations.source_conflict {
+                            book.annotations.error = None;
+                        }
                         this.message = format!("批注已保存：{destination}");
                     }
                     Err(e) => {
-                        book.annotations.error = Some(format!("保存失败（未覆盖原文件）：{e:#}"));
-                        this.message = format!("批注保存失败：{e:#}");
+                        if save_as {
+                            this.message = format!("批注另存失败，原保存位置保持不变：{e:#}");
+                        } else {
+                            book.annotations.error = Some(format!("保存失败：{e:#}"));
+                            this.message = format!("批注保存失败：{e:#}");
+                        }
                     }
                 }
                 if let Some(index) = this.books.iter().position(|b| b.source == source)
@@ -189,30 +218,56 @@ impl Breeze {
         self.books[index].annotations.autosave = Some(task);
     }
     pub(super) fn save_annotations_as(&mut self, cx: &mut Context<Self>) {
-        if self.books[self.active].annotations.fingerprint.is_empty() {
-            self.message = "文档指纹尚未就绪".into();
+        let book = &mut self.books[self.active];
+        let a = &mut book.annotations;
+        if !a.ready || a.saving || a.source_conflict || a.fingerprint.is_empty() {
+            self.message = "批注尚未载入、正在保存或源文档存在冲突，不能另存".into();
             cx.notify();
             return;
         }
-        let source = self.books[self.active].source.clone();
+        let source = book.source.clone();
+        let fingerprint = a.fingerprint.clone();
+        let original_path = a.path.clone();
+        // A pending picker owns the same save slot as the subsequent write.
+        // This prevents competing dialogs, autosaves and clean-document closes.
+        a.saving = true;
+        a.autosave = None;
         let directory = self.data_dir.clone().unwrap_or_else(std::env::temp_dir);
         let receiver = cx.prompt_for_new_path(&directory, Some("annotations.breeze.json"));
+        cx.notify();
         cx.spawn(async move |this, cx| {
-            if let Ok(Ok(Some(path))) = receiver.await {
-                let _ = this.update(cx, |this, cx| {
-                    if let Some(index) = this.books.iter().position(|b| b.source == source) {
-                        let a = &mut this.books[index].annotations;
-                        if a.saving {
-                            return;
-                        }
-                        a.path = Some(path);
-                        a.revision = None;
-                        a.error = None;
-                        a.ready = true;
-                        this.save_annotations_for(index, cx);
+            let result = receiver.await;
+            let _ = this.update(cx, |this, cx| {
+                let Some(index) = this.books.iter().position(|b| b.source == source) else {
+                    return;
+                };
+                let a = &mut this.books[index].annotations;
+                if a.fingerprint != fingerprint || a.path != original_path {
+                    return;
+                }
+                a.saving = false;
+                let selected = match result {
+                    Ok(Ok(Some(path))) => Some(path),
+                    Ok(Ok(None)) => {
+                        this.message = "已取消批注另存，原保存位置保持不变".into();
+                        None
                     }
-                });
-            }
+                    Ok(Err(e)) => {
+                        this.message = format!("无法选择批注保存位置：{e:#}");
+                        None
+                    }
+                    Err(e) => {
+                        this.message = format!("批注文件对话框已中断：{e}");
+                        None
+                    }
+                };
+                if let Some(path) = selected {
+                    this.save_annotations_to(index, Some(path), cx);
+                } else if this.books[index].annotations.dirty() {
+                    this.schedule_annotation_save(index, cx);
+                }
+                cx.notify();
+            });
         })
         .detach();
     }
