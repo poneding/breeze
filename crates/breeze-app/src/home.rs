@@ -62,6 +62,7 @@ impl Breeze {
             .child(
                 column()
                     .id("home-content")
+                    .test_support()
                     .flex_1()
                     .min_w_0()
                     .min_h_0()
