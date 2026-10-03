@@ -17,3 +17,7 @@ The user accepted the compact UI's general direction on September 29, 2026. Impl
 Implementation plans belong in [docs/plans](../plans/README.md). Do not treat target behavior in a specification as already implemented. Consult [AGENTS.md](../../AGENTS.md) for language, coding, validation, and commit rules.
 
 Current concrete work packages are [annotation export](../plans/05-annotation-export.md), [opening-window policies](../plans/06-window-policy.md), and the [remaining-work backlog](../plans/07-remaining-work.md). Consult [delivery status](../plans/STATUS.md) for executed tests and outstanding native/release checks.
+
+## Research proposals
+
+- [07 — PDF editing research](07-pdf-editing-research.md): October 3, 2026 comparison of Quark, open-source implementations, and public SDK interfaces, with a proposed Rust implementation route. This is research, not a changed engine decision or accepted editor implementation. The proposed validation work is [work package 12](../plans/12-structural-editing-validation.md).
