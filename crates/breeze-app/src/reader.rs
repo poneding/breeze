@@ -1,13 +1,65 @@
 use crate::*;
+use gpui_kit::base::{ResizeHandleRenderer, ResizeHandleState, Transition, transition};
 use gpui_kit::component::{
-    h_resizable,
+    Theme, h_resizable,
     menu::{DropdownMenu, PopupMenuItem},
     resizable_panel,
     tab::{Tab, TabBar},
     tooltip::Tooltip,
 };
+use std::rc::Rc;
 
 pub(super) const NAVIGATION_MIN_WIDTH: f32 = 192.;
+
+fn navigation_handle_appearance(p: Palette) -> ResizeHandleRenderer {
+    Rc::new(move |handle, window, cx| {
+        let (target_length, target_opacity) = match handle.state() {
+            ResizeHandleState::Idle => (px(0.), 0.),
+            ResizeHandleState::Hovered => (px(20.), 0.35),
+            ResizeHandleState::Pressed => (px(28.), 0.6),
+            ResizeHandleState::Dragging => (px(44.), 0.9),
+        };
+        let motion = Theme::global(cx).motion_tokens();
+        let policy = Transition::new(motion.duration_fast).easing(motion.easing_move.clone());
+        let length = transition(
+            "navigation-handle-length",
+            target_length,
+            policy.clone(),
+            window,
+            cx,
+        );
+        let opacity = transition(
+            "navigation-handle-opacity",
+            target_opacity,
+            policy,
+            window,
+            cx,
+        );
+        let line_width = px(1.);
+        let indicator_width = px(4.);
+        Some(
+            row()
+                .flex_none()
+                .w(line_width)
+                .h_full()
+                .bg(p.line)
+                .when(length > px(0.5), |line| {
+                    line.child(
+                        div()
+                            .flex_none()
+                            .w(indicator_width)
+                            .h(length)
+                            // Center the overhang explicitly; flex alignment clamps overflow.
+                            .ml((line_width - indicator_width) * 0.5)
+                            .rounded(Theme::global(cx).radius_full())
+                            .bg(p.muted)
+                            .opacity(opacity),
+                    )
+                })
+                .into_any_element(),
+        )
+    })
+}
 
 impl Breeze {
     pub(super) fn reader(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
@@ -101,6 +153,7 @@ impl Breeze {
             div().flex_1().min_h_0().child(
                 h_resizable("reader-split")
                     .with_state(&self.navigation_split)
+                    .with_handle_appearance(navigation_handle_appearance(p))
                     .child(
                         resizable_panel()
                             .size(px(self.navigation_width))
@@ -201,8 +254,6 @@ impl Breeze {
             .min_h_0()
             .flex_shrink_0()
             .bg(p.panel)
-            .border_r_1()
-            .border_color(p.line)
             .child(
                 row()
                     .id("navigation-header")
