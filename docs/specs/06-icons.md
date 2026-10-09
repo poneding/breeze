@@ -29,6 +29,9 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Category group / category | `tags` / `tag` | `Tags` / `Tag` |
 | Favorite | `bookmark` / filled derivative | `Bookmark` / local SVG |
 | Toggle navigation | `panel-left` | `PanelLeft` |
+| Toggle document sidebar | `panel-right` | `PanelRight` |
+| Document information / annotations | `info` / `highlighter` | `Info` / `Highlighter` |
+| Annotation type filter | `list-filter` | `ListFilter` |
 | Outline title search / more | `search` / `ellipsis-vertical` | `Search` / `EllipsisVertical` |
 | Expand / collapse all outline branches | `list-chevrons-up-down` / `list-chevrons-down-up` | `ListChevronsUpDown` / `ListChevronsDownUp` |
 | Reading pointer / search | `mouse-pointer-2` / `search` | `MousePointer2` / `Search` |
@@ -48,7 +51,6 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Actual size | `scan` | `Scan` |
 | Zoom in / out | `plus` / `minus` | `Plus` / `Minus` |
 | Export annotated PDF | `download` | `Download` |
-| Prototype capability information | `info` | `Info` |
 
 `Scan` and `Minus` currently serve more than one meaning in different tool areas; keep tooltips clear or choose distinct alternatives during further refinement.
 

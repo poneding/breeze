@@ -10,15 +10,18 @@ mod window_policy;
 use annotations::DocumentAnnotations;
 use persistence::SavedState;
 mod categories;
+mod colors;
 mod commands;
 mod covers;
 mod document_icons;
+mod document_panel;
 mod home;
 mod raster;
 mod reader;
 mod reading;
 mod settings;
 mod style;
+mod tool_settings;
 mod view_controls;
 use anyhow::Result;
 use appearance::{ColorScheme, ThemePreference};
@@ -50,6 +53,7 @@ actions!(
         NextTab,
         PreviousTab,
         ToggleSidebar,
+        ToggleDocumentPanel,
         FocusPage,
         Favorite,
         CycleTheme,
@@ -97,7 +101,6 @@ struct Preview {
     points: (f32, f32),
     outline: Arc<Vec<breeze_pdf::Outline>>,
     bytes: usize,
-    elapsed_ms: f64,
 }
 struct Breeze {
     page_task: Option<Task<()>>,
@@ -160,15 +163,11 @@ struct Breeze {
     page_input: Entity<InputState>,
     font_input: Entity<InputState>,
     text_input: Entity<InputState>,
+    edit_text_input: Entity<InputState>,
     focus: FocusHandle,
     tool: usize,
-    bold: bool,
-    italic: bool,
-    font_size: u16,
-    opacity: u16,
-    alignment: usize,
-    color: usize,
-    background: usize,
+    tool_settings: tool_settings::ToolSettings,
+    document_panel: document_panel::DocumentPanel,
     remember_files: bool,
     remember_position: bool,
     reading_preferences: ReadingPreferences,
@@ -181,6 +180,9 @@ impl Breeze {
         let text_input =
             cx.new(|cx| InputState::new(window, cx).default_value("让思绪，在此停留。"));
         let subscription = cx.observe(&text_input, |_, _, cx| cx.notify());
+        let edit_text_input =
+            cx.new(|cx| InputState::new(window, cx).default_value("让思绪，在此停留。"));
+        let edit_subscription = cx.observe(&edit_text_input, |_, _, cx| cx.notify());
         let page_input = cx.new(|cx| InputState::new(window, cx).default_value("1"));
         let page_submission = cx.subscribe_in(&page_input, window, |this, _, event, window, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) && this.screen == Screen::Reader {
@@ -260,6 +262,7 @@ impl Breeze {
             library_input,
             _subscriptions: vec![
                 subscription,
+                edit_subscription,
                 page_submission,
                 resize_observer,
                 appearance_observer,
@@ -298,14 +301,10 @@ impl Breeze {
             font_input: cx.new(|cx| InputState::new(window, cx).default_value("系统默认")),
             text_input,
             focus: cx.focus_handle(),
+            edit_text_input,
             tool: 0,
-            bold: false,
-            italic: false,
-            font_size: 18,
-            opacity: 100,
-            alignment: 0,
-            color: 0,
-            background: 0,
+            tool_settings: tool_settings::ToolSettings::default(),
+            document_panel: document_panel::DocumentPanel::default(),
             remember_files: true,
             remember_position: true,
             reading_preferences: ReadingPreferences::default(),
@@ -325,6 +324,7 @@ impl Breeze {
         )
     }
     fn show_home(&mut self, cx: &mut Context<Self>) {
+        self.tool_settings.dismiss();
         self.covers.clear(cx);
         self.page_task = None;
         self.reading.cancel();
@@ -339,7 +339,9 @@ impl Breeze {
         cx.notify();
     }
     fn open_book(&mut self, index: usize, cx: &mut Context<Self>) {
+        self.tool_settings.dismiss();
         if self.active != index {
+            self.document_panel.reset_document();
             self.cancel_search();
             self.search_open = false;
         }
@@ -624,6 +626,11 @@ impl Render for Breeze {
             .on_action(cx.listener(|this, action: &ToggleSidebar, window, cx| {
                 this.execute(action, window, cx)
             }))
+            .on_action(
+                cx.listener(|this, action: &ToggleDocumentPanel, window, cx| {
+                    this.execute(action, window, cx)
+                }),
+            )
             .on_action(
                 cx.listener(|this, action: &FocusPage, window, cx| {
                     this.execute(action, window, cx)

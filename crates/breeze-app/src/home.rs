@@ -1,5 +1,5 @@
 use crate::*;
-use gpui_kit::component::{ElementExt, Icon, button::ButtonCustomVariant};
+use gpui_kit::component::{ElementExt, button::ButtonCustomVariant};
 use std::ops::Range;
 const CATEGORY_WIDTH: f32 = 144.;
 const POSITION_WIDTH: f32 = 100.;

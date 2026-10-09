@@ -3,6 +3,7 @@ use crate::*;
 use gpui_kit::component::TitleBar;
 
 pub fn bind(cx: &mut App) {
+    tool_settings::bind(cx);
     cx.bind_keys([
         KeyBinding::new("secondary-o", Open, Some("Breeze")),
         KeyBinding::new("secondary-shift-l", CycleLayout, Some("Breeze && !Input")),
@@ -83,6 +84,7 @@ impl Breeze {
         } else if action.as_any().is::<Home>() {
             self.show_home(cx);
         } else if action.as_any().is::<Preferences>() {
+            self.tool_settings.dismiss();
             self.covers.cancel();
             self.screen = Screen::Settings;
             cx.notify();
@@ -147,6 +149,9 @@ impl Breeze {
             } else if action.as_any().is::<ToggleSidebar>() {
                 self.sidebar = !self.sidebar;
                 cx.notify();
+            } else if action.as_any().is::<ToggleDocumentPanel>() {
+                self.document_panel.open = !self.document_panel.open;
+                cx.notify();
             } else if action.as_any().is::<ShowOutline>() || action.as_any().is::<ShowThumbnails>()
             {
                 self.sidebar = true;
@@ -166,6 +171,8 @@ impl Breeze {
                 || action.as_any().is::<AnnotateMode>()
                 || action.as_any().is::<EditMode>()
             {
+                self.tool_settings.dismiss();
+                self.gesture.clear();
                 self.books[self.active].state.mode = if action.as_any().is::<ReadMode>() {
                     Mode::Read
                 } else if action.as_any().is::<AnnotateMode>() {
@@ -370,6 +377,7 @@ fn action_label(action: &dyn Action) -> &'static str {
     name!(CloseTab, "关闭当前标签");
     name!(CycleTheme, "主题模式：跟随系统 → 浅色 → 深色");
     name!(ToggleSidebar, "展开 / 收起导航");
+    name!(ToggleDocumentPanel, "展开 / 收起文档侧栏");
     name!(NextPage, "下一页");
     name!(PreviousPage, "上一页");
     name!(FocusPage, "跳转到页");
@@ -382,7 +390,7 @@ fn action_label(action: &dyn Action) -> &'static str {
     name!(ShowOutline, "目录");
     name!(ShowThumbnails, "缩略图");
     name!(ReadMode, "阅读模式");
-    name!(AnnotateMode, "标注模式 · 工具预览");
+    name!(AnnotateMode, "标注模式");
     name!(EditMode, "编辑模式 · 工具预览");
     "命令"
 }

@@ -2,7 +2,7 @@
 use crate::*;
 use breeze_core::library::{Category, CategoryColor, validate_name};
 use gpui_kit::component::{
-    Icon, Theme,
+    Icon,
     button::ButtonCustomVariant,
     menu::{DropdownMenu, PopupMenuItem},
     popover::Popover,
@@ -295,8 +295,8 @@ impl Breeze {
                                 .text_color(category_tint(color, cx)),
                         )
                         .selected(self.category_color == color)
-                        .accessibility_label(format!("分类颜色：{}", color_label(color)))
-                        .tooltip(color_label(color))
+                        .accessibility_label(format!("分类颜色：{}", colors::label(color)))
+                        .tooltip(colors::label(color))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.category_color = color;
                             cx.notify();
@@ -401,33 +401,6 @@ impl Breeze {
     }
 }
 
-fn color_label(color: CategoryColor) -> &'static str {
-    match color {
-        CategoryColor::Red => "红色",
-        CategoryColor::Orange => "橙色",
-        CategoryColor::Amber => "琥珀色",
-        CategoryColor::Green => "绿色",
-        CategoryColor::Teal => "青色",
-        CategoryColor::Blue => "蓝色",
-        CategoryColor::Violet => "紫色",
-        CategoryColor::Pink => "粉色",
-    }
-}
-fn category_tint(color: CategoryColor, cx: &App) -> Hsla {
-    let (light, dark) = match color {
-        CategoryColor::Red => (0xdc2626, 0xf87171),
-        CategoryColor::Orange => (0xc2410c, 0xfb923c),
-        CategoryColor::Amber => (0xa16207, 0xfbbf24),
-        CategoryColor::Green => (0x15803d, 0x4ade80),
-        CategoryColor::Teal => (0x0f766e, 0x2dd4bf),
-        CategoryColor::Blue => (0x2563eb, 0x60a5fa),
-        CategoryColor::Violet => (0x7c3aed, 0xa78bfa),
-        CategoryColor::Pink => (0xbe185d, 0xf472b6),
-    };
-    rgb(if Theme::global(cx).is_dark() {
-        dark
-    } else {
-        light
-    })
-    .into()
+fn category_tint(color: CategoryColor, _cx: &App) -> Hsla {
+    rgb(colors::hex(color)).into()
 }

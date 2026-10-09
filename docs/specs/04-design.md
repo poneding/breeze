@@ -81,11 +81,17 @@ Apply palette changes to both application chrome and Kit components. PDF pages a
 
 ## Annotation and editing modes
 
-All twelve requested annotation tools now operate on the independent sidecar layer. Contextual controls belong near the selected tool or in the optional properties panel. Do not give unused properties permanent viewport space.
+All twelve requested annotation tools operate on the independent sidecar layer. The reader toolbar ends with Search, Favorite, and the document-sidebar toggle in that order. Search is available in every mode. The optional 256 px right sidebar starts closed and is independent of Reading/Annotate/Edit mode; its 38 px header contains Information and Annotations tabs.
+
+Information shows the current document's name, format, page count, current page dimensions, categories, annotation count, and file/sidecar locations. Annotations lists the current document's sidecar items across all pages in page order, with an all-types/type filter and an optional current-page filter. Rows show type, color, page, and note text when present; clicking navigates to the page. Deletion affects the chosen sidecar item and supports undo/redo. The list is virtualized. Existing embedded PDF annotations are not imported into editable history.
+
+Annotation and editing tools open Kit hover cards after a short pointer dwell. The pointer can enter the card and adjust its controls; leaving both trigger and card closes it after a short grace period. Keyboard activation opens a focusable Kit popover dismissed by Escape. Hovering alone never selects a different tool. Colors, line widths, and opacity are remembered independently for each annotation tool for the current application session. Notes expose their text input; the eraser explains whole-stroke removal and has no irrelevant color/width controls. Editing text and insert-text keep separate preview styles and a separate text input from annotation notes.
+
+Use the same eight fixed colors for category tags and annotation/edit swatches: red `#EF4444`, orange `#F97316`, amber `#F59E0B`, green `#22C55E`, teal `#14B8A6`, blue `#3B82F6`, violet `#8B5CF6`, and pink `#EC4899`. These colors are independent of application appearance. Annotation opacity is exactly the displayed percentage; new text/area highlights default to 40% amber, while strokes and notes default to 100%. Existing stored annotations retain their color and opacity.
 
 Editing offers text, image, insert-text, and insert-image entry points. The independent style preview is explicitly not a PDF overlay editor. Applying original-content edits stays unavailable until structural editing is validated. Annotation export is a separate enabled, restricted workflow with explicit destination and sticky-note semantics.
 
-Show annotation load/save/conflict state in the properties panel. Use concise capability tooltips for unavailable PDF editing/export paths. Never imply successful file changes.
+Show annotation load/save/conflict state, undo/redo, Save, Save As, and export controls in the Annotations sidebar. Surface annotation errors in the reader status as well. Use concise capability messages for unavailable original-content editing. Never imply successful file changes.
 
 ## Tooltips, accessibility, and shortcuts
 

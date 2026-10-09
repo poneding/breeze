@@ -407,7 +407,10 @@ impl Breeze {
         } else {
             Vec::new()
         };
-        let hex = [0x365f48, 0xd9b657, 0xcc8167, 0x829fbd][self.color];
+        let style =
+            self.tool_settings
+                .annotation
+                .get(if mode == Mode::Read { 0 } else { self.tool })?;
         Some(Annotation {
             page: self.books[self.active].state.navigation.page(),
             kind,
@@ -417,17 +420,9 @@ impl Breeze {
                 self.gesture.clone()
             },
             quads,
-            color: [
-                ((hex >> 16) & 255) as f32 / 255.,
-                ((hex >> 8) & 255) as f32 / 255.,
-                (hex & 255) as f32 / 255.,
-            ],
-            opacity: if matches!(kind, Kind::Area | Kind::Highlight) {
-                0.28 * (self.opacity as f32 / 100.)
-            } else {
-                self.opacity as f32 / 100.
-            },
-            width: (self.font_size as f32 / 6.).clamp(0.5, 10.),
+            color: colors::components(style.color),
+            opacity: style.opacity as f32 / 100.,
+            width: style.width,
             text: String::new(),
         })
     }
@@ -600,185 +595,6 @@ impl Breeze {
                 )
             }))
             .into_any_element()
-    }
-    pub(super) fn annotation_inspector(&self, cx: &mut Context<Self>) -> Div {
-        let p = self.p();
-        let data = &self.books[self.active].annotations;
-        let page = self.books[self.active].state.navigation.page();
-        column()
-            .w(px(232.))
-            .flex_shrink_0()
-            .bg(p.bg)
-            .border_l_1()
-            .border_color(p.line)
-            .child(
-                column()
-                    .id("annotation-properties")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .p_3()
-                    .gap_3()
-                    .child(
-                        row()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("批注"),
-                            )
-                            .child(
-                                self.command(
-                                    "undo",
-                                    IconName::Undo2,
-                                    "撤销批注",
-                                    &UndoAnnotation,
-                                    cx,
-                                )
-                                .disabled(!data.history.can_undo()),
-                            )
-                            .child(
-                                self.command(
-                                    "redo",
-                                    IconName::Redo2,
-                                    "重做批注",
-                                    &RedoAnnotation,
-                                    cx,
-                                )
-                                .disabled(!data.history.can_redo()),
-                            )
-                            .child(
-                                self.command(
-                                    "save-sidecar",
-                                    IconName::Save,
-                                    "保存批注",
-                                    &SaveAnnotations,
-                                    cx,
-                                )
-                                .disabled(!data.ready || data.saving || data.error.is_some()),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(p.muted)
-                            .child(if data.saving {
-                                "正在保存…"
-                            } else if data.dirty() {
-                                "有未保存批注"
-                            } else if data.ready {
-                                "批注已载入"
-                            } else {
-                                "批注尚未就绪"
-                            }),
-                    )
-                    .child(self.export_controls(cx))
-                    .child(self.command(
-                        "save-sidecar-as",
-                        IconName::FolderOpen,
-                        "选择新的批注保存位置",
-                        &SaveAnnotationsAs,
-                        cx,
-                    ))
-                    .when_some(data.error.as_ref(), |d, e| {
-                        d.child(div().text_color(rgb(0xb46a40)).child(e.clone()))
-                    })
-                    .child(
-                        row().gap_2().children(
-                            [0x365f48, 0xd9b657, 0xcc8167, 0x829fbd]
-                                .into_iter()
-                                .enumerate()
-                                .map(|(i, color)| {
-                                    Button::new(("ink-color", i))
-                                        .small()
-                                        .ghost()
-                                        .label("●")
-                                        .text_color(rgb(color))
-                                        .selected(self.color == i)
-                                        .tooltip("批注颜色")
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.color = i;
-                                            cx.notify();
-                                        }))
-                                }),
-                        ),
-                    )
-                    .child(
-                        Button::new("ink-width")
-                            .small()
-                            .label(format!("线宽 {} pt", self.font_size / 6))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.font_size = if this.font_size >= 30 {
-                                    6
-                                } else {
-                                    this.font_size + 6
-                                };
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("ink-opacity")
-                            .small()
-                            .label(format!("透明度 {}%", self.opacity))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.opacity = if this.opacity <= 25 {
-                                    100
-                                } else {
-                                    this.opacity - 25
-                                };
-                                cx.notify();
-                            })),
-                    )
-                    .when(self.tool == 6, |d| {
-                        d.child(Input::new(&self.text_input).small()).child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(p.muted)
-                                .child("输入便笺内容后点击页面放置"),
-                        )
-                    })
-                    .child(div().text_size(px(11.)).text_color(p.muted).child(
-                        "拖动创建批注；文字标记只作用于选框内识别到的字形。橡皮擦只删除笔迹。",
-                    ))
-                    .children(
-                        data.history
-                            .items
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, a)| a.page == page)
-                            .map(|(i, a)| {
-                                row()
-                                    .gap_1()
-                                    .child(div().flex_1().text_size(px(12.)).child(format!(
-                                        "{} · {:?}",
-                                        i + 1,
-                                        a.kind
-                                    )))
-                                    .child(
-                                        Button::new(("remove-annotation", i))
-                                            .ghost()
-                                            .small()
-                                            .icon(IconName::Trash)
-                                            .accessibility_label("删除此批注")
-                                            .tooltip("只删除批注，不修改原文")
-                                            .on_click(cx.listener(move |this, _, _, cx| {
-                                                let h = &mut this.books[this.active]
-                                                    .annotations
-                                                    .history;
-                                                let mut items = h.items.clone();
-                                                items.remove(i);
-                                                h.replace(items);
-                                                this.schedule_annotation_save(this.active, cx);
-                                                cx.notify();
-                                            })),
-                                    )
-                            }),
-                    )
-                    .child(div().text_size(px(11.)).text_color(p.muted).child(
-                        "自动保存到旁置 .breeze.json；PDF 导出写新副本。原文编辑仍未开放。",
-                    )),
-            )
     }
 }
 fn distance_to_segment(p: DocPoint, a: DocPoint, b: DocPoint) -> f32 {

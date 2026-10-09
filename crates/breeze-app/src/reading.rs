@@ -223,7 +223,6 @@ impl Preview {
             text_warning: page.text_warning,
             points: page.points,
             outline: page.outline,
-            elapsed_ms: page.elapsed_ms,
             bytes,
         }))
     }
@@ -962,14 +961,13 @@ impl Breeze {
         }
     }
     fn reading_viewport_size(&self, window: &Window) -> (f32, f32) {
-        let state = &self.books[self.active].state;
         let width = (f32::from(window.viewport_size().width)
             - if self.sidebar {
                 self.navigation_width
             } else {
                 0.
             }
-            - if state.mode == Mode::Read { 0. } else { 232. })
+            - self.document_panel.width())
         .max(100.);
         let height = (f32::from(window.viewport_size().height)
             - 34.

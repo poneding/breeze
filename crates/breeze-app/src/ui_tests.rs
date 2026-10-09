@@ -178,7 +178,6 @@ fn annotation_gestures_history_and_close_guard(cx: &mut TestAppContext) {
                 text_warning: page.text_warning,
                 outline: page.outline,
                 bytes: 0,
-                elapsed_ms: 0.,
             }));
             view.books[0].annotations.ready = true;
             view.books[0].state.mode = Mode::Annotate;
@@ -232,7 +231,6 @@ fn text_selection_uses_extracted_geometry(cx: &mut TestAppContext) {
                 text_warning: page.text_warning,
                 outline: page.outline,
                 bytes: 0,
-                elapsed_ms: 0.,
             }));
         });
         window.render_frame(cx);
@@ -329,7 +327,6 @@ fn annotation_tool_matrix_creates_real_geometry(cx: &mut TestAppContext) {
                 text_warning: page.text_warning,
                 outline: page.outline,
                 bytes: 0,
-                elapsed_ms: 0.,
             }));
             view.books[0].state.mode = Mode::Annotate;
             view.books[0].annotations.ready = true;
@@ -480,7 +477,6 @@ fn opening_policy_runs_once_and_does_not_change_zoom(cx: &mut TestAppContext) {
                 text_warning: page.text_warning,
                 outline: page.outline,
                 bytes: 0,
-                elapsed_ms: 0.,
             }));
             view.window_policy = 2;
             view.pending_window_policy = true;

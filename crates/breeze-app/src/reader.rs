@@ -92,6 +92,8 @@ impl Breeze {
                             .small()
                             .selected_index(mode.index())
                             .on_click(cx.listener(|this, index, _, cx| {
+                                this.tool_settings.dismiss();
+                                this.gesture.clear();
                                 this.books[this.active].state.mode = Mode::from_index(*index);
                                 this.tool = 0;
                                 cx.notify();
@@ -115,24 +117,14 @@ impl Breeze {
                     .child(div().h(px(18.)).w(px(1.)).bg(p.line))
                     .child(self.tools(mode, cx))
                     .child(
-                        Button::new("preview-info")
-                            .ghost()
-                            .small()
-                            .icon(IconName::Info)
-                            .accessibility_label("原型说明")
-                            .tooltip(format!(
-                                "批注保存在旁置文件；原 PDF 不变。原文编辑仍未开放{}",
-                                self.preview
-                                    .as_ref()
-                                    .map(|p| format!(" · 本页后台准备 {:.0} ms", p.elapsed_ms))
-                                    .unwrap_or_default()
-                                    + &self
-                                        .preview
-                                        .as_ref()
-                                        .and_then(|p| p.text_warning.clone())
-                                        .map(|w| format!(" · {w}"))
-                                        .unwrap_or_default()
-                            )),
+                        self.command(
+                            "reader-search",
+                            IconName::Search,
+                            "搜索文档",
+                            &SearchDocument,
+                            cx,
+                        )
+                        .selected(self.search_open),
                     )
                     .child(
                         self.command("reader-star", IconName::Bookmark, "收藏", &Favorite, cx)
@@ -144,6 +136,16 @@ impl Breeze {
                             } else {
                                 "收藏"
                             }),
+                    )
+                    .child(
+                        self.command(
+                            "document-panel-toggle",
+                            IconName::PanelRight,
+                            "文档侧栏",
+                            &ToggleDocumentPanel,
+                            cx,
+                        )
+                        .selected(self.document_panel.open),
                     ),
             )
             .when(self.search_open, |d| d.child(self.search_bar(cx)))
@@ -153,7 +155,9 @@ impl Breeze {
                     .min_h_0()
                     .items_stretch()
                     .child(self.pages_view(window, cx))
-                    .when(mode != Mode::Read, |d| d.child(self.inspector(mode, cx))),
+                    .when(self.document_panel.open, |d| {
+                        d.child(self.document_sidebar(cx))
+                    }),
             )
             .child(self.status(window, cx));
         if self.sidebar {
@@ -176,58 +180,6 @@ impl Breeze {
         } else {
             div().flex_1().min_h_0().child(main)
         }
-    }
-    fn tools(&self, mode: Mode, cx: &mut Context<Self>) -> Stateful<Div> {
-        let tools: Vec<(IconName, &str)> = match mode {
-            Mode::Read => vec![
-                (IconName::MousePointer2, "浏览"),
-                (IconName::Search, "搜索"),
-            ],
-            Mode::Annotate => vec![
-                (IconName::Highlighter, "文本高亮"),
-                (IconName::Scan, "区域高亮"),
-                (IconName::Underline, "下划线"),
-                (IconName::Strikethrough, "删除线"),
-                (IconName::Pencil, "画笔"),
-                (IconName::Eraser, "橡皮擦"),
-                (IconName::StickyNote, "文本批注"),
-                (IconName::Circle, "圆形"),
-                (IconName::Square, "矩形"),
-                (IconName::Minus, "直线"),
-                (IconName::LineSquiggle, "波浪线"),
-                (IconName::ArrowUpRight, "箭头"),
-            ],
-            Mode::Edit => vec![
-                (IconName::TextCursorInput, "文字"),
-                (IconName::Image, "图片"),
-                (IconName::Type, "插入文字"),
-                (IconName::ImagePlus, "插入图片"),
-            ],
-        };
-        row()
-            .id("tools")
-            .flex_1()
-            .min_w_0()
-            .overflow_x_scroll()
-            .gap_1()
-            .children(tools.into_iter().enumerate().map(|(i, (icon, label))| {
-                Button::new(("tool", i))
-                    .ghost()
-                    .small()
-                    .icon(icon)
-                    .accessibility_label(label)
-                    .tooltip(label)
-                    .selected(self.tool == i)
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        if mode == Mode::Read && i == 1 {
-                            this.execute(&SearchDocument, window, cx);
-                            return;
-                        }
-                        this.gesture.clear();
-                        this.tool = i;
-                        cx.notify()
-                    }))
-            }))
     }
     pub(super) fn navigation_outline(&self) -> Option<Arc<Vec<breeze_pdf::Outline>>> {
         self.preview
@@ -415,13 +367,17 @@ impl Breeze {
                     .overflow_hidden()
                     .text_size(px(11.))
                     .text_color(p.muted)
-                    .child(if !self.message.is_empty() {
-                        self.message.clone()
-                    } else if self.books[self.active].annotations.dirty() {
-                        "批注未保存".into()
-                    } else {
-                        "原件未修改".into()
-                    }),
+                    .child(
+                        if let Some(error) = &self.books[self.active].annotations.error {
+                            format!("标注异常：{error}")
+                        } else if !self.message.is_empty() {
+                            self.message.clone()
+                        } else if self.books[self.active].annotations.dirty() {
+                            "批注未保存".into()
+                        } else {
+                            "原件未修改".into()
+                        },
+                    ),
             )
             .child(self.layout_button(cx))
             .child(self.zoom_button(cx))
@@ -450,254 +406,5 @@ impl Breeze {
                 cx.notify();
             }
         }
-    }
-    fn inspector(&self, mode: Mode, cx: &mut Context<Self>) -> Div {
-        if mode == Mode::Annotate {
-            return self.annotation_inspector(cx);
-        }
-        let p = self.p();
-        let image_mode = mode == Mode::Edit && (self.tool == 1 || self.tool == 3);
-        let text_mode =
-            (mode == Mode::Edit && !image_mode) || (mode == Mode::Annotate && self.tool == 6);
-        column()
-            .w(px(232.))
-            .flex_shrink_0()
-            .border_l_1()
-            .border_color(p.line)
-            .bg(p.bg)
-            .child(
-                column()
-                    .id("properties")
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .p_3()
-                    .gap_3()
-                    .child(
-                        row()
-                            .justify_between()
-                            .child(div().font_weight(FontWeight::SEMIBOLD).child(
-                                if mode == Mode::Annotate {
-                                    "标注属性"
-                                } else if image_mode {
-                                    "图片属性"
-                                } else {
-                                    "文字属性"
-                                },
-                            ))
-                            .child(div().text_size(px(9.)).text_color(p.accent).child("预览")),
-                    )
-                    .when(text_mode, |this| {
-                        this.child(
-                            column()
-                                .gap_2()
-                                .child(style::eyebrow("字体", p))
-                                .child(Input::new(&self.font_input).small()),
-                        )
-                        .child(
-                            row()
-                                .gap_2()
-                                .child(
-                                    Button::new("font-size")
-                                        .small()
-                                        .label(format!("{} pt", self.font_size))
-                                        .tooltip("点击切换示例字号")
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.font_size = if this.font_size >= 28 {
-                                                12
-                                            } else {
-                                                this.font_size + 2
-                                            };
-                                            cx.notify()
-                                        })),
-                                )
-                                .child(
-                                    Button::new("bold")
-                                        .ghost()
-                                        .small()
-                                        .icon(IconName::Bold)
-                                        .selected(self.bold)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.bold = !this.bold;
-                                            cx.notify()
-                                        })),
-                                )
-                                .child(
-                                    Button::new("italic")
-                                        .ghost()
-                                        .small()
-                                        .icon(IconName::Italic)
-                                        .selected(self.italic)
-                                        .on_click(cx.listener(|this, _, _, cx| {
-                                            this.italic = !this.italic;
-                                            cx.notify()
-                                        })),
-                                ),
-                        )
-                    })
-                    .when(image_mode, |this| {
-                        this.child(
-                            div().text_color(p.muted).text_size(px(13.)).child(
-                                "选择原图的绘制实例，而不是覆盖原图。共享资源需按实例隔离。",
-                            ),
-                        )
-                        .child(
-                            Button::new("image-scale")
-                                .small()
-                                .label("缩放 · 未接入")
-                                .disabled(true),
-                        )
-                        .child(
-                            Button::new("image-rotate")
-                                .small()
-                                .icon(IconName::RotateCw)
-                                .label("旋转 · 未接入")
-                                .disabled(true),
-                        )
-                        .child(
-                            Button::new("image-delete")
-                                .small()
-                                .icon(IconName::Trash)
-                                .label("删除 · 未接入")
-                                .disabled(true),
-                        )
-                    })
-                    .when(mode == Mode::Annotate && !text_mode, |this| {
-                        this.child(div().text_size(px(13.)).text_color(p.muted).child(
-                            "只预览工具参数，当前不在页面绘制。橡皮擦最终只处理笔迹，不修改原文。",
-                        ))
-                        .child(
-                            Button::new("stroke-width")
-                                .small()
-                                .label(format!("线宽   {} px", self.font_size / 6))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.font_size = if this.font_size >= 30 {
-                                        6
-                                    } else {
-                                        this.font_size + 6
-                                    };
-                                    cx.notify()
-                                })),
-                        )
-                    })
-                    .child(style::eyebrow("颜色", p))
-                    .child(
-                        row().gap_2().children(
-                            [0x365f48, 0xd9b657, 0xcc8167, 0x829fbd]
-                                .into_iter()
-                                .enumerate()
-                                .map(|(i, color)| {
-                                    div()
-                                        .id(("swatch", i))
-                                        .size(px(27.))
-                                        .rounded_full()
-                                        .bg(rgb(color))
-                                        .border_2()
-                                        .border_color(if self.color == i { p.text } else { p.bg })
-                                        .cursor_pointer()
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.color = i;
-                                            cx.notify()
-                                        }))
-                                }),
-                        ),
-                    )
-                    .child(
-                        Button::new("opacity")
-                            .small()
-                            .label(format!("透明度   {}%", self.opacity))
-                            .tooltip("点击切换 25 / 50 / 75 / 100%")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.opacity = if this.opacity <= 25 {
-                                    100
-                                } else {
-                                    this.opacity - 25
-                                };
-                                cx.notify()
-                            })),
-                    )
-                    .when(text_mode, |this| {
-                        this.child(
-                            row().gap_2().children(
-                                [
-                                    IconName::TextAlignStart,
-                                    IconName::TextAlignCenter,
-                                    IconName::TextAlignEnd,
-                                ]
-                                .into_iter()
-                                .enumerate()
-                                .map(|(i, icon)| {
-                                    Button::new(("align", i))
-                                        .ghost()
-                                        .small()
-                                        .icon(icon)
-                                        .selected(self.alignment == i)
-                                        .tooltip(["左对齐", "居中", "右对齐"][i])
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.alignment = i;
-                                            cx.notify()
-                                        }))
-                                }),
-                            ),
-                        )
-                        .child(
-                            Button::new("text-background")
-                                .small()
-                                .label(format!(
-                                    "背景色   {}",
-                                    ["浅松绿", "画布色", "面板色"][self.background]
-                                ))
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.background = (this.background + 1) % 3;
-                                    cx.notify()
-                                })),
-                        )
-                        .child(style::eyebrow("独立样式预览 · 非页面编辑", p))
-                        .child(Input::new(&self.text_input).small())
-                        .child(
-                            div()
-                                .p_4()
-                                .rounded_md()
-                                .bg(match self.background {
-                                    1 => p.bg,
-                                    2 => p.panel,
-                                    _ => p.tint,
-                                })
-                                .text_size(px(self.font_size as f32))
-                                .text_color(rgb(
-                                    [0x365f48, 0xd9b657, 0xcc8167, 0x829fbd][self.color]
-                                ))
-                                .opacity(self.opacity as f32 / 100.)
-                                .font_weight(if self.bold {
-                                    FontWeight::BOLD
-                                } else {
-                                    FontWeight::NORMAL
-                                })
-                                .when(self.italic, |d| d.italic())
-                                .when(self.alignment == 1, |d| d.text_center())
-                                .when(self.alignment == 2, |d| d.text_right())
-                                .child(self.text_input.read(cx).value()),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(12.))
-                                .text_color(p.muted)
-                                .child("字体名称为输入交互，暂不切换实际字体。"),
-                        )
-                    })
-                    .child(div().flex_1())
-                    .child(
-                        Button::new("apply-edit")
-                            .primary()
-                            .label("应用到文档 · 尚未开放")
-                            .disabled(true),
-                    )
-                    .child(
-                        div()
-                            .text_size(px(12.))
-                            .text_color(p.muted)
-                            .child("不会遮盖原文，不会栅格化替换。当前无文件写入。"),
-                    ),
-            )
     }
 }

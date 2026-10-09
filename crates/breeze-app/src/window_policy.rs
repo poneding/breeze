@@ -124,11 +124,7 @@ impl Breeze {
         } else {
             0.
         };
-        let properties = if self.books[self.active].state.mode == Mode::Read {
-            0.
-        } else {
-            232.
-        };
+        let properties = self.document_panel.width();
         if let Change::Resize { width, height } = calculate(
             2,
             page,
