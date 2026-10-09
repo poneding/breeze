@@ -10,6 +10,8 @@ The sample was generated during the initial technical investigation. Its one-off
 
 The application uses the SVG catalog embedded by `gpui-kit-assets`; this directory does not contain a second icon implementation. Preserve `licenses/LICENSE-LUCIDE.txt` with redistributed Lucide assets.
 
+`icons/bookmark-filled.svg` is a filled derivative of the Lucide bookmark from `gpui-kit-assets` 0.7.0. It retains the upstream path and stroke and changes `fill` from `none` to `currentColor` for the favorite state. The same Lucide ISC notice applies.
+
 The function-to-icon map and selection guidance are maintained in [the icon specification](../docs/specs/06-icons.md). Other dependency licenses remain governed by their respective crates; this notice is not a complete release-license audit.
 
 ## Breeze identity

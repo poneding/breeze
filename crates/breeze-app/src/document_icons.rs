@@ -24,3 +24,11 @@ pub(super) fn file_icon(source: &Source, cx: &App) -> Icon {
     });
     Icon::new(IconName::FileText).small().text_color(color)
 }
+
+pub(super) fn bookmark_icon(favorite: bool) -> Icon {
+    if favorite {
+        Icon::default().data(include_bytes!("../../../assets/icons/bookmark-filled.svg"))
+    } else {
+        Icon::new(IconName::Bookmark)
+    }
+}

@@ -27,7 +27,7 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Recent documents | `clock-3` | `Clock3` |
 | All documents | `library-big` | `LibraryBig` |
 | Category group / category | `tags` / `tag` | `Tags` / `Tag` |
-| Favorite | `bookmark` | `Bookmark` |
+| Favorite | `bookmark` / filled derivative | `Bookmark` / local SVG |
 | Toggle navigation | `panel-left` | `PanelLeft` |
 | Outline title search / more | `search` / `ellipsis-vertical` | `Search` / `EllipsisVertical` |
 | Expand / collapse all outline branches | `list-chevrons-up-down` / `list-chevrons-down-up` | `ListChevronsUpDown` / `ListChevronsDownUp` |
@@ -53,6 +53,8 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 `Scan` and `Minus` currently serve more than one meaning in different tool areas; keep tooltips clear or choose distinct alternatives during further refinement.
 
 Mappings live in `crates/breeze-app/src/commands.rs`, `reader.rs`, and `home.rs`. Icon availability does not imply that a corresponding document-writing feature is implemented.
+
+Favorite buttons in the library and reader use the same bookmark outline when inactive and a filled version when active. The filled asset preserves the pinned Lucide bookmark path and stroke, changing only its fill. Favorite state does not add a persistent button background; normal hover and press feedback remains. Accessible labels distinguish Favorite from Remove Favorite.
 
 ## Document identity colors
 

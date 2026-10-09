@@ -136,7 +136,14 @@ impl Breeze {
                     )
                     .child(
                         self.command("reader-star", IconName::Bookmark, "收藏", &Favorite, cx)
-                            .selected(self.books[self.active].favorite),
+                            .icon(document_icons::bookmark_icon(
+                                self.books[self.active].favorite,
+                            ))
+                            .accessibility_label(if self.books[self.active].favorite {
+                                "取消收藏"
+                            } else {
+                                "收藏"
+                            }),
                     ),
             )
             .when(self.search_open, |d| d.child(self.search_bar(cx)))

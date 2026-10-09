@@ -252,9 +252,8 @@ impl Breeze {
                 Button::new(("favorite", index))
                     .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
                     .small()
-                    .icon(IconName::Bookmark)
-                    .selected(b.favorite)
-                    .accessibility_label("收藏")
+                    .icon(document_icons::bookmark_icon(b.favorite))
+                    .accessibility_label(if b.favorite { "取消收藏" } else { "收藏" })
                     .tooltip("收藏 / 取消收藏")
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();

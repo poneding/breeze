@@ -190,3 +190,9 @@ Formatting, workspace tests (116 passed, three existing probes ignored), and Cli
 ## October 9 leading document-tab spacing
 
 The horizontal document-tab scroller now reserves 4 logical pixels inside its left edge so the first selected tab's shadow fits within the scroll clip. Tab-to-tab spacing, tab content padding, and titlebar height are unchanged. Formatting, the complete workspace suite (116 passed, three existing probes ignored), Clippy, and isolated native startup pass. A native macOS capture of two tabs confirms the first active tab's left shadow is fully visible. Review sample copies, state, and screenshots remain under `target/tab-leading-space/` and are excluded from version control.
+
+## October 9 filled favorites
+
+Library and reader Favorite buttons now use an outline bookmark for ordinary documents and a filled Lucide derivative for favorites. Favorite state no longer adds a persistent button background. Hover/press feedback, Primary+D, persistence, and independent library secondary clicks remain intact; accessible labels reflect Favorite/Remove Favorite.
+
+Formatting, workspace tests (116 passed, three existing probes ignored), and Clippy with warnings denied pass. Native macOS inspection of the isolated `cargo run --locked -p breeze-app` window confirmed the solid reader bookmark and adjacent solid/outline library states without persistent button fills. Review data and captures are under `target/reader-tools-review/`. Windows/Linux native checks remain unperformed. The remaining sidebar/tool-settings work is tracked in [work package 14](14-reader-tools-and-details.md).
