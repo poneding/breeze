@@ -340,7 +340,7 @@ impl Breeze {
                         cx,
                     ))
                     .child(
-                        self.command("settings", IconName::Settings2, "设置", &Preferences, cx)
+                        self.command("settings", IconName::Settings, "设置", &Preferences, cx)
                             .selected(self.screen == Screen::Settings),
                     ),
             )

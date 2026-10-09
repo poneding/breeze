@@ -22,7 +22,7 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Open file | `file-plus-corner` | `FilePlusCorner` |
 | Document tab | `file-text` | `FileText` |
 | Close tab | `x` | `X` |
-| Settings | `settings-2` | `Settings2` |
+| Settings | `settings` | `Settings` |
 | System / light / dark appearance | `monitor` / `sun` / `moon` | `Monitor` / `Sun` / `Moon` |
 | Recent documents | `clock-3` | `Clock3` |
 | All documents | `library-big` | `LibraryBig` |
