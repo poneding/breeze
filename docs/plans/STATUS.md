@@ -179,3 +179,9 @@ Validation: the complete working checkout passes formatting, 116 workspace tests
 ## October 9 Settings icon
 
 The titlebar Settings command now uses the bundled Lucide `settings` gear (`IconName::Settings`), and the icon map records that selection. Formatting, workspace tests (116 passed, three existing probes ignored), Clippy, and isolated native startup passed. A capture of the native macOS window confirmed the gear in the existing titlebar button. Review state and screenshots are under `target/settings-icon-review/` and excluded from version control.
+
+## October 9 unavailable cover icons
+
+Both library views now use the shared, format-colored `file-text` icon whenever a cover is pending or unavailable. Cover failures retain their explanation in the document tooltip, and successfully loaded covers remain thumbnails.
+
+Formatting, workspace tests (116 passed, three existing probes ignored), and Clippy with warnings denied pass. Native `cargo run --locked -p breeze-app` used isolated state under `target/cover-fallback-review/`. macOS window captures confirmed the light list and dark grid with orange-red PDF, green EPUB, blue Markdown, neutral unknown-file icons, and an unchanged real sample cover. Planned-format entries were prepared only in the review state; reading support is unchanged. Native Windows/Linux checks remain unperformed. Generated fixtures, state, and captures are excluded from version control.

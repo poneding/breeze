@@ -311,12 +311,9 @@ impl Breeze {
                         .size_full()
                         .object_fit(ObjectFit::Contain),
                 ),
-                Some(Err(_)) => d.child(
-                    Icon::new(IconName::TriangleAlert)
-                        .small()
-                        .text_color(p.muted),
-                ),
-                None => d.child(document_icons::file_icon(&self.books[index].source, cx)),
+                Some(Err(_)) | None => {
+                    d.child(document_icons::file_icon(&self.books[index].source, cx))
+                }
             })
     }
     fn library_card(&self, index: usize, cx: &mut Context<Self>) -> Button {
