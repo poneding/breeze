@@ -617,6 +617,180 @@ fn spread_second_page_gesture_targets_its_own_surface(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn navigation_tabs_follow_the_current_outline(cx: &mut TestAppContext) {
+    let mut page = rendered_sample();
+    assert!(!page.outline.is_empty());
+    let outlined = Preview::from_page(page.clone()).unwrap();
+    page.outline = Arc::new(Vec::new());
+    let without_outline = Preview::from_page(page.clone()).unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.reading.sizes = page.page_sizes;
+            view.preview = Some(outlined.clone());
+            view.loading = true;
+        });
+        window.render_frame(cx);
+        assert_eq!(window.within("nav-tabs").find(0usize).label(), Some("目录"));
+        assert_eq!(
+            window.within("nav-tabs").find(1usize).label(),
+            Some("缩略图")
+        );
+        assert_eq!(
+            window.find("navigation-header").bounds().size.height,
+            px(38.)
+        );
+
+        view.update(cx, |view, _| {
+            view.reading.insert(0, outlined.clone());
+            view.preview = None;
+        });
+        window.render_frame(cx);
+        assert_eq!(window.within("nav-tabs").find(0usize).label(), Some("目录"));
+        assert!(window.find(("outline", 0usize)).visible());
+
+        view.update(cx, |view, _| view.preview = Some(without_outline.clone()));
+        window.render_frame(cx);
+        assert_eq!(
+            window.within("nav-tabs").find(0usize).label(),
+            Some("缩略图")
+        );
+        assert_eq!(
+            window.within("nav-tabs").find(0usize).selected(),
+            Some(true)
+        );
+        assert!(window.within("nav-tabs").try_find(1usize).is_none());
+        assert!(window.find(("thumbnail", 0usize)).visible());
+        assert!(
+            !view.read(cx).thumbs,
+            "automatic fallback preserves the preference"
+        );
+        window.press("secondary-shift-o", cx);
+        assert!(window.find(("thumbnail", 0usize)).visible());
+        window.within("nav-tabs").click(0usize, cx);
+        assert!(view.read(cx).thumbs);
+
+        view.update(cx, |view, _| view.preview = Some(outlined.clone()));
+        window.render_frame(cx);
+        assert_eq!(
+            window.within("nav-tabs").find(1usize).selected(),
+            Some(true)
+        );
+        window.within("nav-tabs").click(0usize, cx);
+        assert!(window.find(("outline", 0usize)).visible());
+        view.update(cx, |view, _| view.preview = Some(without_outline));
+        window.render_frame(cx);
+        view.update(cx, |view, _| view.preview = Some(outlined));
+        window.render_frame(cx);
+        assert_eq!(
+            window.within("nav-tabs").find(0usize).selected(),
+            Some(true)
+        );
+        assert!(window.find(("outline", 0usize)).visible());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn thumbnail_grid_reflows_keeps_its_anchor_and_reaches_the_last_page(cx: &mut TestAppContext) {
+    let page = rendered_sample();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.reading.source = Some(Source::Sample);
+            view.reading.sizes = Arc::new(vec![page.points; 121]);
+            view.preview = Some(Preview::from_page(page).unwrap());
+            view.books[0].state.navigation.set_total(121);
+            view.thumbs = true;
+            // Geometry and navigation are deterministic; async loading has its own regression.
+            view.loading = true;
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+    for (width, columns) in [(168., 1usize), (208., 1), (280., 2), (360., 3)] {
+        cx.update_window(handle, |_, window, cx| {
+            let split = view.read(cx).navigation_split.clone();
+            split.update(cx, |state, cx| state.resize_panel(0, px(width), window, cx));
+        })
+        .unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            let panel = window.find("navigation-content").bounds();
+            let first = window.find(("thumbnail", 0usize)).bounds();
+            assert!(first.size.width <= px(144.));
+            for page in 0..columns {
+                let card = window.find(("thumbnail", page)).bounds();
+                let image = window.find(("thumbnail-image", page)).bounds();
+                assert_eq!(card.top(), first.top());
+                assert!(card.left() >= panel.left() && card.right() <= panel.right());
+                assert!(image.left() > card.left() && image.right() < card.right());
+                assert!(image.top() > card.top() && image.bottom() < card.bottom());
+                if page > 0 {
+                    assert!(
+                        card.left()
+                            >= window.find(("thumbnail", page - 1)).bounds().right() + px(8.)
+                    );
+                }
+            }
+            assert!(window.find(("thumbnail", columns)).bounds().top() > first.bottom());
+            assert!(window.try_find(("thumbnail", 120usize)).is_none());
+            assert_eq!(view.read(cx).books[0].state.navigation.page(), 0);
+        })
+        .unwrap();
+    }
+    cx.update_window(handle, |_, window, cx| {
+        view.read(cx).reading.thumbs_scroll.scroll_to_bottom();
+        window.render_frame(cx);
+        let last = window.find(("thumbnail", 120usize)).bounds();
+        let previous_row = window.find(("thumbnail", 117usize)).bounds();
+        assert!(window.find(("thumbnail", 120usize)).visible());
+        assert!(window.try_find(("thumbnail", 121usize)).is_none());
+        assert_eq!(last.left(), previous_row.left());
+        assert_eq!(last.size, previous_row.size);
+        view.read(cx).scroll_thumbnail_to_page(60);
+        window.render_frame(cx);
+        assert!(window.find(("thumbnail", 60usize)).visible());
+        view.read(cx)
+            .reading
+            .thumbs_scroll
+            .scroll_to_item_strict(20, ScrollStrategy::Top);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    for width in [168., 280., 360.] {
+        cx.update_window(handle, |_, window, cx| {
+            let split = view.read(cx).navigation_split.clone();
+            split.update(cx, |state, cx| state.resize_panel(0, px(width), window, cx));
+        })
+        .unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            let card = window.find(("thumbnail", 60usize)).bounds();
+            let panel = window.find("navigation-content").bounds();
+            assert!(
+                (card.top() - panel.top() - px(4.)).abs() < px(1.),
+                "page 61 moved during resize to {width}: card {card:?}, panel {panel:?}"
+            );
+            assert_eq!(view.read(cx).books[0].state.navigation.page(), 0);
+        })
+        .unwrap();
+    }
+    cx.update_window(handle, |_, window, cx| {
+        window.click(("thumbnail", 61usize), cx);
+        assert_eq!(view.read(cx).books[0].state.navigation.page(), 61);
+        assert_eq!(
+            view.read(cx)
+                .reading
+                .thumbs_scroll
+                .logical_scroll_top_index(),
+            20
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn virtual_lists_reach_last_page_without_eager_page_images(cx: &mut TestAppContext) {
     let page = rendered_sample();
     let (handle, view) = app(cx);

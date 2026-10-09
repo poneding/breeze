@@ -38,6 +38,8 @@ Current logical dimensions:
 
 Use Kit's resizable panels and centered segmented Outline/Thumbnails tabs. Remember the sidebar's session width when collapsed. Fit calculations follow the measured panel width, not a hard-coded value. Center thumbnails horizontally; constrain long outline labels to their available width.
 
+Show the Outline tab only when the current document has outline entries. Otherwise, show Thumbnails automatically while retaining the user's navigation-view preference for documents with an outline. Keep known document outlines available during page loading. Thumbnails use a responsive grid of compact cards: one column at 168/208 px, two at 280 px, and three at 360 px, with a maximum card width of 144 px. Preserve page aspect ratios, page numbers, the current-page border, and empty slots in the final row. Virtualize rows and map them to page ranges for loading and navigation; retain the top visible page when the sidebar is resized.
+
 The page itself retains the document's font and colors. UI density changes do not edit PDF content.
 
 ## Home and reader behavior

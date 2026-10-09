@@ -164,10 +164,27 @@ impl Breeze {
                     }))
             }))
     }
+    fn navigation_outline(&self) -> Option<Arc<Vec<breeze_pdf::Outline>>> {
+        self.preview
+            .as_ref()
+            .map(|preview| preview.outline.clone())
+            .or_else(|| self.reading.outline())
+    }
+
+    fn has_outline(&self) -> bool {
+        self.navigation_outline()
+            .is_some_and(|outline| !outline.is_empty())
+    }
+
+    pub(super) fn show_thumbnails(&self) -> bool {
+        self.thumbs || !self.has_outline()
+    }
+
     fn navigation(&self, cx: &mut Context<Self>) -> Div {
         if self.search_open {
             return self.search_results(cx);
         }
+        let has_outline = self.has_outline();
         let p = self.p();
         column()
             .size_full()
@@ -179,6 +196,8 @@ impl Breeze {
             .border_color(p.line)
             .child(
                 row()
+                    .id("navigation-header")
+                    .test_support()
                     .h(px(38.))
                     .justify_center()
                     .flex_shrink_0()
@@ -189,16 +208,18 @@ impl Breeze {
                         TabBar::new("nav-tabs")
                             .segmented()
                             .small()
-                            .selected_index(usize::from(self.thumbs))
-                            .on_click(cx.listener(|this, index, _, cx| {
-                                this.thumbs = *index == 1;
+                            .selected_index(usize::from(has_outline && self.thumbs))
+                            .on_click(cx.listener(move |this, index, _, cx| {
+                                this.thumbs = !has_outline || *index == 1;
                                 cx.notify()
                             }))
-                            .child(Tab::new().label("目录").tooltip(|window, cx| {
-                                Tooltip::new("目录")
-                                    .action(&ShowOutline, Some("Breeze"))
-                                    .build(window, cx)
-                            }))
+                            .when(has_outline, |tabs| {
+                                tabs.child(Tab::new().label("目录").tooltip(|window, cx| {
+                                    Tooltip::new("目录")
+                                        .action(&ShowOutline, Some("Breeze"))
+                                        .build(window, cx)
+                                }))
+                            })
                             .child(Tab::new().label("缩略图").tooltip(|window, cx| {
                                 Tooltip::new("缩略图")
                                     .action(&ShowThumbnails, Some("Breeze"))
@@ -209,13 +230,14 @@ impl Breeze {
             .child(
                 column()
                     .id("navigation-content")
+                    .test_support()
                     .flex_1()
                     .min_h_0()
-                    .when_some(self.preview.as_ref(), |this, preview| {
-                        if self.thumbs {
+                    .when_some(self.navigation_outline(), |this, outline| {
+                        if self.show_thumbnails() {
                             this.child(self.thumbnails_view(cx))
                         } else {
-                            this.child(self.outline_view(preview.outline.clone(), cx))
+                            this.child(self.outline_view(outline, cx))
                         }
                     }),
             )

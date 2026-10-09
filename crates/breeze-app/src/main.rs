@@ -210,7 +210,7 @@ impl Breeze {
             if let Some(width) = state.read(cx).sizes().first() {
                 let width = f32::from(*width);
                 if (this.navigation_width - width).abs() > 0.5 {
-                    this.navigation_width = width;
+                    this.resize_navigation(width);
                     cx.notify();
                 }
             }
@@ -378,9 +378,7 @@ impl Breeze {
             self.books[self.active].state.layout.row(current),
             ScrollStrategy::Top,
         );
-        self.reading
-            .thumbs_scroll
-            .scroll_to_item(current, ScrollStrategy::Center);
+        self.scroll_thumbnail_to_page(current);
         self.preview = self.reading.page(current);
         let receiver = match self.worker.request_metadata(
             self.books[self.active].source.clone(),
@@ -419,9 +417,7 @@ impl Breeze {
                                 this.books[this.active].state.layout.row(page.page),
                                 ScrollStrategy::Top,
                             );
-                            this.reading
-                                .thumbs_scroll
-                                .scroll_to_item(page.page, ScrollStrategy::Center);
+                            this.scroll_thumbnail_to_page(page.page);
                         }
                         this.reading.sizes = page.page_sizes.clone();
                         this.reading.fingerprint = fingerprint.clone();

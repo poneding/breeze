@@ -10,6 +10,39 @@ use std::{
 const PAGE_BUDGET: usize = 8 * 1024 * 1024;
 const THUMB_BUDGET: usize = 8 * 1024 * 1024;
 
+#[derive(Clone, Copy, PartialEq)]
+struct ThumbnailGrid {
+    columns: usize,
+    card_width: f32,
+}
+impl ThumbnailGrid {
+    fn new(panel_width: f32) -> Self {
+        // Reserve the panel border, 8 px side insets and 8 px between cards.
+        let width = (panel_width - 17.).max(1.);
+        let columns = ((width + 8.) / 112.).floor().max(1.) as usize;
+        let card_width = ((width - (columns - 1) as f32 * 8.) / columns as f32)
+            .floor()
+            .min(144.);
+        Self {
+            columns,
+            card_width,
+        }
+    }
+
+    fn card_height(self) -> f32 {
+        // Integral row heights keep the scroll anchor stable after layout rounding.
+        (((self.card_width - 18.) * 1.42 + 38.) / 4.).ceil() * 4.
+    }
+
+    fn row_height(self) -> f32 {
+        self.card_height() + 8.
+    }
+
+    fn pages(self, rows: Range<usize>, total: usize) -> Range<usize> {
+        (rows.start * self.columns).min(total)..(rows.end * self.columns).min(total)
+    }
+}
+
 struct Resident<T> {
     page: usize,
     value: T,
@@ -137,6 +170,13 @@ impl ReadingView {
     }
     pub fn page(&self, page: usize) -> Option<Arc<Preview>> {
         self.pages.get(page)
+    }
+    pub fn outline(&self) -> Option<Arc<Vec<breeze_pdf::Outline>>> {
+        // Cached pages share document metadata even while the current page is loading.
+        self.pages
+            .entries
+            .back()
+            .map(|entry| entry.value.outline.clone())
     }
     pub fn insert(&mut self, page: usize, preview: Arc<Preview>) -> bool {
         self.pages.insert(
@@ -299,13 +339,12 @@ impl Breeze {
             return;
         }
         let next = next_page.or_else(|| {
-            if !self.sidebar || !self.thumbs || self.search_open {
+            if !self.sidebar || !self.show_thumbnails() || self.search_open {
                 return None;
             }
             self.reading
                 .wanted_thumbs
                 .clone()
-                .take(32)
                 .find(|p| {
                     self.reading.thumbnails.get(*p).is_none()
                         && !self.reading.errors.contains_key(&(true, *p))
@@ -405,13 +444,6 @@ impl Breeze {
         outline: Arc<Vec<breeze_pdf::Outline>>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        if outline.is_empty() {
-            return div()
-                .p_2()
-                .text_color(self.p().muted)
-                .child("此文档没有内嵌目录。可切换缩略图导航。")
-                .into_any_element();
-        }
         uniform_list(
             "outline-list",
             outline.len(),
@@ -455,95 +487,142 @@ impl Breeze {
         .size_full()
         .into_any_element()
     }
-    pub(super) fn thumbnails_view(&self, cx: &mut Context<Self>) -> AnyElement {
-        let total = self.books[self.active].state.navigation.total();
-        let width = (self.navigation_width - 32.).min(176.);
-        uniform_list(
-            "thumbnail-list",
-            total,
-            cx.processor(move |this, range: Range<usize>, _, cx| {
-                let wanted = range.clone();
-                let generation = this.generation;
-                let p = this.p();
-                let current = this.books[this.active].state.navigation.page();
-                range
-                    .map(|page| {
-                        Button::new(("thumbnail", page))
-                            .ghost()
-                            .small()
+    pub(super) fn resize_navigation(&mut self, width: f32) {
+        let old = ThumbnailGrid::new(self.navigation_width);
+        let new = ThumbnailGrid::new(width);
+        self.navigation_width = width;
+        if old == new {
+            return;
+        }
+        let mut scroll = self.reading.thumbs_scroll.0.borrow_mut();
+        let offset = scroll.base_handle.offset();
+        let row = (-f32::from(offset.y) / old.row_height()).max(0.);
+        let page = row.floor() as usize * old.columns;
+        // Retain the top visible page and its fractional row offset on reflow.
+        scroll.base_handle.set_offset(point(
+            offset.x,
+            px(-((page / new.columns) as f32 + row.fract()) * new.row_height()),
+        ));
+        if let Some(pending) = scroll.deferred_scroll_to_item.as_mut() {
+            pending.item_index = pending.item_index.saturating_mul(old.columns) / new.columns;
+        }
+    }
+
+    pub(super) fn scroll_thumbnail_to_page(&self, page: usize) {
+        let grid = ThumbnailGrid::new(self.navigation_width);
+        self.reading
+            .thumbs_scroll
+            .scroll_to_item(page / grid.columns, ScrollStrategy::Center);
+    }
+
+    fn thumbnail_card(&self, page: usize, cx: &mut Context<Self>) -> Button {
+        let p = self.p();
+        let current = self.books[self.active].state.navigation.page();
+        Button::new(("thumbnail", page))
+            .ghost()
+            .small()
+            .size_full()
+            .p_0()
+            .border_0()
+            .accessibility_label(format!("第 {} 页缩略图", page + 1))
+            .child(
+                column()
+                    .size_full()
+                    .items_center()
+                    .gap(px(4.))
+                    .p(px(8.))
+                    .rounded_md()
+                    .border_1()
+                    .border_color(if page == current { p.accent } else { p.line })
+                    .child(
+                        div()
+                            .id(("thumbnail-image", page))
+                            .test_support()
+                            .flex_1()
+                            .min_h_0()
                             .w_full()
-                            .accessibility_label(format!("第 {} 页缩略图", page + 1))
-                            .h(px(width * 1.42 + 40.))
-                            .px_2()
-                            .py_1()
+                            .flex()
                             .items_center()
-                            .child(
-                                column()
-                                    .when(page == wanted.start, |d| {
-                                        let view = cx.entity();
-                                        let wanted = wanted.clone();
-                                        d.on_prepaint(move |_, _, cx| {
-                                            view.update(cx, |this, cx| {
-                                                if generation == this.generation {
-                                                    this.defer_visible(wanted, true, cx);
-                                                }
-                                            })
-                                        })
-                                    })
-                                    .w_full()
-                                    .h_full()
-                                    .items_center()
-                                    .gap_1()
-                                    .p_2()
-                                    .rounded_md()
-                                    .border_1()
-                                    .border_color(if page == current { p.accent } else { p.line })
-                                    .cursor_pointer()
-                                    .child(
+                            .justify_center()
+                            .overflow_hidden()
+                            .map(|d| {
+                                if let Some(image) = self.reading.thumbnails.get(page) {
+                                    d.child(img(image).size_full().object_fit(ObjectFit::Contain))
+                                } else {
+                                    d.child(
                                         div()
-                                            .flex_1()
-                                            .min_h_0()
-                                            .w(px(width))
-                                            .flex()
-                                            .items_center()
-                                            .justify_center()
-                                            .map(|d| {
-                                                if let Some(image) =
-                                                    this.reading.thumbnails.get(page)
-                                                {
-                                                    d.child(
-                                                        img(image)
-                                                            .size_full()
-                                                            .object_fit(ObjectFit::Contain),
-                                                    )
-                                                } else {
-                                                    d.child(
-                                                        div()
-                                                            .text_size(px(12.))
-                                                            .text_color(p.muted)
-                                                            .child(
-                                                                this.reading
-                                                                    .errors
-                                                                    .get(&(true, page))
-                                                                    .cloned()
-                                                                    .unwrap_or_else(|| {
-                                                                        "正在准备…".into()
-                                                                    }),
-                                                            ),
-                                                    )
-                                                }
-                                            }),
-                                    )
-                                    .child(
-                                        div()
+                                            .w_full()
+                                            .text_center()
                                             .text_size(px(12.))
                                             .text_color(p.muted)
-                                            .child(format!("{}", page + 1)),
-                                    ),
-                            )
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.books[this.active].state.navigation.go_to(page);
-                                this.load(cx);
+                                            .child(
+                                                self.reading
+                                                    .errors
+                                                    .get(&(true, page))
+                                                    .cloned()
+                                                    .unwrap_or_else(|| "正在准备…".into()),
+                                            ),
+                                    )
+                                }
+                            }),
+                    )
+                    .child(
+                        div()
+                            .h(px(16.))
+                            .flex_shrink_0()
+                            .line_height(px(16.))
+                            .text_size(px(12.))
+                            .text_color(p.muted)
+                            .child(format!("{}", page + 1)),
+                    ),
+            )
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.books[this.active].state.navigation.go_to(page);
+                this.load(cx);
+            }))
+    }
+
+    pub(super) fn thumbnails_view(&self, cx: &mut Context<Self>) -> AnyElement {
+        let total = self.books[self.active].state.navigation.total();
+        let grid = ThumbnailGrid::new(self.navigation_width);
+        uniform_list(
+            "thumbnail-list",
+            total.div_ceil(grid.columns),
+            cx.processor(move |this, range: Range<usize>, _, cx| {
+                let first = range.start;
+                let wanted = grid.pages(range.clone(), total);
+                let generation = this.generation;
+                range
+                    .map(|index| {
+                        row()
+                            .id(("thumbnail-row", index))
+                            .test_support()
+                            .w_full()
+                            .h(px(grid.row_height()))
+                            .px(px(8.))
+                            .py(px(4.))
+                            .gap(px(8.))
+                            .justify_center()
+                            .when(index == first, |d| {
+                                let view = cx.entity();
+                                let wanted = wanted.clone();
+                                d.on_prepaint(move |_, _, cx| {
+                                    view.update(cx, |this, cx| {
+                                        if generation == this.generation
+                                            && grid == ThumbnailGrid::new(this.navigation_width)
+                                        {
+                                            this.defer_visible(wanted, true, cx);
+                                        }
+                                    })
+                                })
+                            })
+                            .children((0..grid.columns).map(|column| {
+                                let page = index * grid.columns + column;
+                                div()
+                                    .w(px(grid.card_width))
+                                    .h(px(grid.card_height()))
+                                    .flex_shrink_0()
+                                    .when(page < total, |d| d.child(this.thumbnail_card(page, cx)))
                             }))
                     })
                     .collect()
@@ -811,6 +890,52 @@ impl Breeze {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[gpui_kit::test]
+    async fn thumbnails_without_outline_load_every_visible_grid_column(cx: &mut TestAppContext) {
+        use gpui_kit::test::TestWindowExt;
+        let worker = PdfWorker::new().unwrap();
+        let mut page =
+            futures::executor::block_on(worker.request_metadata(Source::Sample, 0).unwrap())
+                .unwrap()
+                .unwrap();
+        page.outline = Arc::new(Vec::new());
+        let total = page.total;
+        let (handle, view) = crate::ui_tests::app(cx);
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, _| {
+                view.reading.source = Some(Source::Sample);
+                view.reading.fingerprint = page.fingerprint.clone();
+                view.reading.sizes = page.page_sizes.clone();
+                let preview = Preview::from_page(page).unwrap();
+                view.reading.insert(0, preview.clone());
+                view.preview = Some(preview);
+                view.navigation_width = 360.;
+            });
+            window.render_frame(cx);
+        })
+        .unwrap();
+        cx.condition(&view, |view, _| {
+            (0..total).all(|page| view.reading.thumbnails.get(page).is_some())
+        })
+        .await;
+        view.update(cx, |view, _| {
+            assert!(!view.thumbs);
+            assert_eq!(view.reading.wanted_thumbs, 0..total);
+            assert_eq!(view.reading.thumbnails.entries.len(), total);
+            assert!(
+                view.reading
+                    .thumbnails
+                    .entries
+                    .iter()
+                    .map(|entry| entry.bytes)
+                    .sum::<usize>()
+                    <= THUMB_BUDGET
+            );
+            assert_eq!(view.books[0].state.navigation.page(), 0);
+        });
+    }
+
     #[test]
     fn caches_bound_bytes_and_count() {
         let mut cache = Cache::new(10, 2);
