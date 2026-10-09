@@ -29,6 +29,8 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Category group / category | `tags` / `tag` | `Tags` / `Tag` |
 | Favorite | `bookmark` | `Bookmark` |
 | Toggle navigation | `panel-left` | `PanelLeft` |
+| Outline title search / more | `search` / `ellipsis-vertical` | `Search` / `EllipsisVertical` |
+| Expand / collapse all outline branches | `list-chevrons-up-down` / `list-chevrons-down-up` | `ListChevronsUpDown` / `ListChevronsDownUp` |
 | Reading pointer / search | `mouse-pointer-2` / `search` | `MousePointer2` / `Search` |
 | Text highlight / area highlight | `highlighter` / `scan` | `Highlighter` / `Scan` |
 | Underline / strikeout | `underline` / `strikethrough` | `Underline` / `Strikethrough` |

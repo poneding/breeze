@@ -32,13 +32,17 @@ Current logical dimensions:
 | Reader toolbar | 38 px |
 | Status bar | 32 px |
 | Page margin | 12 px |
-| Navigation panel | Default 208 px; resize range 168–360 px |
+| Navigation panel | Default 208 px; resize range 192–360 px |
 | Main reader split | Minimum 430 px |
 | Root UI text / Kit base font | 13 px / 15 px |
 
-Use Kit's resizable panels and centered segmented Outline/Thumbnails tabs. Remember the sidebar's session width when collapsed. Fit calculations follow the measured panel width, not a hard-coded value. Center thumbnails horizontally; constrain long outline labels to their available width.
+Use Kit's resizable panels and left-aligned segmented Outline/Thumbnails tabs. Remember the sidebar's session width when collapsed. Fit calculations follow the measured panel width, not a hard-coded value. Center thumbnails horizontally; constrain long outline labels to their available width. Existing saved widths below 192 px are raised to the new minimum without rejecting the saved session.
 
-Show the Outline tab only when the current document has outline entries. Otherwise, show Thumbnails automatically while retaining the user's navigation-view preference for documents with an outline. Keep known document outlines available during page loading. Thumbnails use a responsive grid of compact cards: one column at 168/208 px, two at 280 px, and three at 360 px, with a maximum card width of 144 px. Preserve page aspect ratios, page numbers, the current-page border, and empty slots in the final row. Virtualize rows and map them to page ranges for loading and navigation; retain the top visible page when the sidebar is resized.
+Show the Outline tab only when the current document has outline entries. Otherwise, show Thumbnails automatically while retaining the user's navigation-view preference for documents with an outline. Keep known document outlines available during page loading. Thumbnails use a responsive grid of compact cards: one column at 192/208 px, two at 280 px, and three at 360 px, with a maximum card width of 144 px. Preserve page aspect ratios, page numbers, the current-page border, and empty slots in the final row. Virtualize rows and map them to page ranges for loading and navigation; retain the top visible page when the sidebar is resized.
+
+In Outline view, the header's right edge contains title search when entries exist. Nested outlines also show an `ellipsis-vertical` dropdown with Expand All (`list-chevrons-up-down`) and Collapse All (`list-chevrons-down-up`); these actions do not navigate. A flat outline reserves no disclosure-icon column. In a nested outline, titles navigate and chevrons independently fold descendants. The active section uses the nearest resolved preceding destination, with deeper headings preferred on page ties, and promotes its highlight to a visible collapsed ancestor.
+
+Title search opens a compact native Input below the unchanged 38 px header. Match titles case-insensitively, retain matching ancestors, and reveal matches inside previously collapsed branches. Search uses temporary folding choices; clearing the query or closing search restores the original folds, and closing also restores the outline scroll position. Escape closes search after the input's native handling. Search and fold controls are absent from Thumbnails view; search state resets with the loaded source/fingerprint. Show an explicit empty result when no title matches.
 
 The page itself retains the document's font and colors. UI density changes do not edit PDF content.
 

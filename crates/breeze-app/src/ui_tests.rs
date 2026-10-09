@@ -120,7 +120,7 @@ fn resizing_respects_bounds_and_keeps_width_on_collapse(cx: &mut TestAppContext)
         assert!(split.read(cx).sizes()[0] <= px(360.));
         split.update(cx, |state, cx| state.resize_panel(0, px(10.), window, cx));
         window.render_frame(cx);
-        assert!(split.read(cx).sizes()[0] >= px(168.));
+        assert!(split.read(cx).sizes()[0] >= px(reader::NAVIGATION_MIN_WIDTH));
         split.update(cx, |state, cx| state.resize_panel(0, px(280.), window, cx));
         window.render_frame(cx);
         window.press("secondary-b", cx);

@@ -3,7 +3,7 @@ use crate::*;
 use gpui_kit::component::ElementExt;
 use gpui_kit::component::{VirtualListScrollHandle, v_virtual_list};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     ops::Range,
     rc::Rc,
 };
@@ -116,6 +116,12 @@ struct PageMetrics {
     items: Rc<Vec<Size<gpui_kit::Pixels>>>,
     widest: usize,
 }
+struct OutlineSearch {
+    input: Entity<InputState>,
+    collapsed: HashSet<usize>,
+    saved_offset: Point<gpui_kit::Pixels>,
+    _subscription: Subscription,
+}
 pub(super) struct ReadingView {
     pub task: Option<Task<()>>,
     pub source: Option<Source>,
@@ -133,6 +139,9 @@ pub(super) struct ReadingView {
     pub thumbs_scroll: UniformListScrollHandle,
     metrics: Option<PageMetrics>,
     pub zoom_remainder: f32,
+    collapsed_outline: HashSet<usize>,
+    outline_search: Option<OutlineSearch>,
+    outline_scroll: UniformListScrollHandle,
 }
 impl Default for ReadingView {
     fn default() -> Self {
@@ -153,10 +162,27 @@ impl Default for ReadingView {
             thumbs_scroll: UniformListScrollHandle::new(),
             metrics: None,
             zoom_remainder: 0.,
+            collapsed_outline: HashSet::new(),
+            outline_search: None,
+            outline_scroll: UniformListScrollHandle::new(),
         }
     }
 }
 impl ReadingView {
+    fn outline_folds(&self) -> &HashSet<usize> {
+        self.outline_search
+            .as_ref()
+            .map(|search| &search.collapsed)
+            .unwrap_or(&self.collapsed_outline)
+    }
+
+    fn outline_folds_mut(&mut self) -> &mut HashSet<usize> {
+        match &mut self.outline_search {
+            Some(search) => &mut search.collapsed,
+            None => &mut self.collapsed_outline,
+        }
+    }
+
     pub fn release_images(&mut self, cx: &mut App) {
         for entry in self.thumbnails.entries.drain(..) {
             cx.defer(move |cx| cx.drop_image(entry.value, None));
@@ -229,6 +255,91 @@ fn row_geometry(
     );
     (row_width * scale + gap, row_height * scale, scale)
 }
+pub(super) fn outline_has_children(outline: &[breeze_pdf::Outline], index: usize) -> bool {
+    outline
+        .get(index)
+        .zip(outline.get(index + 1))
+        .is_some_and(|(item, next)| next.depth > item.depth)
+}
+
+fn filtered_outline(
+    outline: &[breeze_pdf::Outline],
+    collapsed: &HashSet<usize>,
+    query: &str,
+) -> Vec<usize> {
+    let visible = visible_outline(outline, collapsed);
+    if query.is_empty() {
+        return visible;
+    }
+    let mut ancestors: Vec<usize> = Vec::new();
+    let mut parents = Vec::with_capacity(outline.len());
+    let mut included = Vec::with_capacity(outline.len());
+    for (index, item) in outline.iter().enumerate() {
+        while ancestors
+            .last()
+            .is_some_and(|&parent| outline[parent].depth >= item.depth)
+        {
+            ancestors.pop();
+        }
+        parents.push(ancestors.last().copied());
+        included.push(item.title.to_lowercase().contains(query));
+        ancestors.push(index);
+    }
+    // Propagate each match to its ancestors without scanning entire subtrees.
+    for index in (0..outline.len()).rev() {
+        if included[index]
+            && let Some(parent) = parents[index]
+        {
+            included[parent] = true;
+        }
+    }
+    visible
+        .into_iter()
+        .filter(|&index| included[index])
+        .collect()
+}
+
+fn visible_outline(outline: &[breeze_pdf::Outline], collapsed: &HashSet<usize>) -> Vec<usize> {
+    let mut hidden_below = None;
+    outline
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| {
+            if hidden_below.is_some_and(|depth| item.depth > depth) {
+                return None;
+            }
+            hidden_below = collapsed.contains(&index).then_some(item.depth);
+            Some(index)
+        })
+        .collect()
+}
+
+// A hidden active entry belongs to the last visible ancestor preceding it.
+fn visible_active_outline(visible: &[usize], active: Option<usize>) -> Option<usize> {
+    active.and_then(|active| {
+        visible
+            .iter()
+            .rev()
+            .find(|&&index| index <= active)
+            .copied()
+    })
+}
+
+// Destinations currently carry page numbers only. Prefer the closest preceding
+// chapter, then the deepest entry, keeping the first peer for same-page ties.
+fn active_outline(outline: &[breeze_pdf::Outline], page: usize) -> Option<usize> {
+    outline
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| {
+            item.page
+                .filter(|target| *target <= page)
+                .map(|target| ((target, item.depth, std::cmp::Reverse(index)), index))
+        })
+        .max_by_key(|(key, _)| *key)
+        .map(|(_, index)| index)
+}
+
 impl Breeze {
     pub(super) fn defer_visible(
         &mut self,
@@ -439,53 +550,225 @@ impl Breeze {
         self.reading.metrics = None;
         self.load(cx);
     }
+    fn toggle_outline(&mut self, index: usize, cx: &mut Context<Self>) {
+        let collapsed = self.reading.outline_folds_mut();
+        if !collapsed.insert(index) {
+            collapsed.remove(&index);
+        }
+        cx.notify();
+    }
+
+    pub(super) fn set_outline_expanded(&mut self, expanded: bool, cx: &mut Context<Self>) {
+        let Some(outline) = self.navigation_outline() else {
+            return;
+        };
+        let collapsed = self.reading.outline_folds_mut();
+        collapsed.clear();
+        if !expanded {
+            collapsed
+                .extend((0..outline.len()).filter(|&index| outline_has_children(&outline, index)));
+        }
+        self.reading
+            .outline_scroll
+            .scroll_to_item(0, ScrollStrategy::Top);
+        cx.notify();
+    }
+
+    pub(super) fn toggle_outline_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(search) = self.reading.outline_search.take() {
+            let mut scroll = self.reading.outline_scroll.0.borrow_mut();
+            scroll.deferred_scroll_to_item = None;
+            scroll.base_handle.set_offset(search.saved_offset);
+            window.focus(&self.focus, cx);
+        } else {
+            let input = cx.new(|cx| InputState::new(window, cx).placeholder("搜索目录标题"));
+            let subscription = cx.subscribe(&input, |this, input, event, cx| {
+                if matches!(event, InputEvent::Change)
+                    && let Some(search) = &mut this.reading.outline_search
+                    && search.input == input
+                {
+                    search.collapsed = if input.read(cx).value().trim().is_empty() {
+                        this.reading.collapsed_outline.clone()
+                    } else {
+                        HashSet::new()
+                    };
+                    this.reading
+                        .outline_scroll
+                        .scroll_to_item(0, ScrollStrategy::Top);
+                    cx.notify();
+                }
+            });
+            input.update(cx, |input, cx| input.focus(window, cx));
+            self.reading.outline_search = Some(OutlineSearch {
+                input,
+                collapsed: self.reading.collapsed_outline.clone(),
+                saved_offset: self.reading.outline_scroll.0.borrow().base_handle.offset(),
+                _subscription: subscription,
+            });
+        }
+        cx.notify();
+    }
+
+    pub(super) fn outline_search_open(&self) -> bool {
+        self.reading.outline_search.is_some()
+    }
+
+    pub(super) fn outline_search_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let search = self.reading.outline_search.as_ref()?;
+        Some(
+            row()
+                .id("outline-search-bar")
+                .test_support()
+                .w_full()
+                .px(px(8.))
+                .pb(px(4.))
+                .gap(px(4.))
+                .flex_shrink_0()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(Input::new(&search.input).small().cleanable(true)),
+                )
+                .child(
+                    Button::new("close-outline-search")
+                        .ghost()
+                        .small()
+                        .icon(IconName::X)
+                        .accessibility_label("关闭目录搜索")
+                        .tooltip("关闭目录搜索")
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.toggle_outline_search(window, cx)
+                        })),
+                )
+                .on_action(cx.listener(
+                    |this, _: &gpui_kit::component::input::Escape, window, cx| {
+                        this.toggle_outline_search(window, cx);
+                    },
+                ))
+                .into_any_element(),
+        )
+    }
+
     pub(super) fn outline_view(
         &self,
         outline: Arc<Vec<breeze_pdf::Outline>>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        uniform_list(
-            "outline-list",
-            outline.len(),
-            cx.processor(move |this, range: Range<usize>, _, cx| {
-                range
-                    .map(|index| {
-                        let item = &outline[index];
-                        let target = item.page;
-                        div()
-                            .h(px(28.))
-                            .px_2()
-                            .pl(px(8. + item.depth.min(12) as f32 * 10.))
-                            .child(
-                                categories::left_button(
-                                    ("outline", index),
-                                    IconName::ChevronRight,
-                                    item.title.clone(),
-                                )
-                                .selected(
-                                    target == Some(this.books[this.active].state.navigation.page()),
-                                )
-                                .disabled(target.is_none())
-                                .tooltip(if target.is_some() {
-                                    item.title.clone()
-                                } else {
-                                    "命名目的地尚未解析".into()
-                                })
-                                .on_click(cx.listener(
-                                    move |this, _, _, cx| {
-                                        if let Some(page) = target {
-                                            this.books[this.active].state.navigation.go_to(page);
-                                            this.load(cx);
-                                        }
-                                    },
-                                )),
-                            )
-                    })
-                    .collect()
-            }),
-        )
-        .size_full()
-        .into_any_element()
+        let query = self
+            .reading
+            .outline_search
+            .as_ref()
+            .map(|search| search.input.read(cx).value().trim().to_lowercase())
+            .unwrap_or_default();
+        let visible = filtered_outline(&outline, self.reading.outline_folds(), &query);
+        let nested = (0..outline.len()).any(|index| outline_has_children(&outline, index));
+        if visible.is_empty() {
+            return div()
+                .id("outline-no-results")
+                .test_support()
+                .p_2()
+                .text_color(self.p().muted)
+                .child("没有匹配的目录标题")
+                .into_any_element();
+        }
+        let current = active_outline(&outline, self.books[self.active].state.navigation.page());
+        let active = visible_active_outline(&visible, current);
+        let active = active.filter(|index| query.is_empty() || current == Some(*index));
+        div()
+            .size_full()
+            .pt_1()
+            .child(
+                uniform_list(
+                    "outline-list",
+                    visible.len(),
+                    cx.processor(move |this, range: Range<usize>, _, cx| {
+                        range
+                            .map(|row_index| {
+                                let index = visible[row_index];
+                                let item = &outline[index];
+                                let has_children = outline_has_children(&outline, index);
+                                let collapsed = this.reading.outline_folds().contains(&index);
+                                let target = item.page;
+                                row()
+                                    .w_full()
+                                    .h(px(24.))
+                                    .px_2()
+                                    .pl(px(8. + item.depth.min(12) as f32 * 10.))
+                                    .when(nested, |row| {
+                                        row.child(if has_children {
+                                            Button::new(("outline-toggle", index))
+                                                .ghost()
+                                                .small()
+                                                .size(px(24.))
+                                                .flex_shrink_0()
+                                                .icon(if collapsed {
+                                                    IconName::ChevronRight
+                                                } else {
+                                                    IconName::ChevronDown
+                                                })
+                                                .accessibility_label(format!(
+                                                    "{}：{}",
+                                                    if collapsed { "展开" } else { "收起" },
+                                                    item.title
+                                                ))
+                                                .tooltip(if collapsed {
+                                                    "展开子目录"
+                                                } else {
+                                                    "收起子目录"
+                                                })
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    this.toggle_outline(index, cx)
+                                                }))
+                                                .into_any_element()
+                                        } else {
+                                            div().w(px(24.)).flex_shrink_0().into_any_element()
+                                        })
+                                    })
+                                    .child(
+                                        Button::new(("outline", index))
+                                            .ghost()
+                                            .small()
+                                            .h(px(24.))
+                                            .flex_1()
+                                            .min_w_0()
+                                            .px_1()
+                                            .accessibility_label(item.title.clone())
+                                            .child(
+                                                row().w_full().child(
+                                                    div()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .text_ellipsis()
+                                                        .text_left()
+                                                        .child(item.title.clone()),
+                                                ),
+                                            )
+                                            .selected(active == Some(index))
+                                            .disabled(target.is_none())
+                                            .tooltip(if target.is_some() {
+                                                item.title.clone()
+                                            } else {
+                                                "命名目的地尚未解析".into()
+                                            })
+                                            .on_click(cx.listener(move |this, _, _, cx| {
+                                                if let Some(page) = target {
+                                                    this.books[this.active]
+                                                        .state
+                                                        .navigation
+                                                        .go_to(page);
+                                                    this.load(cx);
+                                                }
+                                            })),
+                                    )
+                            })
+                            .collect()
+                    }),
+                )
+                .track_scroll(&self.reading.outline_scroll)
+                .size_full(),
+            )
+            .into_any_element()
     }
     pub(super) fn resize_navigation(&mut self, width: f32) {
         let old = ThumbnailGrid::new(self.navigation_width);
@@ -934,6 +1217,401 @@ mod tests {
             );
             assert_eq!(view.books[0].state.navigation.page(), 0);
         });
+    }
+
+    fn nested_outline() -> Vec<breeze_pdf::Outline> {
+        [
+            (None, 0),
+            (None, 1),
+            (Some(0), 2),
+            (Some(2), 1),
+            (Some(5), 0),
+        ]
+        .into_iter()
+        .enumerate()
+        .map(|(index, (page, depth))| breeze_pdf::Outline {
+            title: format!("Section {index}"),
+            page,
+            depth,
+        })
+        .collect()
+    }
+
+    fn outline_page(outline: Vec<breeze_pdf::Outline>) -> breeze_pdf::Page {
+        let worker = PdfWorker::new().unwrap();
+        let mut page =
+            futures::executor::block_on(worker.request_metadata(Source::Sample, 0).unwrap())
+                .unwrap()
+                .unwrap();
+        page.outline = Arc::new(outline);
+        page
+    }
+
+    fn seed_outline(view: &mut Breeze, page: breeze_pdf::Page) {
+        view.reading.source = Some(Source::Sample);
+        view.reading.sizes = page.page_sizes.clone();
+        let preview = Preview::from_page(page).unwrap();
+        view.reading.insert(0, preview.clone());
+        view.preview = Some(preview);
+        view.loading = true;
+    }
+
+    #[test]
+    fn outline_filter_preserves_matching_ancestors_and_original_ids() {
+        let mut outline = nested_outline();
+        outline[2].title = "CHILD 指南".into();
+        outline[4].title = "child overview".into();
+        assert_eq!(
+            filtered_outline(&outline, &HashSet::new(), "child"),
+            vec![0, 1, 2, 4]
+        );
+        assert_eq!(
+            filtered_outline(&outline, &HashSet::new(), "指南"),
+            vec![0, 1, 2]
+        );
+        assert_eq!(
+            filtered_outline(&outline, &HashSet::from([1]), "child"),
+            vec![0, 1, 4]
+        );
+        assert!(filtered_outline(&outline, &HashSet::new(), "missing").is_empty());
+        assert_eq!(
+            filtered_outline(&outline, &HashSet::from([0]), ""),
+            vec![0, 4]
+        );
+    }
+
+    #[gpui_kit::test]
+    fn outline_header_fits_minimum_width_and_flat_titles_have_no_icon_slot(
+        cx: &mut TestAppContext,
+    ) {
+        use gpui_kit::test::TestWindowExt;
+        let page = outline_page(nested_outline());
+        let (handle, view) = crate::ui_tests::app(cx);
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, cx| {
+                seed_outline(view, page);
+                let mut saved = view.snapshot();
+                saved.width = 168.;
+                view.restore(saved, cx);
+                assert_eq!(view.navigation_width, reader::NAVIGATION_MIN_WIDTH);
+                assert_eq!(view.snapshot().width, reader::NAVIGATION_MIN_WIDTH);
+            });
+            window.render_frame(cx);
+            let split = view.read(cx).navigation_split.clone();
+            split.update(cx, |state, cx| state.resize_panel(0, px(1.), window, cx));
+        })
+        .unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            let header = window.find("navigation-header").bounds();
+            let first_tab = window.within("nav-tabs").find(0usize).bounds();
+            let last_tab = window.within("nav-tabs").find(1usize).bounds();
+            let search = window.find("outline-search").bounds();
+            let more = window.find("outline-more").bounds();
+            assert_eq!(header.size.height, px(38.));
+            assert!((view.read(cx).navigation_width - reader::NAVIGATION_MIN_WIDTH).abs() < 1.);
+            assert!(header.right() <= window.find("navigation-content").bounds().right());
+            assert!(first_tab.left() - header.left() < px(12.));
+            assert!(
+                last_tab.right() + px(4.) <= search.left(),
+                "tabs {last_tab:?}, search {search:?}"
+            );
+            assert!(search.right() + px(4.) <= more.left());
+            assert!(
+                more.right() <= header.right() - px(8.),
+                "header {header:?}, more {more:?}"
+            );
+            window.within("nav-tabs").click(1usize, cx);
+            assert!(window.try_find("outline-search").is_none());
+            assert!(window.try_find("outline-more").is_none());
+        })
+        .unwrap();
+        let mut outline = nested_outline();
+        for item in &mut outline {
+            item.depth = 0;
+        }
+        let page = outline_page(outline);
+        let empty = Preview::from_page(outline_page(Vec::new())).unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, _| {
+                seed_outline(view, page);
+                view.thumbs = false;
+            });
+            window.render_frame(cx);
+            assert!(window.find("outline-search").visible());
+            assert!(window.try_find("outline-more").is_none());
+            let panel = window.find("navigation-content").bounds();
+            for index in 0..5usize {
+                let title = window.find(("outline", index)).bounds();
+                assert!(
+                    title.left() - panel.left() < px(9.),
+                    "flat title {title:?}, panel {panel:?}"
+                );
+                assert!(window.try_find(("outline-toggle", index)).is_none());
+            }
+            view.update(cx, |view, _| view.preview = Some(empty));
+            window.render_frame(cx);
+            assert!(window.try_find("outline-search").is_none());
+            assert!(window.try_find("outline-more").is_none());
+            let only_tab = window.within("nav-tabs").find(0usize).bounds();
+            let header = window.find("navigation-header").bounds();
+            assert!(only_tab.left() - header.left() < px(12.));
+        })
+        .unwrap();
+    }
+
+    #[gpui_kit::test]
+    fn outline_menu_expands_and_collapses_all_levels_without_navigation(cx: &mut TestAppContext) {
+        use gpui_kit::test::TestWindowExt;
+        let page = outline_page(nested_outline());
+        let (handle, view) = crate::ui_tests::app(cx);
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, _| seed_outline(view, page));
+            window.render_frame(cx);
+            window.click("outline-more", cx);
+            window.press("down", cx);
+            window.press("down", cx);
+            window.press("enter", cx);
+        })
+        .unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            assert_eq!(
+                view.read(cx).reading.collapsed_outline,
+                HashSet::from([0, 1])
+            );
+            assert!(window.find(("outline", 0usize)).visible());
+            assert!(window.find(("outline", 4usize)).visible());
+            assert!(window.try_find(("outline", 1usize)).is_none());
+            assert_eq!(view.read(cx).books[0].state.navigation.page(), 0);
+            window.click("outline-more", cx);
+            window.press("down", cx);
+            window.press("enter", cx);
+        })
+        .unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            assert!(view.read(cx).reading.collapsed_outline.is_empty());
+            for index in 0..5usize {
+                assert!(window.find(("outline", index)).visible());
+            }
+            assert_eq!(view.read(cx).books[0].state.navigation.page(), 0);
+        })
+        .unwrap();
+    }
+
+    #[gpui_kit::test]
+    fn outline_search_restores_scroll_after_no_matches(cx: &mut TestAppContext) {
+        use gpui_kit::test::TestWindowExt;
+        let page = outline_page(
+            (0..80)
+                .map(|index| breeze_pdf::Outline {
+                    title: format!("Section {index}"),
+                    page: Some(0),
+                    depth: 0,
+                })
+                .collect(),
+        );
+        let (handle, view) = crate::ui_tests::app(cx);
+        let mut saved = point(px(0.), px(0.));
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, _| seed_outline(view, page));
+            window.render_frame(cx);
+            view.read(cx)
+                .reading
+                .outline_scroll
+                .scroll_to_item_strict(40, ScrollStrategy::Top);
+            window.render_frame(cx);
+            saved = view
+                .read(cx)
+                .reading
+                .outline_scroll
+                .0
+                .borrow()
+                .base_handle
+                .offset();
+            assert!(saved.y < -px(500.));
+            window.click("outline-search", cx);
+            window.input("no match", cx);
+        })
+        .unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.find("outline-no-results").visible());
+            window.click("close-outline-search", cx);
+            assert_eq!(
+                view.read(cx)
+                    .reading
+                    .outline_scroll
+                    .0
+                    .borrow()
+                    .base_handle
+                    .offset(),
+                saved
+            );
+            assert!(window.find(("outline", 40usize)).visible());
+        })
+        .unwrap();
+    }
+
+    #[gpui_kit::test]
+    fn outline_search_reveals_collapsed_titles_and_restores_folds(cx: &mut TestAppContext) {
+        use gpui_kit::test::TestWindowExt;
+        let mut outline = nested_outline();
+        outline[2].title = "CHILD 指南".into();
+        outline[2].page = Some(2);
+        let page = outline_page(outline);
+        let (handle, view) = crate::ui_tests::app(cx);
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, _| {
+                seed_outline(view, page);
+                view.reading.collapsed_outline.insert(0);
+            });
+            window.render_frame(cx);
+            window.click("outline-search", cx);
+            assert!(window.find("outline-search-bar").visible());
+            window.input("child", cx);
+        })
+        .unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            for index in 0..3usize {
+                assert!(window.find(("outline", index)).visible());
+            }
+            assert!(window.try_find(("outline", 3usize)).is_none());
+            assert!(window.try_find(("outline", 4usize)).is_none());
+            assert_eq!(view.read(cx).reading.collapsed_outline, HashSet::from([0]));
+            let zoom = view.read(cx).books[0].state.zoom;
+            window.press("secondary-=", cx);
+            assert_eq!(view.read(cx).books[0].state.zoom, zoom);
+            window.press("secondary-a", cx);
+            window.input("not-found", cx);
+        })
+        .unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            assert!(window.find("outline-no-results").visible());
+            assert!(window.try_find(("outline", 0usize)).is_none());
+            window.press("escape", cx);
+            assert!(window.try_find("outline-search-bar").is_none());
+            assert!(!view.read(cx).outline_search_open());
+            assert!(window.find(("outline", 0usize)).visible());
+            assert!(window.try_find(("outline", 1usize)).is_none());
+            assert_eq!(view.read(cx).books[0].state.navigation.page(), 0);
+            window.click("outline-search", cx);
+            window.input("指南", cx);
+        })
+        .unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            window.click(("outline", 2usize), cx);
+            assert_eq!(view.read(cx).books[0].state.navigation.page(), 2);
+            assert_eq!(view.read(cx).reading.collapsed_outline, HashSet::from([0]));
+            window.click("close-outline-search", cx);
+            assert!(window.try_find("outline-search-bar").is_none());
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn collapsed_outline_hides_descendants_and_preserves_nested_state() {
+        let outline = nested_outline();
+        let mut collapsed = HashSet::new();
+        assert_eq!(visible_outline(&outline, &collapsed), vec![0, 1, 2, 3, 4]);
+        collapsed.insert(1);
+        assert_eq!(visible_outline(&outline, &collapsed), vec![0, 1, 3, 4]);
+        collapsed.insert(0);
+        let visible = visible_outline(&outline, &collapsed);
+        assert_eq!(visible, vec![0, 4]);
+        assert_eq!(visible_active_outline(&visible, Some(2)), Some(0));
+        assert_eq!(visible_active_outline(&visible, Some(4)), Some(4));
+        assert_eq!(visible_active_outline(&visible, None), None);
+        collapsed.remove(&0);
+        assert_eq!(visible_outline(&outline, &collapsed), vec![0, 1, 3, 4]);
+        collapsed.remove(&1);
+        assert_eq!(visible_outline(&outline, &collapsed), vec![0, 1, 2, 3, 4]);
+        assert!(outline_has_children(&outline, 0));
+        assert!(outline_has_children(&outline, 1));
+        assert!(!outline_has_children(&outline, 2));
+        assert!(!outline_has_children(&outline, 4));
+    }
+
+    #[gpui_kit::test]
+    fn outline_arrows_toggle_while_titles_only_navigate(cx: &mut TestAppContext) {
+        use gpui_kit::test::TestWindowExt;
+        let worker = PdfWorker::new().unwrap();
+        let mut page =
+            futures::executor::block_on(worker.request_metadata(Source::Sample, 0).unwrap())
+                .unwrap()
+                .unwrap();
+        let mut outline = nested_outline();
+        outline[1].page = Some(0);
+        page.outline = Arc::new(outline);
+        let (handle, view) = crate::ui_tests::app(cx);
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, _| {
+                view.reading.source = Some(Source::Sample);
+                view.reading.sizes = page.page_sizes.clone();
+                let preview = Preview::from_page(page).unwrap();
+                view.reading.insert(0, preview.clone());
+                view.preview = Some(preview);
+                view.loading = true;
+            });
+            window.render_frame(cx);
+            assert!(window.find(("outline", 2usize)).visible());
+            assert!(window.find(("outline", 0usize)).bounds().size.width > px(140.));
+            assert!(window.try_find(("outline-toggle", 2usize)).is_none());
+            window.click(("outline", 1usize), cx);
+            assert!(window.find(("outline", 2usize)).visible());
+            assert!(view.read(cx).reading.collapsed_outline.is_empty());
+            window.click(("outline-toggle", 1usize), cx);
+            assert!(window.try_find(("outline", 2usize)).is_none());
+            window.click(("outline", 1usize), cx);
+            assert!(window.try_find(("outline", 2usize)).is_none());
+            assert!(view.read(cx).reading.collapsed_outline.contains(&1));
+            assert_eq!(view.read(cx).books[0].state.navigation.page(), 0);
+            // An unresolved title is disabled, but its disclosure button remains usable.
+            window.click(("outline", 0usize), cx);
+            assert!(window.find(("outline", 1usize)).visible());
+            window.click(("outline-toggle", 0usize), cx);
+            assert!(window.try_find(("outline", 1usize)).is_none());
+            assert!(window.try_find(("outline", 3usize)).is_none());
+            assert!(window.find(("outline", 4usize)).visible());
+            window.click(("outline-toggle", 0usize), cx);
+            assert!(window.find(("outline", 1usize)).visible());
+            assert!(window.try_find(("outline", 2usize)).is_none());
+            window.click(("outline-toggle", 1usize), cx);
+            assert!(window.find(("outline", 2usize)).visible());
+            window.click(("outline", 3usize), cx);
+            assert_eq!(view.read(cx).books[0].state.navigation.page(), 2);
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn outline_selection_is_unique_and_tracks_sections() {
+        let outline: Vec<_> = [
+            (Some(2), 0),
+            (Some(2), 1),
+            (Some(2), 1),
+            (None, 2),
+            (Some(7), 0),
+            (Some(5), 0),
+        ]
+        .into_iter()
+        .map(|(page, depth)| breeze_pdf::Outline {
+            title: String::new(),
+            page,
+            depth,
+        })
+        .collect();
+        assert_eq!(active_outline(&outline, 0), None);
+        assert_eq!(active_outline(&outline, 2), Some(1));
+        assert_eq!(active_outline(&outline, 4), Some(1));
+        assert_eq!(active_outline(&outline, 5), Some(5));
+        assert_eq!(active_outline(&outline, 8), Some(4));
+        assert_eq!(active_outline(&outline, 2), Some(1));
+        assert_eq!(active_outline(&[], 2), None);
     }
 
     #[test]

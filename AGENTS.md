@@ -44,7 +44,7 @@
 - Named categories are user-created, never newly seeded. Preserve stable IDs and unassign documents when a category is deleted.
 - Keep the UI compact and content-first. Do not reintroduce a branding area, promotional welcome cards, decorative sidebar footers, or unnecessary whitespace.
 - Place document tabs inside the native TitleBar. Use icon buttons for Home, Open, Settings, and other global commands; preserve accessibility labels and keyboard focus.
-- Use centered Outline/Thumbnails tabs. The navigation panel defaults to 208 logical pixels and resizes between 168 and 360; preserve its session width when collapsed.
+- Left-align Outline/Thumbnails tabs. In Outline view, place title search on the right and offer the More menu only for nested outlines. The navigation panel defaults to 208 logical pixels and resizes between 192 and 360; preserve its session width when collapsed.
 - Keep theme preference separate from palette choice. Follow System is the default; warm white and dark gray are the default palettes. Light and dark palettes are independently selectable; green is optional.
 - Subscribe to system appearance changes rather than polling. Theme changes affect application chrome, not the PDF page's original colors.
 - Use native Tooltip with real Action bindings for shortcut display. Do not invent shortcuts or intercept text-input editing keys with page/zoom commands.

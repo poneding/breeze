@@ -174,7 +174,9 @@ impl Breeze {
             dark: self.dark_scheme,
             library_grid: self.library_grid,
             sidebar: self.sidebar,
-            width: self.navigation_width.clamp(168., 360.),
+            width: self
+                .navigation_width
+                .clamp(reader::NAVIGATION_MIN_WIDTH, 360.),
             thumbnails: self.thumbs,
             remember_files: self.remember_files,
             remember_position: self.remember_position,
@@ -285,7 +287,7 @@ impl Breeze {
         self.dark_scheme = state.dark;
         self.library_grid = state.library_grid;
         self.sidebar = state.sidebar;
-        self.navigation_width = state.width;
+        self.navigation_width = state.width.max(reader::NAVIGATION_MIN_WIDTH);
         self.thumbs = state.thumbnails;
         self.remember_files = state.remember_files;
         self.remember_position = state.remember_position;

@@ -1,9 +1,14 @@
 use crate::*;
 use gpui_kit::component::{
-    h_resizable, resizable_panel,
+    h_resizable,
+    menu::{DropdownMenu, PopupMenuItem},
+    resizable_panel,
     tab::{Tab, TabBar},
     tooltip::Tooltip,
 };
+
+pub(super) const NAVIGATION_MIN_WIDTH: f32 = 192.;
+
 impl Breeze {
     pub(super) fn reader(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let p = self.p();
@@ -99,7 +104,7 @@ impl Breeze {
                     .child(
                         resizable_panel()
                             .size(px(self.navigation_width))
-                            .size_range(px(168.)..px(360.))
+                            .size_range(px(NAVIGATION_MIN_WIDTH)..px(360.))
                             .child(self.navigation(cx)),
                     )
                     .child(
@@ -164,7 +169,7 @@ impl Breeze {
                     }))
             }))
     }
-    fn navigation_outline(&self) -> Option<Arc<Vec<breeze_pdf::Outline>>> {
+    pub(super) fn navigation_outline(&self) -> Option<Arc<Vec<breeze_pdf::Outline>>> {
         self.preview
             .as_ref()
             .map(|preview| preview.outline.clone())
@@ -185,6 +190,10 @@ impl Breeze {
             return self.search_results(cx);
         }
         let has_outline = self.has_outline();
+        let outline_selected = has_outline && !self.thumbs;
+        let nested = self.navigation_outline().is_some_and(|outline| {
+            (0..outline.len()).any(|index| reading::outline_has_children(&outline, index))
+        });
         let p = self.p();
         column()
             .size_full()
@@ -199,18 +208,20 @@ impl Breeze {
                     .id("navigation-header")
                     .test_support()
                     .h(px(38.))
-                    .justify_center()
+                    .justify_start()
                     .flex_shrink_0()
-                    .px_2()
+                    .px(px(8.))
                     .border_b_1()
                     .border_color(p.line)
                     .child(
                         TabBar::new("nav-tabs")
                             .segmented()
                             .small()
+                            .flex_shrink_0()
                             .selected_index(usize::from(has_outline && self.thumbs))
-                            .on_click(cx.listener(move |this, index, _, cx| {
+                            .on_click(cx.listener(move |this, index, window, cx| {
                                 this.thumbs = !has_outline || *index == 1;
+                                window.focus(&this.focus, cx);
                                 cx.notify()
                             }))
                             .when(has_outline, |tabs| {
@@ -225,8 +236,32 @@ impl Breeze {
                                     .action(&ShowThumbnails, Some("Breeze"))
                                     .build(window, cx)
                             })),
-                    ),
+                    )
+                    .child(div().flex_1().min_w(px(4.)))
+                    .when(outline_selected, |header| {
+                        header.child(
+                            row()
+                                .gap(px(4.))
+                                .flex_shrink_0()
+                                .child(
+                                    Button::new("outline-search")
+                                        .ghost()
+                                        .small()
+                                        .icon(IconName::Search)
+                                        .selected(self.outline_search_open())
+                                        .accessibility_label("搜索目录标题")
+                                        .tooltip("搜索目录标题")
+                                        .on_click(cx.listener(|this, _, window, cx| {
+                                            this.toggle_outline_search(window, cx);
+                                        })),
+                                )
+                                .when(nested, |actions| actions.child(self.outline_menu(cx))),
+                        )
+                    }),
             )
+            .when(outline_selected, |panel| {
+                panel.children(self.outline_search_bar(cx))
+            })
             .child(
                 column()
                     .id("navigation-content")
@@ -241,6 +276,31 @@ impl Breeze {
                         }
                     }),
             )
+    }
+    fn outline_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let view = cx.entity();
+        Button::new("outline-more")
+            .ghost()
+            .small()
+            .icon(IconName::EllipsisVertical)
+            .accessibility_label("更多目录操作")
+            .tooltip("更多目录操作")
+            .dropdown_menu(move |menu, window, _| {
+                menu.item(
+                    PopupMenuItem::new("全部展开")
+                        .icon(IconName::ListChevronsUpDown)
+                        .on_click(window.listener_for(&view, |this, _, _, cx| {
+                            this.set_outline_expanded(true, cx);
+                        })),
+                )
+                .item(
+                    PopupMenuItem::new("全部收起")
+                        .icon(IconName::ListChevronsDownUp)
+                        .on_click(window.listener_for(&view, |this, _, _, cx| {
+                            this.set_outline_expanded(false, cx);
+                        })),
+                )
+            })
     }
     fn status(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let p = self.p();
