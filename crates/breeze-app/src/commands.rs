@@ -239,6 +239,8 @@ impl Breeze {
                             .flex_1()
                             .min_w_0()
                             .overflow_x_scroll()
+                            // Keep the first tab's shadow inside the scroll clip.
+                            .pl(px(4.))
                             .gap_1()
                             .children(self.books.iter().enumerate().filter(|(_, b)| b.opened).map(
                                 |(index, book)| {
