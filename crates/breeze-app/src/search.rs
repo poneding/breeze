@@ -1,5 +1,16 @@
 use crate::*;
 use std::sync::atomic::{AtomicBool, Ordering};
+
+pub(super) fn search_row(border: Hsla) -> Div {
+    row()
+        .h(px(34.))
+        .flex_shrink_0()
+        .px_2()
+        .gap_2()
+        .border_b_1()
+        .border_color(border)
+}
+
 impl Breeze {
     pub(super) fn run_search(&mut self, cx: &mut Context<Self>) {
         let query = self.search_input.read(cx).value().to_string();
@@ -59,13 +70,7 @@ impl Breeze {
         self.search_notice = "搜索已取消".into();
     }
     pub(super) fn search_bar(&self, cx: &mut Context<Self>) -> Div {
-        let p = self.p();
-        row()
-            .h(px(34.))
-            .px_2()
-            .gap_2()
-            .border_b_1()
-            .border_color(p.line)
+        search_row(self.p().line)
             .child(div().flex_1().child(Input::new(&self.search_input).small()))
             .child(
                 Button::new("start-search")

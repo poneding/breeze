@@ -616,19 +616,15 @@ impl Breeze {
     pub(super) fn outline_search_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let search = self.reading.outline_search.as_ref()?;
         Some(
-            row()
+            search::search_row(self.p().line)
                 .id("outline-search-bar")
                 .test_support()
                 .w_full()
-                .px(px(8.))
-                .pb(px(4.))
-                .gap(px(4.))
-                .flex_shrink_0()
                 .child(
                     div()
                         .flex_1()
                         .min_w_0()
-                        .child(Input::new(&search.input).small().cleanable(true)),
+                        .child(Input::new(&search.input).small()),
                 )
                 .child(
                     Button::new("close-outline-search")
