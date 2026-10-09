@@ -12,6 +12,7 @@ use persistence::SavedState;
 mod categories;
 mod commands;
 mod covers;
+mod document_icons;
 mod home;
 mod raster;
 mod reader;

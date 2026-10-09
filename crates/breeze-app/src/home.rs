@@ -293,7 +293,7 @@ impl Breeze {
             _ => self.books[index].title.clone(),
         }
     }
-    fn library_cover(&self, index: usize, grid: bool, _cx: &App) -> Div {
+    fn library_cover(&self, index: usize, grid: bool, cx: &App) -> Div {
         let p = self.p();
         div()
             .w(px(if grid { 120. } else { 28. }))
@@ -316,7 +316,7 @@ impl Breeze {
                         .small()
                         .text_color(p.muted),
                 ),
-                None => d.child(Icon::new(IconName::FileText).small().text_color(p.muted)),
+                None => d.child(document_icons::file_icon(&self.books[index].source, cx)),
             })
     }
     fn library_card(&self, index: usize, cx: &mut Context<Self>) -> Button {

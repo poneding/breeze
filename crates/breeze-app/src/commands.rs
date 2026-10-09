@@ -282,12 +282,10 @@ impl Breeze {
                                                         .w_full()
                                                         .min_w_0()
                                                         .gap_1()
-                                                        .child(
-                                                            gpui_kit::component::Icon::new(
-                                                                IconName::FileText,
-                                                            )
-                                                            .small(),
-                                                        )
+                                                        .child(document_icons::file_icon(
+                                                            &book.source,
+                                                            cx,
+                                                        ))
                                                         .child(
                                                             div()
                                                                 .flex_1()

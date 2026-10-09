@@ -53,3 +53,16 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 `Scan` and `Minus` currently serve more than one meaning in different tool areas; keep tooltips clear or choose distinct alternatives during further refinement.
 
 Mappings live in `crates/breeze-app/src/commands.rs`, `reader.rs`, and `home.rs`. Icon availability does not imply that a corresponding document-writing feature is implemented.
+
+## Document identity colors
+
+Document tabs and library cover placeholders share the `file-text` icon from `crates/breeze-app/src/document_icons.rs`. Its foreground identifies the file format, independently of the application's accent color. Light and dark themes retain each format's hue with different brightness:
+
+| Format / extension | Color family | Light theme | Dark theme |
+|---|---|---|---|
+| PDF / `.pdf` | Orange-red | `#E54B35` | `#FF7862` |
+| EPUB / `.epub` | Green | `#56852F` | `#9BC969` |
+| Markdown / `.md`, `.markdown` | Blue | `#356DCC` | `#7EABF5` |
+| Unknown or missing extension | Neutral | Theme muted foreground | Theme muted foreground |
+
+Extension matching is case-insensitive; the bundled sample uses the PDF color. Active, inactive, and hovered tabs retain this foreground. These colors apply to the icon only. Real cover thumbnails, failure indicators, tab labels/backgrounds, and original page colors retain their existing presentation. EPUB and Markdown colors are presentation mappings for the planned formats; their reading backends remain unavailable.
