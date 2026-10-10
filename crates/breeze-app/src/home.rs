@@ -1,5 +1,9 @@
 use crate::*;
-use gpui_kit::component::{ElementExt, button::ButtonCustomVariant};
+use gpui_kit::component::{
+    ElementExt, Icon,
+    button::ButtonCustomVariant,
+    empty::{Empty, EmptyHeader, EmptyMedia, EmptyTitle},
+};
 use std::ops::Range;
 const CATEGORY_WIDTH: f32 = 144.;
 const POSITION_WIDTH: f32 = 100.;
@@ -126,7 +130,7 @@ impl Breeze {
                                 ))
                             }),
                     )
-                    .when(!self.library_grid, |d| {
+                    .when(!self.library_grid && !filtered.is_empty(), |d| {
                         d.child(
                             row()
                                 .h(px(24.))
@@ -163,18 +167,17 @@ impl Breeze {
                             cx,
                         ),
                     )
-                    .when(filtered.is_empty(), |d| {
-                        d.child(div().py_6().text_color(p.muted).child("暂无文档"))
-                    })
                     .when(!self.message.is_empty(), |d| {
                         d.child(div().text_color(rgb(0xba6544)).child(self.message.clone()))
                     })
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(p.muted)
-                            .child("收藏、分类、外观与阅读状态自动保存在本机。"),
-                    ),
+                    .when(!filtered.is_empty(), |d| {
+                        d.child(
+                            div()
+                                .text_size(px(11.))
+                                .text_color(p.muted)
+                                .child("收藏、分类、外观与阅读状态自动保存在本机。"),
+                        )
+                    }),
             )
     }
 
@@ -380,6 +383,39 @@ impl Breeze {
             )
     }
     fn library_documents(&self, indices: Vec<usize>, cx: &mut Context<Self>) -> Div {
+        if indices.is_empty() {
+            let p = self.p(cx);
+            let view = cx.entity();
+            return div()
+                .flex_1()
+                .min_h_0()
+                .w_full()
+                .flex()
+                .child(
+                    Empty::new().header(
+                        EmptyHeader::new()
+                            .media(
+                                EmptyMedia::new().child(
+                                    Icon::new(IconName::LibraryBig)
+                                        .size(px(24.))
+                                        .text_color(p.muted),
+                                ),
+                            )
+                            .title(
+                                EmptyTitle::new()
+                                    .text_size(px(13.))
+                                    .font_weight(FontWeight::NORMAL)
+                                    .text_color(p.muted)
+                                    .child(
+                                        div().id("library-empty").test_support().child("暂无文档"),
+                                    ),
+                            ),
+                    ),
+                )
+                .on_prepaint(move |_, _, cx| {
+                    view.update(cx, |this, cx| this.defer_covers(Vec::new(), cx))
+                });
+        }
         let grid = self.library_grid;
         let columns = if grid {
             grid_columns(self.library_width)

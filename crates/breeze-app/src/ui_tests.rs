@@ -1584,3 +1584,47 @@ fn grid_metadata_is_centered_and_actions_only_show_on_hover(cx: &mut TestAppCont
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn library_empty_component_is_centered_in_both_views(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        let books = view.update(cx, |view, cx| {
+            view.show_home(cx);
+            std::mem::take(&mut view.books)
+        });
+        for grid in [false, true] {
+            for filter in [0, 1, 2, 3] {
+                view.update(cx, |view, _| {
+                    view.library_grid = grid;
+                    view.library_filter = filter;
+                });
+                window.render_frame(cx);
+                let empty = window.find("library-empty");
+                assert!(empty.visible());
+                let content = window.find("home-content").bounds();
+                assert!((empty.bounds().center().x - content.center().x).abs() < px(1.));
+                assert!(empty.bounds().center().y > content.origin.y + px(100.));
+            }
+        }
+        view.update(cx, |view, cx| {
+            view.books = books;
+            view.library_input.update(cx, |input, cx| {
+                input.set_value("no matching document", window, cx)
+            });
+        });
+        for grid in [false, true] {
+            view.update(cx, |view, _| view.library_grid = grid);
+            window.render_frame(cx);
+            assert!(window.find("library-empty").visible());
+            assert_eq!(view.read(cx).books.len(), 1);
+        }
+        view.update(cx, |view, cx| {
+            view.library_input
+                .update(cx, |input, cx| input.set_value("", window, cx));
+        });
+        window.render_frame(cx);
+        assert!(window.find(("library-open", 0usize)).visible());
+    })
+    .unwrap();
+}
