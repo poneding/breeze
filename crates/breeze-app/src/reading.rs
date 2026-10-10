@@ -450,7 +450,7 @@ impl Breeze {
             return;
         }
         let next = next_page.or_else(|| {
-            if !self.sidebar || !self.show_thumbnails() || self.search_open {
+            if !self.sidebar || !self.show_thumbnails() {
                 return None;
             }
             self.reading
@@ -968,12 +968,7 @@ impl Breeze {
             }
             - self.document_panel.width())
         .max(100.);
-        let height = (f32::from(window.viewport_size().height)
-            - 34.
-            - 38.
-            - 32.
-            - if self.search_open { 34. } else { 0. })
-        .max(100.);
+        let height = (f32::from(window.viewport_size().height) - 34. - 38. - 32.).max(100.);
         (width, height)
     }
     pub(super) fn display_zoom(&self, window: &Window) -> f32 {

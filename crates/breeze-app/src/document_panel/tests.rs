@@ -72,7 +72,14 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
             window.find("document-panel-header").bounds().size.height,
             px(38.)
         );
-        window.within("document-panel-tabs").click(1usize, cx);
+        assert_eq!(
+            window.find("document-panel-header").bounds().origin.y,
+            window.find("reader-toolbar").bounds().origin.y
+        );
+        assert!(window.find("document-panel").bounds().right() <= window.viewport_size().width);
+        window.click("document-panel-annotations", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).document_panel.tab, 1);
         assert!(window.find(("annotation-item", 0usize)).visible());
         assert!(window.find(("annotation-item", 1usize)).visible());
         window.click("annotation-kind-filter", cx);
@@ -112,6 +119,12 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         assert!(window.try_find("document-panel").is_none());
         window.click("reader-search", cx);
         assert!(view.read(cx).search_open);
+        assert!(view.read(cx).document_panel.open);
+        assert!(window.find("search-results").visible());
+        assert_eq!(
+            window.find("document-panel").bounds().origin.y,
+            window.find("reader-toolbar").bounds().origin.y
+        );
         assert!(
             view.read(cx)
                 .search_input
@@ -138,6 +151,7 @@ fn sidebar_is_independent_of_mode_and_fits_a_narrow_window(cx: &mut TestAppConte
             assert!(window.find("reader-search").visible());
             assert!(window.find("reader-star").visible());
             assert!(window.find("document-panel").bounds().right() <= window.viewport_size().width);
+            assert!(view.read(cx).document_panel.open);
         }
         window.click("document-panel-toggle", cx);
         assert!(window.try_find("document-panel").is_none());

@@ -4,7 +4,6 @@ use gpui_kit::component::{
     Icon, Theme,
     menu::{DropdownMenu, PopupMenuItem},
     switch::Switch,
-    tab::{Tab, TabBar},
     tooltip::Tooltip,
 };
 
@@ -38,6 +37,7 @@ impl DocumentPanel {
     }
 
     pub fn reset_document(&mut self) {
+        self.tab = 0;
         self.kind = None;
         self.current_page_only = false;
         self.scroll = UniformListScrollHandle::new();
@@ -95,33 +95,45 @@ impl Breeze {
                     .border_b_1()
                     .border_color(theme.border)
                     .child(
-                        TabBar::new("document-panel-tabs")
-                            .segmented()
+                        Button::new("document-panel-information")
+                            .ghost()
                             .small()
-                            .selected_index(self.document_panel.tab)
-                            .on_click(cx.listener(|this, tab, _, cx| {
-                                this.document_panel.tab = *tab;
+                            .icon(IconName::Info)
+                            .selected(!self.search_open && self.document_panel.tab == 0)
+                            .accessibility_label("文档信息")
+                            .tooltip("文档信息")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.cancel_search();
+                                this.search_open = false;
+                                this.document_panel.open = true;
+                                this.document_panel.tab = 0;
                                 cx.notify();
-                            }))
-                            .child(
-                                Tab::new()
-                                    .label("信息")
-                                    .prefix(Icon::new(IconName::Info).small())
-                                    .tooltip(|window, cx| {
-                                        Tooltip::new("文档信息").build(window, cx)
-                                    }),
-                            )
-                            .child(
-                                Tab::new()
-                                    .label("标注")
-                                    .prefix(Icon::new(IconName::Highlighter).small())
-                                    .tooltip(|window, cx| {
-                                        Tooltip::new("当前文档的标注").build(window, cx)
-                                    }),
-                            ),
+                            })),
+                    )
+                    .child(
+                        Button::new("document-panel-annotations")
+                            .ghost()
+                            .small()
+                            .icon(IconName::Highlighter)
+                            .selected(!self.search_open && self.document_panel.tab == 1)
+                            .accessibility_label("当前文档的标注")
+                            .tooltip("当前文档的标注")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.cancel_search();
+                                this.search_open = false;
+                                this.document_panel.open = true;
+                                this.document_panel.tab = 1;
+                                cx.notify();
+                            })),
                     ),
             )
-            .child(if self.document_panel.tab == 0 {
+            .child(if self.search_open {
+                column()
+                    .size_full()
+                    .child(self.search_bar(cx))
+                    .child(self.search_results(cx))
+                    .into_any_element()
+            } else if self.document_panel.tab == 0 {
                 self.document_information(cx).into_any_element()
             } else {
                 self.document_annotations(cx).into_any_element()
@@ -245,6 +257,7 @@ impl Breeze {
         let total = data.history.items.len();
         column()
             .flex_1()
+            .h_full()
             .min_h_0()
             .child(
                 column()

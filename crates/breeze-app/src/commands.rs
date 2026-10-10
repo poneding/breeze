@@ -160,8 +160,13 @@ impl Breeze {
                 if !self.annotation_navigation_allowed(cx) {
                     return;
                 }
-                self.search_open = !self.search_open;
-                self.sidebar = true;
+                if self.search_open {
+                    self.cancel_search();
+                    self.search_open = false;
+                } else {
+                    self.search_open = true;
+                    self.document_panel.open = true;
+                }
                 self.search_input
                     .update(cx, |input, cx| input.focus(window, cx));
                 cx.notify();
@@ -175,7 +180,15 @@ impl Breeze {
                 self.sidebar = !self.sidebar;
                 cx.notify();
             } else if action.as_any().is::<ToggleDocumentPanel>() {
-                self.document_panel.open = !self.document_panel.open;
+                if self.document_panel.open {
+                    if self.search_open {
+                        self.cancel_search();
+                        self.search_open = false;
+                    }
+                    self.document_panel.open = false;
+                } else {
+                    self.document_panel.open = true;
+                }
                 cx.notify();
             } else if action.as_any().is::<ShowOutline>() || action.as_any().is::<ShowThumbnails>()
             {

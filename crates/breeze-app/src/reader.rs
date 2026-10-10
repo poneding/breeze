@@ -151,38 +151,45 @@ impl Breeze {
                         .selected(self.document_panel.open),
                     ),
             )
-            .when(self.search_open, |d| d.child(self.search_bar(cx)))
             .child(
                 row()
                     .flex_1()
                     .min_h_0()
                     .items_stretch()
-                    .child(self.pages_view(window, cx))
-                    .when(self.document_panel.open, |d| {
-                        d.child(self.document_sidebar(cx))
-                    }),
+                    .child(self.pages_view(window, cx)),
             )
             .child(self.status(window, cx));
-        if self.sidebar {
-            div().flex_1().min_h_0().child(
-                h_resizable("reader-split")
-                    .with_state(&self.navigation_split)
-                    .with_handle_appearance(navigation_handle_appearance(p))
-                    .child(
-                        resizable_panel()
-                            .size(px(self.navigation_width))
-                            .size_range(px(NAVIGATION_MIN_WIDTH)..px(360.))
-                            .child(self.navigation(cx)),
-                    )
-                    .child(
-                        resizable_panel()
-                            .size_range(px(430.)..gpui_kit::Pixels::MAX)
-                            .child(main),
-                    ),
-            )
+        let center = if self.sidebar {
+            h_resizable("reader-split")
+                .with_state(&self.navigation_split)
+                .with_handle_appearance(navigation_handle_appearance(p))
+                .child(
+                    resizable_panel()
+                        .size(px(self.navigation_width))
+                        .size_range(px(NAVIGATION_MIN_WIDTH)..px(360.))
+                        .child(self.navigation(cx)),
+                )
+                .child(
+                    resizable_panel()
+                        .size_range(px(430.)..gpui_kit::Pixels::MAX)
+                        .child(main),
+                )
+                .into_any_element()
         } else {
-            div().flex_1().min_h_0().child(main)
-        }
+            main.into_any_element()
+        };
+        div().flex_1().min_w_0().min_h_0().child(
+            row()
+                .size_full()
+                .flex_1()
+                .min_w_0()
+                .min_h_0()
+                .items_stretch()
+                .child(div().size_full().min_w_0().min_h_0().child(center))
+                .when(self.document_panel.open, |row| {
+                    row.child(self.document_sidebar(cx))
+                }),
+        )
     }
     pub(super) fn navigation_outline(&self) -> Option<Arc<Vec<breeze_pdf::Outline>>> {
         self.preview
@@ -201,9 +208,6 @@ impl Breeze {
     }
 
     fn navigation(&self, cx: &mut Context<Self>) -> Div {
-        if self.search_open {
-            return self.search_results(cx);
-        }
         let has_outline = self.has_outline();
         let outline_selected = has_outline && !self.thumbs;
         let nested = self.navigation_outline().is_some_and(|outline| {

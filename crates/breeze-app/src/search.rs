@@ -108,6 +108,7 @@ impl Breeze {
             .child(
                 column()
                     .id("search-results")
+                    .test_support()
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
@@ -117,7 +118,7 @@ impl Breeze {
                             .ghost()
                             .small()
                             .justify_start()
-                            .max_w(px((self.navigation_width - 16.).max(100.)))
+                            .max_w(px((self.document_panel.width() - 16.).max(100.)))
                             .overflow_hidden()
                             .accessibility_label(format!("{} · {}", hit.page + 1, hit.snippet))
                             .child(div().w_full().text_left().text_ellipsis().child(format!(
