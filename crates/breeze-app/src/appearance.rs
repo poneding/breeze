@@ -1,160 +1,297 @@
-//! User preference is distinct from the currently resolved platform appearance.
-use gpui_kit::WindowAppearance;
-use serde::{Deserialize, Serialize};
+//! Theme choices come from Kit's registry; System remains an application preference.
+use anyhow::{Context as _, Result};
+use gpui_kit::component::{
+    ThemeConfig, ThemeMode, ThemeRegistry,
+    select::{SearchableVec, SelectGroup, SelectItem},
+};
+use gpui_kit::{App, SharedString, WindowAppearance};
+use serde::{Deserialize, Deserializer, Serialize};
+use std::rc::Rc;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub type ThemeChoices = SearchableVec<SelectGroup<ThemePreference>>;
+
+// These are unchanged official gallery assets, pinned alongside Kit 0.7.0.
+// Core Kit initialization alone registers only Default Light and Default Dark.
+macro_rules! gallery {
+    ($($name:literal),+ $(,)?) => {
+        &[$(($name, include_str!(concat!("../../../assets/themes/gpui-kit/", $name, ".json")))),+]
+    };
+}
+const GALLERY: &[(&str, &str)] = gallery![
+    "adventure",
+    "alduin",
+    "asciinema",
+    "aurora",
+    "ayu",
+    "catppuccin",
+    "everforest",
+    "fahrenheit",
+    "flexoki",
+    "gruvbox",
+    "harper",
+    "hybrid",
+    "jellybeans",
+    "kibble",
+    "macos-classic",
+    "mellifluous",
+    "molokai",
+    "solarized",
+    "spaceduck",
+    "tokyonight",
+    "twilight",
+];
+
+pub fn init(cx: &mut App) -> Result<()> {
+    let registry = ThemeRegistry::global_mut(cx);
+    for (name, content) in GALLERY {
+        registry
+            .load_themes_from_str(content)
+            .with_context(|| format!("无法加载内置主题：{name}"))?;
+    }
+    Ok(())
+}
+
+#[derive(Serialize, Clone, Debug, Default, PartialEq, Eq)]
 pub enum ThemePreference {
     #[default]
     System,
-    Light,
-    Dark,
+    Theme(String),
 }
+
+impl<'de> Deserialize<'de> for ThemePreference {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Versions 1–2 stored only a mode plus Breeze-owned palettes.
+        #[derive(Deserialize)]
+        enum StoredPreference {
+            System,
+            Light,
+            Dark,
+            Theme(String),
+        }
+        Ok(match StoredPreference::deserialize(deserializer)? {
+            StoredPreference::System => Self::System,
+            StoredPreference::Light => Self::Theme("Default Light".into()),
+            StoredPreference::Dark => Self::Theme("Default Dark".into()),
+            StoredPreference::Theme(name) => Self::Theme(name),
+        })
+    }
+}
+
 impl ThemePreference {
-    pub const ALL: [Self; 3] = [Self::System, Self::Light, Self::Dark];
-    pub fn index(self) -> usize {
-        match self {
-            Self::System => 0,
-            Self::Light => 1,
-            Self::Dark => 2,
-        }
+    pub fn groups(cx: &App) -> Vec<SelectGroup<Self>> {
+        let themes = ThemeRegistry::global(cx).sorted_themes();
+        let group = |label, mode| {
+            SelectGroup::new(label).items(
+                themes
+                    .iter()
+                    .filter(|theme| theme.mode == mode)
+                    .map(|theme| Self::Theme(theme.name.to_string())),
+            )
+        };
+        vec![
+            SelectGroup::new("系统").item(Self::System),
+            group("浅色", ThemeMode::Light),
+            group("深色", ThemeMode::Dark),
+        ]
     }
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::System => "跟随系统",
-            Self::Light => "浅色",
-            Self::Dark => "深色",
-        }
+
+    pub fn options(cx: &App) -> Vec<Self> {
+        Self::groups(cx)
+            .into_iter()
+            .flat_map(|group| group.items)
+            .collect()
     }
-    pub fn next(self) -> Self {
-        Self::ALL[(self.index() + 1) % 3]
+
+    pub fn next(&self, cx: &App) -> Self {
+        let options = Self::options(cx);
+        let index = options
+            .iter()
+            .position(|option| option == self)
+            .unwrap_or(0);
+        options[(index + 1) % options.len()].clone()
     }
-    pub fn resolve(self, appearance: WindowAppearance) -> bool {
+
+    pub fn config(&self, appearance: WindowAppearance, cx: &App) -> Result<Rc<ThemeConfig>> {
+        let registry = ThemeRegistry::global(cx);
         match self {
-            Self::Light => false,
-            Self::Dark => true,
-            Self::System => matches!(
-                appearance,
-                WindowAppearance::Dark | WindowAppearance::VibrantDark
+            Self::System => Ok(
+                if matches!(
+                    appearance,
+                    WindowAppearance::Dark | WindowAppearance::VibrantDark
+                ) {
+                    registry.default_dark_theme().clone()
+                } else {
+                    registry.default_light_theme().clone()
+                },
             ),
+            Self::Theme(name) => registry
+                .themes()
+                .get(name.as_str())
+                .cloned()
+                .with_context(|| format!("主题不可用：{name}")),
         }
     }
 }
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum ColorScheme {
-    #[default]
-    Neutral,
-    Sand,
-    Blue,
-    Forest,
-    Violet,
-}
-impl ColorScheme {
-    pub const ALL: [Self; 5] = [
-        Self::Neutral,
-        Self::Sand,
-        Self::Blue,
-        Self::Forest,
-        Self::Violet,
-    ];
-    pub fn name(self, dark: bool) -> &'static str {
-        match (self, dark) {
-            (Self::Neutral, false) => "暖白 · 默认",
-            (Self::Neutral, true) => "深灰 · 默认",
-            (Self::Sand, false) => "米杏",
-            (Self::Sand, true) => "暖墨",
-            (Self::Blue, false) => "雾蓝",
-            (Self::Blue, true) => "午夜蓝",
-            (Self::Forest, false) => "浅松绿",
-            (Self::Forest, true) => "深松绿",
-            (Self::Violet, false) => "淡紫灰",
-            (Self::Violet, true) => "暮紫",
+
+impl SelectItem for ThemePreference {
+    type Value = Self;
+
+    fn title(&self) -> SharedString {
+        match self {
+            Self::System => "跟随系统".into(),
+            Self::Theme(name) => name.clone().into(),
         }
     }
-    // background / panel / canvas / foreground / muted / border / accent / selected
-    pub fn colors(self, dark: bool) -> [u32; 8] {
-        match (self, dark) {
-            (Self::Neutral, false) => [
-                0xfaf9f6, 0xf2f1ee, 0xe7e6e2, 0x292b2e, 0x717378, 0xdadbd8, 0x49678a, 0xe6eaf0,
-            ],
-            (Self::Neutral, true) => [
-                0x242528, 0x292a2e, 0x1c1d20, 0xe6e6e8, 0xa1a3aa, 0x3b3d43, 0x9ab5db, 0x353f50,
-            ],
-            (Self::Sand, false) => [
-                0xfcf8f0, 0xf3ecdf, 0xe9e0d0, 0x443a30, 0x766858, 0xded2bf, 0x906238, 0xefe2cb,
-            ],
-            (Self::Sand, true) => [
-                0x2b2724, 0x332e29, 0x211e1b, 0xeee6dd, 0xb0a296, 0x484039, 0xdbb58c, 0x4b3e30,
-            ],
-            (Self::Blue, false) => [
-                0xf6f8fb, 0xecf0f6, 0xe0e6ef, 0x29384b, 0x5e6d80, 0xd4deeb, 0x416fa5, 0xe0eafa,
-            ],
-            (Self::Blue, true) => [
-                0x202833, 0x26313e, 0x181f28, 0xe0e9f5, 0x96a9bf, 0x3a485a, 0x93bbed, 0x334a69,
-            ],
-            (Self::Forest, false) => [
-                0xfafbf8, 0xf0f3ec, 0xe8ece5, 0x243b30, 0x5f7063, 0xd8e0d4, 0x386a50, 0xe3ecdf,
-            ],
-            (Self::Forest, true) => [
-                0x1d2522, 0x232d28, 0x151d19, 0xe7ece7, 0x96a49a, 0x354239, 0x8dbba1, 0x34493d,
-            ],
-            (Self::Violet, false) => [
-                0xf9f7fc, 0xf0ecf5, 0xe6e0ed, 0x3c334b, 0x70617f, 0xdcd4e7, 0x7d619e, 0xeadff5,
-            ],
-            (Self::Violet, true) => [
-                0x28232f, 0x302a38, 0x201c27, 0xebe3f4, 0xa99ab8, 0x463c53, 0xc0a7dc, 0x49385e,
-            ],
-        }
+
+    fn value(&self) -> &Self {
+        self
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn system_appearance_resolves() {
-        assert!(!ThemePreference::System.resolve(WindowAppearance::Light));
-        assert!(ThemePreference::System.resolve(WindowAppearance::Dark));
-        assert!(ThemePreference::System.resolve(WindowAppearance::VibrantDark));
-    }
-    #[test]
-    fn explicit_preference_ignores_system() {
-        assert!(ThemePreference::Dark.resolve(WindowAppearance::Light));
-        assert!(!ThemePreference::Light.resolve(WindowAppearance::Dark));
-    }
-    #[test]
-    fn scheme_slots_are_independent() {
-        let light = ColorScheme::Sand;
-        let mut dark = ColorScheme::Neutral;
-        assert_ne!(light.colors(false), dark.colors(true));
-        dark = ColorScheme::Forest;
-        assert_eq!(light, ColorScheme::Sand);
-        assert_eq!(dark.name(true), "深松绿");
-    }
-    #[test]
-    fn foregrounds_have_readable_contrast() {
-        fn luminance(hex: u32) -> f64 {
-            let [r, g, b] = [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255].map(|c| {
-                let v = c as f64 / 255.;
-                if v <= 0.04045 {
-                    v / 12.92
-                } else {
-                    ((v + 0.055) / 1.055).powf(2.4)
-                }
-            });
-            0.2126 * r + 0.7152 * g + 0.0722 * b
-        }
-        for scheme in ColorScheme::ALL {
-            for dark in [false, true] {
-                let c = scheme.colors(dark);
-                for text in [c[3], c[4]] {
-                    let a = luminance(c[0]);
-                    let b = luminance(text);
-                    assert!(
-                        (a.max(b) + 0.05) / (a.min(b) + 0.05) >= 4.5,
-                        "{:?}, dark={dark}",
-                        scheme
-                    );
+
+    #[gpui_kit::test]
+    fn choices_and_resolution_use_the_registry(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            init(cx).unwrap();
+            let registry = ThemeRegistry::global(cx);
+            let options = ThemePreference::options(cx);
+            assert_eq!(options[0], ThemePreference::System);
+            assert_eq!(options.len(), registry.themes().len() + 1);
+            for option in &options[1..] {
+                let config = registry.themes().get(&option.title()).unwrap();
+                for appearance in [WindowAppearance::Light, WindowAppearance::Dark] {
+                    assert!(Rc::ptr_eq(&option.config(appearance, cx).unwrap(), config));
                 }
             }
+            for appearance in [WindowAppearance::Light, WindowAppearance::VibrantLight] {
+                assert!(Rc::ptr_eq(
+                    &ThemePreference::System.config(appearance, cx).unwrap(),
+                    registry.default_light_theme()
+                ));
+            }
+            for appearance in [WindowAppearance::Dark, WindowAppearance::VibrantDark] {
+                assert!(Rc::ptr_eq(
+                    &ThemePreference::System.config(appearance, cx).unwrap(),
+                    registry.default_dark_theme()
+                ));
+            }
+            assert_eq!(options.last().unwrap().next(cx), ThemePreference::System);
+            assert!(
+                ThemePreference::Theme("Missing".into())
+                    .config(WindowAppearance::Light, cx)
+                    .is_err()
+            );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn complete_gallery_is_grouped_and_sorted(cx: &mut gpui_kit::TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            init(cx).unwrap();
+            let groups = ThemePreference::groups(cx);
+            assert_eq!(groups.len(), 3);
+            assert_eq!(groups[0].items, [ThemePreference::System]);
+            let names = |group: &SelectGroup<ThemePreference>| {
+                group
+                    .items
+                    .iter()
+                    .map(|item| item.title().to_string())
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(
+                names(&groups[1]),
+                [
+                    "Default Light",
+                    "Aurora Light",
+                    "Ayu Light",
+                    "Catppuccin Latte",
+                    "Everforest Light",
+                    "Flexoki Light",
+                    "Gruvbox Light",
+                    "Hybrid Light",
+                    "macOS Classic Light",
+                    "Mellifluous Light",
+                    "Molokai Light",
+                    "Solarized Light",
+                ]
+            );
+            assert_eq!(
+                names(&groups[2]),
+                [
+                    "Default Dark",
+                    "Adventure",
+                    "Adventure Time",
+                    "Alduin",
+                    "Asciinema",
+                    "Ayu Dark",
+                    "Catppuccin Frappe",
+                    "Catppuccin Macchiato",
+                    "Catppuccin Mocha",
+                    "Everforest Dark",
+                    "Fahrenheit",
+                    "Flexoki Dark",
+                    "Gruvbox Dark",
+                    "Harper",
+                    "Hybrid Dark",
+                    "Jellybeans",
+                    "Kibble",
+                    "macOS Classic Dark",
+                    "Mellifluous Dark",
+                    "Molokai Dark",
+                    "Solarized Dark",
+                    "Spaceduck",
+                    "Tokyo Moon",
+                    "Tokyo Night",
+                    "Tokyo Storm",
+                    "Twilight",
+                ]
+            );
+            assert_eq!(ThemeRegistry::global(cx).themes().len(), 38);
+            assert_eq!(ThemePreference::options(cx).len(), 39);
+            for (group, mode) in [
+                (&groups[1], ThemeMode::Light),
+                (&groups[2], ThemeMode::Dark),
+            ] {
+                for item in &group.items {
+                    assert_eq!(item.config(WindowAppearance::Light, cx).unwrap().mode, mode);
+                }
+            }
+            assert_eq!(
+                ThemeRegistry::global(cx)
+                    .default_light_theme()
+                    .name
+                    .as_ref(),
+                "Default Light"
+            );
+            assert_eq!(
+                ThemeRegistry::global(cx).default_dark_theme().name.as_ref(),
+                "Default Dark"
+            );
+        });
+    }
+
+    #[test]
+    fn legacy_modes_migrate_to_builtin_names() {
+        for (stored, expected) in [
+            ("System", ThemePreference::System),
+            ("Light", ThemePreference::Theme("Default Light".into())),
+            ("Dark", ThemePreference::Theme("Default Dark".into())),
+        ] {
+            let preference: ThemePreference =
+                serde_json::from_value(serde_json::json!(stored)).unwrap();
+            assert_eq!(preference, expected);
+            assert_eq!(
+                serde_json::from_str::<ThemePreference>(
+                    &serde_json::to_string(&preference).unwrap()
+                )
+                .unwrap(),
+                expected
+            );
         }
     }
 }

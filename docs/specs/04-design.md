@@ -64,20 +64,14 @@ The prototype raster is fixed at 144 DPI; zoom currently changes display size. D
 
 Separate `ThemePreference` from `ColorScheme`:
 
-- Follow System, Light, and Dark are the three modes; Follow System is the default.
-- Light and dark palettes are selected independently and survive mode changes within the session.
-- Follow System subscribes to window appearance events rather than polling.
-- Explicit Light/Dark preferences ignore OS appearance changes.
+- Follow System is the default application preference. It subscribes to window appearance events rather than polling and resolves to Kit's default light/dark theme.
+- Bundle the complete official GPUI Kit gallery from the same source commit as the pinned 0.7.0 dependency; see [theme provenance](../../assets/themes/README.md). Core Kit initialization provides two default themes, and Breeze explicitly registers the other 36 upstream theme definitions from compiled-in assets. No runtime network request or theme-directory watcher is used.
+- Populate a searchable Select from the registry, grouped as System / Light / Dark (Chinese section labels). There are 39 choices: Follow System, 12 light themes, and 26 dark themes. Keep the default theme first within each appearance group, followed by case-insensitive name order; retain upstream theme names.
+- Selecting a named theme uses its declared appearance and ignores OS appearance changes. Persist its registry name, not its dropdown index.
+- Apply the selected `ThemeConfig` through `Theme::update` / `apply_config`. Application chrome reads the active Kit theme colors; Breeze no longer overrides them with its own palettes. Preserve compact typography and control radii.
+- The titlebar button and Primary+Shift+T cycle the same choices and keep the settings selection synchronized.
 
-| Light palette | Dark palette |
-|---|---|
-| Warm white — default | Dark gray — default |
-| Sand | Warm charcoal |
-| Mist blue | Midnight blue |
-| Light forest | Dark forest |
-| Pale violet gray | Dusk violet |
-
-Apply palette changes to both application chrome and Kit components. PDF pages are not inverted or tinted. Theme preference, palettes, library state, and restoration switches persist locally. Language/update selectors remain behavior previews. Opening-window policies are implemented separately from page zoom and applied once for new/restored active documents.
+PDF pages are not inverted, tinted, or rerendered by theme selection. Theme preference, library state, and restoration switches persist locally. Legacy states retain Follow System or migrate explicit Light/Dark to the corresponding built-in name; retired palette fields are accepted on read but omitted from new snapshots. Language/update selectors remain behavior previews. Opening-window policies are implemented separately from page zoom and applied once for new/restored active documents.
 
 ## Annotation and editing modes
 
@@ -113,7 +107,7 @@ Use Kit's native `Tooltip`, `Tooltip::action`, and `Button::tooltip_with_action`
 | Favorite | Primary+D |
 | Zoom in / out | Primary++ (also Primary+=) / Primary+-; Primary+wheel over the document |
 | Actual size / fit page / fit width | Primary+0 / 9 / 8 |
-| Cycle theme mode | Primary+Shift+T |
+| Cycle theme | Primary+Shift+T |
 | Export annotated PDF copy | Primary+Shift+E |
 
 Do not occupy macOS Command+H with Home. Page and zoom bindings exclude the Input context. Mode shortcuts switch UI modes. Primary+F opens search; Primary+C copies the selected glyph text; Primary+S saves annotations; Primary+Shift+S chooses a new sidecar destination; Primary+Z / Primary+Shift+Z undo/redo annotations outside Input. Primary+Shift+E exports annotations to a new PDF. The source PDF is never overwritten by these commands.

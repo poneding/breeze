@@ -70,7 +70,7 @@ impl Breeze {
         self.search_notice = "搜索已取消".into();
     }
     pub(super) fn search_bar(&self, cx: &mut Context<Self>) -> Div {
-        search_row(self.p().line)
+        search_row(self.p(cx).line)
             .child(div().flex_1().child(Input::new(&self.search_input).small()))
             .child(
                 Button::new("start-search")
@@ -93,7 +93,7 @@ impl Breeze {
             )
     }
     pub(super) fn search_results(&self, cx: &mut Context<Self>) -> Div {
-        let p = self.p();
+        let p = self.p(cx);
         column()
             .size_full()
             .bg(p.panel)

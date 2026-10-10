@@ -24,10 +24,13 @@ mod style;
 mod tool_settings;
 mod view_controls;
 use anyhow::Result;
-use appearance::{ColorScheme, ThemePreference};
+use appearance::ThemePreference;
 use breeze_core::{Mode, ReaderState, ReadingLayout, ReadingPreferences, Zoom};
 use breeze_pdf::{PdfWorker, Pixels, Source};
-use gpui_kit::component::{ResizableState, TitleBar};
+use gpui_kit::component::{
+    ResizableState, Theme, TitleBar,
+    select::{SelectEvent, SelectState},
+};
 use gpui_kit::{
     assets::{AllAssets, IconName},
     component::{
@@ -137,11 +140,9 @@ struct Breeze {
     books: Vec<Book>,
     active: usize,
     screen: Screen,
-    dark: bool,
     system_appearance: WindowAppearance,
     theme_preference: ThemePreference,
-    light_scheme: ColorScheme,
-    dark_scheme: ColorScheme,
+    theme_select: Entity<SelectState<appearance::ThemeChoices>>,
     navigation_split: Entity<ResizableState>,
     navigation_width: f32,
     sidebar: bool,
@@ -218,15 +219,27 @@ impl Breeze {
                 }
             }
         });
+        let theme_options = appearance::ThemeChoices::new(ThemePreference::groups(cx));
+        let theme_select = cx.new(|cx| {
+            SelectState::new(
+                theme_options,
+                Some(gpui_kit::component::IndexPath::new(0)),
+                window,
+                cx,
+            )
+            .searchable(true)
+        });
+        let theme_subscription =
+            cx.subscribe_in(&theme_select, window, |this, _, event, window, cx| {
+                if let SelectEvent::Confirm(Some(preference)) = event {
+                    this.set_appearance(preference.clone(), window, cx);
+                }
+            });
         let appearance_observer = cx.observe_window_appearance(window, |this, window, cx| {
             this.system_appearance = window.appearance();
             if this.theme_preference == ThemePreference::System {
-                let dark = this.theme_preference.resolve(window.appearance());
-                if this.dark != dark {
-                    this.dark = dark;
-                    this.apply_colors(cx);
-                    cx.notify();
-                }
+                this.apply_theme(cx);
+                cx.notify();
             }
         });
         Self {
@@ -270,15 +283,14 @@ impl Breeze {
                 search_subscription,
                 library_observer,
                 category_submission,
+                theme_subscription,
             ],
             books: Vec::new(),
             active: 0,
             screen: Screen::Home,
-            dark: ThemePreference::System.resolve(window.appearance()),
             system_appearance: window.appearance(),
             theme_preference: ThemePreference::System,
-            light_scheme: ColorScheme::Neutral,
-            dark_scheme: ColorScheme::Neutral,
+            theme_select,
             navigation_split,
             navigation_width: 208.,
             sidebar: true,
@@ -313,15 +325,8 @@ impl Breeze {
             window_policy: 0,
         }
     }
-    fn p(&self) -> Palette {
-        Palette::new(
-            self.dark,
-            if self.dark {
-                self.dark_scheme
-            } else {
-                self.light_scheme
-            },
-        )
+    fn p(&self, cx: &App) -> Palette {
+        Palette::from_theme(cx)
     }
     fn show_home(&mut self, cx: &mut Context<Self>) {
         self.tool_settings.dismiss();
@@ -545,16 +550,11 @@ impl Breeze {
         });
         self.open_book(self.books.len() - 1, cx);
     }
-    fn apply_colors(&self, cx: &mut App) {
-        style::apply(
-            self.dark,
-            if self.dark {
-                self.dark_scheme
-            } else {
-                self.light_scheme
-            },
-            cx,
-        );
+    fn apply_theme(&mut self, cx: &mut App) {
+        match self.theme_preference.config(self.system_appearance, cx) {
+            Ok(config) => style::apply(&config, cx),
+            Err(error) => self.storage_error = Some(format!("{error:#}")),
+        }
     }
     fn set_appearance(
         &mut self,
@@ -563,14 +563,19 @@ impl Breeze {
         cx: &mut Context<Self>,
     ) {
         self.theme_preference = preference;
-        self.dark = preference.resolve(window.appearance());
-        self.apply_colors(cx);
+        self.system_appearance = window.appearance();
+        self.apply_theme(cx);
         cx.notify();
     }
 }
 impl Render for Breeze {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let p = self.p();
+        let p = self.p(cx);
+        if self.theme_select.read(cx).selected_value() != Some(&self.theme_preference) {
+            self.theme_select.update(cx, |select, cx| {
+                select.set_selected_value(&self.theme_preference, window, cx);
+            });
+        }
         if self.screen == Screen::Reader
             && !self.page_input.read(cx).focus_handle(cx).is_focused(window)
         {
@@ -739,12 +744,13 @@ fn main() -> Result<()> {
         .with_assets(AllAssets)
         .run(move |cx| {
             gpui_kit::init(cx);
+            if let Err(error) = appearance::init(cx) {
+                eprintln!("无法初始化内置主题：{error:#}");
+                cx.quit();
+                return;
+            }
             gpui_kit::component::set_locale("zh-CN");
-            style::apply(
-                ThemePreference::System.resolve(cx.window_appearance()),
-                ColorScheme::Neutral,
-                cx,
-            );
+
             commands::bind(cx);
 
             cx.on_window_closed(|cx, _| {
@@ -769,7 +775,7 @@ fn main() -> Result<()> {
                     view.update(cx, |this, cx| {
                         window.focus(&this.focus, cx);
                         window.set_window_title("Breeze · 本地阅读工作台");
-                        this.apply_colors(cx);
+                        this.apply_theme(cx);
                         this.initialize_storage(initial, cx);
                     });
                     let closing = view.downgrade();

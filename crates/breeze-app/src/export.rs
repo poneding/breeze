@@ -121,7 +121,7 @@ impl Breeze {
         cx.notify();
     }
     pub(super) fn export_controls(&self, cx: &mut Context<Self>) -> Div {
-        let p = self.p();
+        let p = self.p(cx);
         column().gap_2()
             .child(self.command("export-pdf",IconName::Download,"导出批注 PDF（验证版）",&ExportPdf,cx).label(if self.export_busy{"正在导出…"}else{"导出 PDF · 验证版"}).disabled(!self.can_export_pdf()))
             .child(div().text_size(px(11.)).text_color(p.muted).child("新文件、不覆盖原件。文本便笺导出为图标，全文保留在批注弹窗中。表单、签名、加密文档暂不支持。"))

@@ -63,7 +63,7 @@ fn navigation_handle_appearance(p: Palette) -> ResizeHandleRenderer {
 
 impl Breeze {
     pub(super) fn reader(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
-        let p = self.p();
+        let p = self.p(cx);
         let mode = self.books[self.active].state.mode;
         let main = column()
             .size_full()
@@ -206,7 +206,7 @@ impl Breeze {
         let nested = self.navigation_outline().is_some_and(|outline| {
             (0..outline.len()).any(|index| reading::outline_has_children(&outline, index))
         });
-        let p = self.p();
+        let p = self.p(cx);
         column()
             .size_full()
             .min_w_0()
@@ -313,7 +313,7 @@ impl Breeze {
             })
     }
     fn status(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
-        let p = self.p();
+        let p = self.p(cx);
         let s = &self.books[self.active].state;
         let visible = s.layout.pages(s.navigation.page(), s.navigation.total());
         row()

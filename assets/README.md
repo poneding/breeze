@@ -14,6 +14,14 @@ The application uses the SVG catalog embedded by `gpui-kit-assets`; this directo
 
 The function-to-icon map and selection guidance are maintained in [the icon specification](../docs/specs/06-icons.md). Other dependency licenses remain governed by their respective crates; this notice is not a complete release-license audit.
 
+## Built-in themes
+
+`themes/gpui-kit/` contains the complete official theme gallery, pinned to the
+source commit of GPUI Kit 0.7.0 and embedded into the application. See
+[theme provenance and licensing](themes/README.md). Preserve the upstream JSON
+author metadata and `licenses/LICENSE-GPUI-KIT-THEMES.txt` when distributing
+these assets.
+
 ## Breeze identity
 
 `brand/` contains the project-authored Breeze logo and platform icon assets. These

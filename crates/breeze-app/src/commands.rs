@@ -89,7 +89,7 @@ impl Breeze {
             self.screen = Screen::Settings;
             cx.notify();
         } else if action.as_any().is::<CycleTheme>() {
-            self.set_appearance(self.theme_preference.next(), window, cx);
+            self.set_appearance(self.theme_preference.next(cx), window, cx);
         } else if action.as_any().is::<NextTab>() || action.as_any().is::<PreviousTab>() {
             let tabs: Vec<_> = self
                 .books
@@ -218,7 +218,7 @@ impl Breeze {
         }
     }
     pub(super) fn header(&self, cx: &mut Context<Self>) -> TitleBar {
-        let p = self.p();
+        let p = self.p(cx);
         TitleBar::new()
             .on_close_window(cx.listener(|this, _, window, cx| {
                 if this.request_close(window, cx) {
@@ -339,12 +339,12 @@ impl Breeze {
                         "theme",
                         if self.theme_preference == ThemePreference::System {
                             IconName::Monitor
-                        } else if self.dark {
+                        } else if Theme::global(cx).is_dark() {
                             IconName::Moon
                         } else {
                             IconName::Sun
                         },
-                        "主题模式",
+                        "切换主题",
                         &CycleTheme,
                         cx,
                     ))
@@ -375,7 +375,7 @@ fn action_label(action: &dyn Action) -> &'static str {
     name!(Home, "主页");
     name!(Preferences, "设置");
     name!(CloseTab, "关闭当前标签");
-    name!(CycleTheme, "主题模式：跟随系统 → 浅色 → 深色");
+    name!(CycleTheme, "切换主题：跟随系统与内置主题");
     name!(ToggleSidebar, "展开 / 收起导航");
     name!(ToggleDocumentPanel, "展开 / 收起文档侧栏");
     name!(NextPage, "下一页");

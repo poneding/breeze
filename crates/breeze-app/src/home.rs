@@ -7,7 +7,7 @@ const ACTIONS_WIDTH: f32 = 80.;
 
 impl Breeze {
     pub(super) fn home(&self, cx: &mut Context<Self>) -> Div {
-        let p = self.p();
+        let p = self.p(cx);
         let mut filtered: Vec<_> = self
             .books
             .iter()
@@ -179,7 +179,7 @@ impl Breeze {
     }
 
     fn library_row(&self, index: usize, cx: &mut Context<Self>) -> Button {
-        let p = self.p();
+        let p = self.p(cx);
         let b = &self.books[index];
         Button::new(("library-open", index))
             .custom(ButtonCustomVariant::new(cx).hover(p.tint).active(p.tint))
@@ -241,7 +241,7 @@ impl Breeze {
             )
     }
     fn library_actions(&self, index: usize, cx: &mut Context<Self>) -> Div {
-        let p = self.p();
+        let p = self.p(cx);
         let b = &self.books[index];
         row()
             .w(px(ACTIONS_WIDTH))
@@ -293,7 +293,7 @@ impl Breeze {
         }
     }
     fn library_cover(&self, index: usize, grid: bool, cx: &App) -> Div {
-        let p = self.p();
+        let p = self.p(cx);
         div()
             .w(px(if grid { 120. } else { 28. }))
             .h(px(if grid { 156. } else { 38. }))
@@ -316,7 +316,7 @@ impl Breeze {
             })
     }
     fn library_card(&self, index: usize, cx: &mut Context<Self>) -> Button {
-        let p = self.p();
+        let p = self.p(cx);
         let book = &self.books[index];
         Button::new(("library-open", index))
             .custom(ButtonCustomVariant::new(cx).hover(p.tint).active(p.tint))

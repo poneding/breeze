@@ -32,8 +32,11 @@ pub(super) struct SavedState {
     #[serde(default = "first_category_id")]
     pub next_category_id: usize,
     pub preference: ThemePreference,
-    pub light: ColorScheme,
-    pub dark: ColorScheme,
+    // Accept retired palette fields without writing them into new snapshots.
+    #[serde(default, skip_serializing, rename = "light")]
+    legacy_light: Option<String>,
+    #[serde(default, skip_serializing, rename = "dark")]
+    legacy_dark: Option<String>,
     #[serde(default)]
     pub library_grid: bool,
     pub sidebar: bool,
@@ -59,8 +62,8 @@ impl Default for SavedState {
             categories: Vec::new(),
             next_category_id: 1,
             preference: ThemePreference::System,
-            light: ColorScheme::Neutral,
-            dark: ColorScheme::Neutral,
+            legacy_light: None,
+            legacy_dark: None,
             library_grid: false,
             sidebar: true,
             width: 208.,
@@ -169,9 +172,9 @@ impl Breeze {
             active: self.active,
             categories: self.categories.clone(),
             next_category_id: self.next_category_id,
-            preference: self.theme_preference,
-            light: self.light_scheme,
-            dark: self.dark_scheme,
+            preference: self.theme_preference.clone(),
+            legacy_light: None,
+            legacy_dark: None,
             library_grid: self.library_grid,
             sidebar: self.sidebar,
             width: self
@@ -212,7 +215,12 @@ impl Breeze {
                 this.restoring = false;
                 match result {
                     Ok(Ok(state)) => {
-                        if let Err(e) = state.validate() {
+                        if let Err(e) = state.validate().and_then(|_| {
+                            state
+                                .preference
+                                .config(this.system_appearance, cx)
+                                .map(|_| ())
+                        }) {
                             this.storage_error = Some(format!("{e:#}"));
                             this.storage = None;
                         } else {
@@ -282,9 +290,6 @@ impl Breeze {
         self.categories = state.categories;
         self.next_category_id = state.next_category_id;
         self.theme_preference = state.preference;
-        self.dark = state.preference.resolve(self.system_appearance);
-        self.light_scheme = state.light;
-        self.dark_scheme = state.dark;
         self.library_grid = state.library_grid;
         self.sidebar = state.sidebar;
         self.navigation_width = state.width.max(reader::NAVIGATION_MIN_WIDTH);
@@ -330,7 +335,7 @@ impl Breeze {
         if !self.books.get(self.active).is_some_and(|book| book.opened) {
             self.active = self.books.iter().position(|b| b.opened).unwrap_or(0);
         }
-        self.apply_colors(cx);
+        self.apply_theme(cx);
     }
     pub(super) fn persist_if_changed(&mut self, cx: &mut Context<Self>) {
         if !self.storage_ready {
@@ -527,9 +532,17 @@ mod tests {
     }
     #[test]
     fn state_json_roundtrip() {
-        let state = SavedState::default();
-        let bytes = serde_json::to_vec(&state).unwrap();
-        assert_eq!(serde_json::from_slice::<SavedState>(&bytes).unwrap(), state);
+        for preference in [
+            ThemePreference::System,
+            ThemePreference::Theme("Default Dark".into()),
+        ] {
+            let state = SavedState {
+                preference,
+                ..Default::default()
+            };
+            let bytes = serde_json::to_vec(&state).unwrap();
+            assert_eq!(serde_json::from_slice::<SavedState>(&bytes).unwrap(), state);
+        }
     }
     #[test]
     fn reading_preferences_roundtrip_and_legacy_layouts_survive() {
@@ -570,5 +583,28 @@ mod tests {
         }
         state.reading_preferences.zoom = Zoom::Percent(0);
         assert!(state.validate().is_err());
+    }
+    #[test]
+    fn legacy_palettes_are_read_but_no_longer_written() {
+        for version in 1..=5 {
+            let mut json = serde_json::to_value(SavedState::default()).unwrap();
+            json["version"] = version.into();
+            json["preference"] = "Dark".into();
+            json["light"] = "Blue".into();
+            json["dark"] = "Forest".into();
+            let state: SavedState = serde_json::from_value(json).unwrap();
+            state.validate().unwrap();
+            assert_eq!(
+                state.preference,
+                ThemePreference::Theme("Default Dark".into())
+            );
+            let saved = serde_json::to_value(&state).unwrap();
+            assert!(saved.get("light").is_none());
+            assert!(saved.get("dark").is_none());
+            assert_eq!(
+                saved["preference"],
+                serde_json::json!({"Theme": "Default Dark"})
+            );
+        }
     }
 }

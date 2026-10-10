@@ -15,7 +15,7 @@ Library presentation refinements are tracked item by item in [work package 10](1
 | Area | Delivered behavior |
 |---|---|
 | Library | All Documents first; whole-row opening, aligned list/cover-grid views, empty new libraries, persisted multi-category memberships and eight tag colors, inline hover actions, favorites/filtering, and removal without deleting source files |
-| Preferences | Persistent appearance/palettes, sidebar width, independent file/position restoration, and opening-window policy |
+| Preferences | Persistent Follow System / GPUI Kit built-in theme selection, sidebar width, independent file/position restoration, and opening-window policy |
 | State integrity | Background/coalesced JSON, process locking, bounded inputs, atomic replacement, external-revision checks, and normal-close acknowledgement |
 | Reading | Single/Continuous/Spread layouts; virtualized full outline/thumbnail lists; visible-range scheduling; 32 MiB worker, 64 MiB UI-page, and 8 MiB UI-thumbnail budgets; page navigation and zoom |
 | Text/search | Rectangular horizontal-glyph selection/copy; cancellable background search with up to 300 results and page destinations |
@@ -108,6 +108,21 @@ The user began actively interacting with the review instance during validation. 
 
 
 ## Status layout and zoom controls
+## Built-in theme settings refinement
+
+The settings screen now has one native searchable Kit Select for Theme instead of segmented mode buttons and separate light/dark palette rows. The initial implementation mistakenly exposed only Kit's two automatically registered defaults. This has been corrected by embedding all 21 official gallery JSON files from the same source commit as Kit 0.7.0 and explicitly registering their 36 themes. The dropdown contains **39 choices**, grouped by System / Light / Dark: Follow System, 12 light themes, and 26 dark themes. Each appearance group starts with its default, followed by case-insensitive name order. The complete names and group membership match the user-provided list.
+
+[Theme provenance](../../assets/themes/README.md) records the pinned upstream source and license. Original author metadata and JSON bytes are preserved; every file was verified against the upstream Git blob ID. No runtime network access, external theme directory, or theme-directory watcher is required. Kit's selected configuration supplies both component and application-chrome colors without Breeze palette overrides; compact typography/radii and 34/38/32 px chrome heights are retained. PDF colors and page jobs are unchanged.
+
+The titlebar command and Primary+Shift+T cycle the same choices. Follow System continues to use window appearance events; named themes retain their declared mode. The theme name is persisted in the current state schema (version 6). Every legacy version preserves System or migrates Light/Dark to the matching built-in theme, and the retired palette fields are read but omitted from new snapshots without changing library, category, or annotation references.
+
+Validation for this change:
+
+The shared working tree carries unrelated uncommitted follow-up work, so this phase was verified in an isolated tree containing only the theme changes. That tree passes `cargo fmt --all -- --check`, `cargo test --workspace --locked` (115 passed; three existing fixture/performance tests ignored), and `cargo clippy --workspace --all-targets --locked -- -D warnings`. The upstream `block 0.1.6` future-incompatibility notice remains.
+- Tests assert the complete ordered 38-theme list and appearance groups, exact color/gradient-token application for every theme, default-theme resolution, and legacy-state migration. Real component tests cover Aurora Light dropdown confirmation, Tokyo Night search/confirmation/cancellation with correct grouped indices, titlebar/shortcut synchronization, Catppuccin Mocha restoration, unchanged saved document state, and preserved chrome dimensions.
+- With the complete gallery registered, `cargo run --locked -p breeze-app` built and launched successfully on macOS from the isolated tree, with a process-verified `BREEZE_DATA_DIR` under `target/theme-commit-review`. The scratch process and terminal pane were stopped after the startup check.
+- Native visual/interaction inspection remains **unverified**: the configured Computer Use entry point failed with `/bin/bash: orca: command not found`. Startup and component tests are not a substitute for visual inspection or native OS appearance-event testing; Windows/Linux native checks also remain pending.
+
 
 The status bar now exposes independent one/two-page and continuous choices in a native Kit menu, separated by a divider. New documents default to continuous single-page reading. All four combinations render real pages, including virtualized continuous spreads with a lone odd final page. Fit Page / Fit Width / Actual Size share a second native menu, with an icon and current mode or percentage on the trigger.
 

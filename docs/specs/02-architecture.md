@@ -50,7 +50,7 @@ The current typed JSON schema implements library/settings and annotation fields 
 | Model | Required information |
 |---|---|
 | Library entry | Stable ID, source path, title, format, last access, favorite/category state, native reading location |
-| Settings | Language, theme preference, independent palettes, update/window policies, independent file/position restoration switches |
+| Settings | Language, Follow System or a GPUI Kit registry theme name, update/window policies, independent file/position restoration switches |
 | Annotation | Document fingerprint, page anchor, quads/path/bounds, style, author/time, stable ID |
 | Edit transaction | Source fingerprint, object/stream reference, operator or usage identity, before/after data, affected resources, undo command |
 | UI transient state | Hover, selected tool, drag draft, popup, focus, request generation |
@@ -78,3 +78,7 @@ Opening policies are applied once to an accepted load generation. Fit Document a
 ## User categories and state version 6
 
 `breeze-core::library::Category` contains a stable numeric ID, user name, and a semantic color from eight choices. Missing legacy colors default to blue; unknown colors reject loading. An empty membership array means Unassigned; zero is not a valid category ID. Names are trimmed, case-insensitively unique, and limited to 40 characters; at most 100 named categories are stored. Deletion removes only the deleted membership and does not reuse an ID. State version 6 stores a bounded unique array of category IDs per document. Versions 1–5 migrate their single category field to an empty or one-member array; the legacy field is read but no longer written. State version 2 introduced the category collection, next ID, and each document's layout. A narrow version-1 transition preserves only legacy named categories actually referenced by saved documents; fresh states do not seed them. Invalid category references/IDs/names reject state loading rather than being silently rewritten.
+
+## Built-in themes within the current state schema
+
+The current state schema (version 6) stores Follow System or a named GPUI Kit theme, replacing Breeze-owned light/dark palettes. Before creating the application view or restoring preferences, Breeze registers 36 compiled-in official gallery themes alongside Kit's two defaults; source provenance and licensing are in `assets/themes/README.md`. A grouped searchable Select and the titlebar cycle share the same registry-derived order. Every legacy version still loads: explicit Light/Dark maps to `Default Light` / `Default Dark`, System remains System, and retired palette fields are read but omitted from subsequent snapshots. Unknown named themes reject state loading rather than silently applying a different theme. Library, category, reading, and annotation references retain their existing semantics.

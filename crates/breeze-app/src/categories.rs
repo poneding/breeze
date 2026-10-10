@@ -100,7 +100,7 @@ impl Breeze {
         cx.notify();
     }
     pub(super) fn category_sidebar(&self, cx: &mut Context<Self>) -> Div {
-        let p = self.p();
+        let p = self.p(cx);
         column()
             .gap_1()
             .child(
@@ -364,7 +364,7 @@ impl Breeze {
         let mut choices = vec![(0, "清除分类".to_owned())];
         choices.extend(self.categories.iter().map(|c| (c.id, c.name.clone())));
         let view = cx.entity();
-        let p = self.p();
+        let p = self.p(cx);
         Button::new(("category", index))
             .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
             .small()

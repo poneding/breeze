@@ -615,7 +615,7 @@ impl Breeze {
     pub(super) fn outline_search_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let search = self.reading.outline_search.as_ref()?;
         Some(
-            search::search_row(self.p().line)
+            search::search_row(self.p(cx).line)
                 .id("outline-search-bar")
                 .test_support()
                 .w_full()
@@ -663,7 +663,7 @@ impl Breeze {
                 .id("outline-no-results")
                 .test_support()
                 .p_2()
-                .text_color(self.p().muted)
+                .text_color(self.p(cx).muted)
                 .child("没有匹配的目录标题")
                 .into_any_element();
         }
@@ -794,7 +794,7 @@ impl Breeze {
     }
 
     fn thumbnail_card(&self, page: usize, cx: &mut Context<Self>) -> Button {
-        let p = self.p();
+        let p = self.p(cx);
         let current = self.books[self.active].state.navigation.page();
         Button::new(("thumbnail", page))
             .ghost()
@@ -929,7 +929,7 @@ impl Breeze {
                 .child(self.page_surface(page, &preview, width, height, cx))
                 .into_any_element()
         } else {
-            let p = self.p();
+            let p = self.p(cx);
             div()
                 .id(("page-frame", page))
                 .test_support()
@@ -998,7 +998,7 @@ impl Breeze {
         let layout = state.layout;
         let zoom = state.zoom;
         let (width, height) = self.reading_viewport_size(window);
-        let p = self.p();
+        let p = self.p(cx);
         let view = cx.entity();
         let viewport = div()
             .id("document-viewport")

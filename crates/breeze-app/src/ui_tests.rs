@@ -8,8 +8,12 @@ pub(super) fn app(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) 
     cx.background_executor.allow_parking();
     cx.update(|cx| {
         gpui_kit::init(cx);
+        appearance::init(cx).unwrap();
         commands::bind(cx);
-        style::apply(false, ColorScheme::Neutral, cx);
+        let config = ThemePreference::System
+            .config(WindowAppearance::Light, cx)
+            .unwrap();
+        style::apply(&config, cx);
         gpui_kit::open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(Bounds {
@@ -131,29 +135,168 @@ fn resizing_respects_bounds_and_keeps_width_on_collapse(cx: &mut TestAppContext)
     .unwrap();
 }
 #[gpui_kit::test]
-fn titlebar_commands_and_theme_slots(cx: &mut TestAppContext) {
+fn titlebar_and_theme_dropdown_stay_in_sync(cx: &mut TestAppContext) {
     let (handle, view) = app(cx);
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
         window.click("settings", cx);
         assert!(view.read(cx).screen == Screen::Settings);
+        window.render_frame(cx);
+        window.click("theme-select", cx);
+        window.press("down", cx);
+        window.press("down", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+    // Select confirmation is deferred until after the enclosing App update.
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let selected = ThemePreference::Theme("Aurora Light".into());
+        assert_eq!(view.read(cx).theme_preference, selected);
+        assert_eq!(
+            view.read(cx).theme_select.read(cx).selected_value(),
+            Some(&selected)
+        );
+        assert!(!Theme::global(cx).is_dark());
+        let config = selected.config(WindowAppearance::Dark, cx).unwrap();
+        let mut expected = Theme::default();
+        expected.apply_config(&config);
+        assert_eq!(
+            Theme::global(cx).colors,
+            expected.colors,
+            "Breeze must not override built-in colors"
+        );
+        assert_eq!(
+            Theme::global(cx).tokens,
+            expected.tokens,
+            "upstream gradients must remain intact"
+        );
+        let p = view.read(cx).p(cx);
+        assert_eq!(p.bg, expected.background);
+        assert_eq!(p.panel, expected.title_bar);
+        assert_eq!(p.accent, expected.primary);
+        assert_eq!(Theme::global(cx).font_size, px(15.));
+
         view.update(cx, |view, cx| {
-            view.set_appearance(ThemePreference::Dark, window, cx)
+            view.set_appearance(ThemePreference::Theme("Twilight".into()), window, cx);
         });
         window.render_frame(cx);
-        window.click(("dark-palette", 3_usize), cx);
-        assert_eq!(view.read(cx).dark_scheme, ColorScheme::Forest);
-        assert_eq!(view.read(cx).light_scheme, ColorScheme::Neutral);
-        window.click(("light-palette", 2_usize), cx);
-        assert_eq!(view.read(cx).light_scheme, ColorScheme::Blue);
-        assert_eq!(view.read(cx).dark_scheme, ColorScheme::Forest);
-        view.update(cx, |view, cx| {
-            view.set_appearance(ThemePreference::Light, window, cx)
-        });
+        window.click("theme", cx);
         window.render_frame(cx);
-        assert!(!view.read(cx).dark);
+        assert_eq!(view.read(cx).theme_preference, ThemePreference::System);
+        assert_eq!(
+            view.read(cx).theme_select.read(cx).selected_value(),
+            Some(&ThemePreference::System)
+        );
+        window.focus(&view.read(cx).focus.clone(), cx);
+        window.press("secondary-shift-t", cx);
+        window.render_frame(cx);
+        assert_eq!(Theme::global(cx).theme_name().as_ref(), "Default Light");
+        assert!(!Theme::global(cx).is_dark());
+        assert_eq!(
+            view.read(cx).theme_select.read(cx).selected_value(),
+            Some(&ThemePreference::Theme("Default Light".into()))
+        );
         window.click("home-tab", cx);
         assert!(view.read(cx).screen == Screen::Home);
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn named_theme_restores_with_unchanged_document_state(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        let before = view.read(cx).snapshot();
+        view.update(cx, |view, cx| {
+            view.set_appearance(
+                ThemePreference::Theme("Catppuccin Mocha".into()),
+                window,
+                cx,
+            );
+        });
+        let saved = view.read(cx).snapshot();
+        assert_eq!(saved.books, before.books);
+        let restored: SavedState =
+            serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
+        view.update(cx, |view, cx| {
+            view.set_appearance(ThemePreference::System, window, cx);
+            view.restore(restored, cx);
+        });
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).snapshot(), saved);
+        assert_eq!(
+            view.read(cx).theme_select.read(cx).selected_value(),
+            Some(&saved.preference)
+        );
+        assert_eq!(Theme::global(cx).theme_name().as_ref(), "Catppuccin Mocha");
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn every_gallery_theme_applies_without_changing_documents(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        let before = view.read(cx).snapshot().books;
+        for preference in ThemePreference::options(cx) {
+            let config = preference.config(window.appearance(), cx).unwrap();
+            let mut expected = Theme::default();
+            expected.apply_config(&config);
+            view.update(cx, |view, cx| {
+                view.set_appearance(preference.clone(), window, cx)
+            });
+            assert_eq!(Theme::global(cx).theme_name(), &config.name);
+            assert_eq!(Theme::global(cx).mode, config.mode);
+            assert_eq!(Theme::global(cx).colors, expected.colors, "{}", config.name);
+            assert_eq!(Theme::global(cx).tokens, expected.tokens, "{}", config.name);
+            assert_eq!(view.read(cx).snapshot().books, before);
+        }
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn theme_search_selects_a_dark_gallery_entry(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("settings", cx);
+        window.render_frame(cx);
+        window.click("theme-select", cx);
+        window.render_frame(cx);
+        window.input("Tokyo Night", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let selected = ThemePreference::Theme("Tokyo Night".into());
+        assert_eq!(view.read(cx).theme_preference, selected);
+        assert_eq!(
+            view.read(cx).theme_select.read(cx).selected_value(),
+            Some(&selected)
+        );
+        assert_eq!(
+            view.read(cx).theme_select.read(cx).selected_index(cx),
+            Some(gpui_kit::component::IndexPath::new(23).section(2))
+        );
+        assert!(Theme::global(cx).is_dark());
+        // Reopening and cancelling must keep the committed theme, not a filtered row index.
+        window.click("theme-select", cx);
+        window.render_frame(cx);
+        window.press("escape", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, _, cx| {
+        assert_eq!(
+            view.read(cx).theme_preference,
+            ThemePreference::Theme("Tokyo Night".into())
+        );
     })
     .unwrap();
 }
