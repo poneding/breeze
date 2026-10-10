@@ -84,7 +84,7 @@ impl Breeze {
             .flex_shrink_0()
             .border_l_1()
             .border_color(theme.border)
-            .bg(theme.background)
+            .bg(theme.sidebar)
             .child(
                 row()
                     .id("document-panel-header")
@@ -493,8 +493,7 @@ impl Breeze {
                             {
                                 return;
                             }
-                            book.state.navigation.go_to(expected.page);
-                            this.load(cx);
+                            this.go_to_annotation_page(expected.page, cx);
                         })),
                 )
                 .child(
@@ -506,6 +505,9 @@ impl Breeze {
                         .accessibility_label("删除此标注")
                         .tooltip("删除此标注")
                         .on_click(cx.listener(move |this, _, _, cx| {
+                            if !this.annotation_navigation_allowed(cx) {
+                                return;
+                            }
                             let book = &mut this.books[this.active];
                             if !book.annotations.ready
                                 || book.annotations.source_conflict

@@ -405,6 +405,7 @@ impl Breeze {
             if self.books[self.active].state.layout.is_continuous()
                 && !range.is_empty()
                 && self.gesture.is_empty()
+                && !self.annotation_editing.interacting()
                 && !self.loading
             {
                 self.books[self.active].state.navigation.go_to(range.start);
@@ -544,6 +545,9 @@ impl Breeze {
         }));
     }
     pub(super) fn set_layout(&mut self, layout: ReadingLayout, cx: &mut Context<Self>) {
+        if !self.annotation_navigation_allowed(cx) {
+            return;
+        }
         self.books[self.active].state.layout = layout;
         self.reading_preferences.layout = layout;
         self.reading.metrics = None;
@@ -748,11 +752,7 @@ impl Breeze {
                                             })
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 if let Some(page) = target {
-                                                    this.books[this.active]
-                                                        .state
-                                                        .navigation
-                                                        .go_to(page);
-                                                    this.load(cx);
+                                                    this.go_to_annotation_page(page, cx);
                                                 }
                                             })),
                                     )
@@ -855,8 +855,7 @@ impl Breeze {
                     ),
             )
             .on_click(cx.listener(move |this, _, _, cx| {
-                this.books[this.active].state.navigation.go_to(page);
-                this.load(cx);
+                this.go_to_annotation_page(page, cx);
             }))
     }
 

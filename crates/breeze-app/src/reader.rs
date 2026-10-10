@@ -92,6 +92,9 @@ impl Breeze {
                             .small()
                             .selected_index(mode.index())
                             .on_click(cx.listener(|this, index, _, cx| {
+                                if !this.annotation_navigation_allowed(cx) {
+                                    return;
+                                }
                                 this.tool_settings.dismiss();
                                 this.gesture.clear();
                                 this.books[this.active].state.mode = Mode::from_index(*index);
@@ -395,6 +398,9 @@ impl Breeze {
             .into_any_element()
     }
     pub(super) fn submit_page(&mut self, cx: &mut Context<Self>) {
+        if !self.annotation_navigation_allowed(cx) {
+            return;
+        }
         let value = self.page_input.read(cx).value();
         match self.books[self.active].state.navigation.jump(&value) {
             Ok(()) => {

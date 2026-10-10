@@ -167,16 +167,6 @@ fn note_and_edit_settings_are_reachable_without_a_sidebar(cx: &mut TestAppContex
         assert!(window.find("tool-settings-content").visible());
         assert!(window.try_find("ink-width").is_none());
         assert!(!view.read(cx).document_panel.open);
-        view.read(cx)
-            .text_input
-            .clone()
-            .update(cx, |input, cx| input.focus(window, cx));
-        window.press("secondary-a", cx);
-        window.input("Review note", cx);
-        assert_eq!(
-            view.read(cx).text_input.read(cx).value().as_ref(),
-            "Review note"
-        );
         window.press("secondary-3", cx);
         window.render_frame(cx);
         window.hover(("tool", 0usize), cx);

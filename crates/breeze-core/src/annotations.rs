@@ -165,9 +165,14 @@ pub struct History {
     pub items: Vec<Annotation>,
     undo: Vec<Vec<Annotation>>,
     redo: Vec<Vec<Annotation>>,
+    revision: u64,
 }
 impl History {
+    pub fn revision(&self) -> u64 {
+        self.revision
+    }
     pub fn replace(&mut self, items: Vec<Annotation>) {
+        self.revision = self.revision.wrapping_add(1);
         self.undo.push(std::mem::replace(&mut self.items, items));
         while self.undo.len() > 50
             || self
@@ -196,11 +201,13 @@ impl History {
     }
     pub fn undo(&mut self) {
         if let Some(items) = self.undo.pop() {
+            self.revision = self.revision.wrapping_add(1);
             self.redo.push(std::mem::replace(&mut self.items, items));
         }
     }
     pub fn redo(&mut self) {
         if let Some(items) = self.redo.pop() {
+            self.revision = self.revision.wrapping_add(1);
             self.undo.push(std::mem::replace(&mut self.items, items));
         }
     }

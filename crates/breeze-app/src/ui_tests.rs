@@ -480,14 +480,17 @@ fn annotation_tool_matrix_creates_real_geometry(cx: &mut TestAppContext) {
             (2, Kind::Underline),
             (3, Kind::Strikeout),
             (4, Kind::Ink),
-            (6, Kind::Note),
             (7, Kind::Ellipse),
             (8, Kind::Rectangle),
             (9, Kind::Line),
             (10, Kind::Squiggle),
             (11, Kind::Arrow),
         ] {
-            view.update(cx, |view, _| view.tool = tool);
+            view.update(cx, |view, _| {
+                view.tool = tool;
+                view.books[0].annotations.history.items.clear();
+                view.annotation_editing.clear();
+            });
             window.render_frame(cx);
             let bounds = window.find("page-surface").bounds();
             window.drag(
@@ -502,7 +505,7 @@ fn annotation_tool_matrix_creates_real_geometry(cx: &mut TestAppContext) {
             assert_eq!(annotations.last().unwrap().kind, kind);
             assert!(annotations.last().unwrap().validate().is_ok());
         }
-        assert_eq!(view.read(cx).books[0].annotations.history.items.len(), 11);
+        assert_eq!(view.read(cx).books[0].annotations.history.items.len(), 1);
     })
     .unwrap();
 }

@@ -6,6 +6,14 @@ pub fn bind(cx: &mut App) {
     tool_settings::bind(cx);
     cx.bind_keys([
         KeyBinding::new("secondary-o", Open, Some("Breeze")),
+        KeyBinding::new(
+            "backspace",
+            DeleteSelectedAnnotation,
+            Some("Breeze && !Input"),
+        ),
+        KeyBinding::new("delete", DeleteSelectedAnnotation, Some("Breeze && !Input")),
+        KeyBinding::new("escape", CancelAnnotationEdit, Some("Breeze")),
+        KeyBinding::new("escape", CancelAnnotationEdit, Some("AnnotationText")),
         KeyBinding::new("secondary-shift-l", CycleLayout, Some("Breeze && !Input")),
         KeyBinding::new("secondary-,", Preferences, Some("Breeze")),
         KeyBinding::new("secondary-shift-h", Home, Some("Breeze")),
@@ -80,10 +88,16 @@ impl Breeze {
             return;
         }
         if action.as_any().is::<Open>() {
+            if !self.annotation_navigation_allowed(cx) {
+                return;
+            }
             self.choose_file(cx);
         } else if action.as_any().is::<Home>() {
             self.show_home(cx);
         } else if action.as_any().is::<Preferences>() {
+            if !self.annotation_navigation_allowed(cx) {
+                return;
+            }
             self.tool_settings.dismiss();
             self.covers.cancel();
             self.screen = Screen::Settings;
@@ -115,10 +129,18 @@ impl Breeze {
             } else if action.as_any().is::<SaveAnnotationsAs>() {
                 self.save_annotations_as(cx);
             } else if action.as_any().is::<UndoAnnotation>() {
+                if self.annotation_editing.pending_text() {
+                    return;
+                }
+                self.annotation_editing.clear();
                 self.books[self.active].annotations.history.undo();
                 self.schedule_annotation_save(self.active, cx);
                 cx.notify();
             } else if action.as_any().is::<RedoAnnotation>() {
+                if self.annotation_editing.pending_text() {
+                    return;
+                }
+                self.annotation_editing.clear();
                 self.books[self.active].annotations.history.redo();
                 self.schedule_annotation_save(self.active, cx);
                 cx.notify();
@@ -135,6 +157,9 @@ impl Breeze {
                     cx.write_to_clipboard(ClipboardItem::new_string(self.selected_text.clone()));
                 }
             } else if action.as_any().is::<SearchDocument>() {
+                if !self.annotation_navigation_allowed(cx) {
+                    return;
+                }
                 self.search_open = !self.search_open;
                 self.sidebar = true;
                 self.search_input
@@ -171,6 +196,9 @@ impl Breeze {
                 || action.as_any().is::<AnnotateMode>()
                 || action.as_any().is::<EditMode>()
             {
+                if !self.annotation_navigation_allowed(cx) {
+                    return;
+                }
                 self.tool_settings.dismiss();
                 self.gesture.clear();
                 self.books[self.active].state.mode = if action.as_any().is::<ReadMode>() {
@@ -201,6 +229,9 @@ impl Breeze {
         }
     }
     pub(super) fn close_book(&mut self, index: usize, cx: &mut Context<Self>) {
+        if self.active == index && !self.annotation_navigation_allowed(cx) {
+            return;
+        }
         if self.books[index].annotations.dirty() || self.books[index].annotations.saving {
             self.message = "请先保存当前文档的批注，再关闭标签".into();
             cx.notify();

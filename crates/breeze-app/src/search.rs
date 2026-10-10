@@ -129,8 +129,7 @@ impl Breeze {
                             .on_click(cx.listener({
                                 let page = hit.page;
                                 move |this, _, _, cx| {
-                                    this.books[this.active].state.navigation.go_to(page);
-                                    this.load(cx);
+                                    this.go_to_annotation_page(page, cx);
                                 }
                             }))
                     })),

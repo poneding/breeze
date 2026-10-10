@@ -1,6 +1,7 @@
 #[cfg(test)]
 use core::prelude::v1::test;
 use gpui_kit::prelude::FluentBuilder;
+mod annotation_editing;
 mod annotations;
 mod appearance;
 mod export;
@@ -57,6 +58,8 @@ actions!(
         PreviousTab,
         ToggleSidebar,
         ToggleDocumentPanel,
+        DeleteSelectedAnnotation,
+        CancelAnnotationEdit,
         FocusPage,
         Favorite,
         CycleTheme,
@@ -163,12 +166,12 @@ struct Breeze {
     message: String,
     page_input: Entity<InputState>,
     font_input: Entity<InputState>,
-    text_input: Entity<InputState>,
     edit_text_input: Entity<InputState>,
     focus: FocusHandle,
     tool: usize,
     tool_settings: tool_settings::ToolSettings,
     document_panel: document_panel::DocumentPanel,
+    annotation_editing: annotation_editing::AnnotationEditing,
     remember_files: bool,
     remember_position: bool,
     reading_preferences: ReadingPreferences,
@@ -178,9 +181,6 @@ struct Breeze {
 }
 impl Breeze {
     fn new(worker: PdfWorker, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let text_input =
-            cx.new(|cx| InputState::new(window, cx).default_value("让思绪，在此停留。"));
-        let subscription = cx.observe(&text_input, |_, _, cx| cx.notify());
         let edit_text_input =
             cx.new(|cx| InputState::new(window, cx).default_value("让思绪，在此停留。"));
         let edit_subscription = cx.observe(&edit_text_input, |_, _, cx| cx.notify());
@@ -274,7 +274,6 @@ impl Breeze {
             search_cancel: None,
             library_input,
             _subscriptions: vec![
-                subscription,
                 edit_subscription,
                 page_submission,
                 resize_observer,
@@ -311,12 +310,12 @@ impl Breeze {
             message: "".into(),
             page_input,
             font_input: cx.new(|cx| InputState::new(window, cx).default_value("系统默认")),
-            text_input,
             focus: cx.focus_handle(),
             edit_text_input,
             tool: 0,
             tool_settings: tool_settings::ToolSettings::default(),
             document_panel: document_panel::DocumentPanel::default(),
+            annotation_editing: annotation_editing::AnnotationEditing::default(),
             remember_files: true,
             remember_position: true,
             reading_preferences: ReadingPreferences::default(),
@@ -329,6 +328,9 @@ impl Breeze {
         Palette::from_theme(cx)
     }
     fn show_home(&mut self, cx: &mut Context<Self>) {
+        if !self.annotation_navigation_allowed(cx) {
+            return;
+        }
         self.tool_settings.dismiss();
         self.covers.clear(cx);
         self.page_task = None;
@@ -344,6 +346,9 @@ impl Breeze {
         cx.notify();
     }
     fn open_book(&mut self, index: usize, cx: &mut Context<Self>) {
+        if !self.annotation_navigation_allowed(cx) {
+            return;
+        }
         self.tool_settings.dismiss();
         if self.active != index {
             self.document_panel.reset_document();
@@ -454,6 +459,9 @@ impl Breeze {
         cx.notify();
     }
     fn forget_book(&mut self, index: usize, cx: &mut Context<Self>) {
+        if !self.annotation_navigation_allowed(cx) {
+            return;
+        }
         if self.books[index].annotations.dirty() || self.books[index].annotations.saving {
             self.message = "请先保存批注，再移除资料库条目".into();
             cx.notify();
@@ -467,6 +475,9 @@ impl Breeze {
     }
     fn next_page(&mut self, delta: i32, cx: &mut Context<Self>) {
         if self.screen != Screen::Reader {
+            return;
+        }
+        if !self.annotation_navigation_allowed(cx) {
             return;
         }
         let layout = self.books[self.active].state.layout;
@@ -517,6 +528,9 @@ impl Breeze {
         .detach();
     }
     fn open_canonical_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if !self.annotation_navigation_allowed(cx) {
+            return;
+        }
         if let Some(index) = self
             .books
             .iter()
@@ -636,6 +650,14 @@ impl Render for Breeze {
                     this.execute(action, window, cx)
                 }),
             )
+            .on_action(
+                cx.listener(|this, _: &DeleteSelectedAnnotation, window, cx| {
+                    this.delete_selected_annotation(window, cx);
+                }),
+            )
+            .on_action(cx.listener(|this, _: &CancelAnnotationEdit, window, cx| {
+                this.cancel_annotation_edit(window, cx);
+            }))
             .on_action(
                 cx.listener(|this, action: &FocusPage, window, cx| {
                     this.execute(action, window, cx)

@@ -4,6 +4,7 @@ use breeze_pdf::export::{ExportRequest, export_annotations};
 impl Breeze {
     pub(super) fn can_export_pdf(&self) -> bool {
         !self.export_busy
+            && !self.annotation_editing.pending_text()
             && !self.loading
             && self.books.get(self.active).is_some_and(|book| {
                 let a = &book.annotations;
@@ -27,6 +28,7 @@ impl Breeze {
         })
     }
     pub(super) fn choose_pdf_export(&mut self, cx: &mut Context<Self>) {
+        self.commit_selected_annotation(cx);
         let Some(mut request) = self.export_snapshot(PathBuf::new()) else {
             self.message = "没有可导出的批注，或文档仍在加载/存在冲突".into();
             cx.notify();

@@ -97,6 +97,12 @@ impl Breeze {
         .detach();
     }
     pub(super) fn save_annotations(&mut self, cx: &mut Context<Self>) {
+        if self.annotation_editing.pending_text() {
+            self.message = "请先按 Enter 完成文本标注，再保存".into();
+            cx.notify();
+            return;
+        }
+        self.commit_selected_annotation(cx);
         self.save_annotations_for(self.active, cx);
     }
     fn save_annotations_for(&mut self, index: usize, cx: &mut Context<Self>) {
@@ -218,6 +224,12 @@ impl Breeze {
         self.books[index].annotations.autosave = Some(task);
     }
     pub(super) fn save_annotations_as(&mut self, cx: &mut Context<Self>) {
+        if self.annotation_editing.pending_text() {
+            self.message = "请先按 Enter 完成文本标注，再另存为".into();
+            cx.notify();
+            return;
+        }
+        self.commit_selected_annotation(cx);
         let book = &mut self.books[self.active];
         let a = &mut book.annotations;
         if !a.ready || a.saving || a.source_conflict || a.fingerprint.is_empty() {
@@ -272,11 +284,19 @@ impl Breeze {
         .detach();
     }
     pub(super) fn has_unsaved_annotations(&self) -> bool {
-        self.books
-            .iter()
-            .any(|b| b.annotations.dirty() || b.annotations.saving)
+        self.annotation_editing.pending_text()
+            || self
+                .books
+                .iter()
+                .any(|b| b.annotations.dirty() || b.annotations.saving)
     }
     pub(super) fn allow_close(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.annotation_editing.pending_text() {
+            self.message = "请按 Enter 完成文本标注，或按 Esc 取消，再关闭".into();
+            cx.notify();
+            return false;
+        }
+        self.commit_selected_annotation(cx);
         if self.export_busy {
             self.message = "请等待 PDF 导出完成或取消文件选择".into();
             cx.notify();
@@ -307,7 +327,11 @@ impl Breeze {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.loading || self.books[self.active].state.mode == Mode::Edit {
+        if self.loading {
+            return;
+        }
+        if self.annotation_editing.pending_text() {
+            self.focus_annotation_editor(window, cx);
             return;
         }
         window.focus(&self.focus, cx);
@@ -342,16 +366,29 @@ impl Breeze {
                 return;
             }
         }
+        if self.pointer_annotation_selection(point, window, cx) {
+            return;
+        }
+        let mode = self.books[self.active].state.mode;
+        if mode == Mode::Edit
+            || (mode == Mode::Annotate && self.tool == annotation_editing::SELECT_TOOL)
+        {
+            cx.notify();
+            return;
+        }
         self.gesture = vec![point];
         cx.notify();
     }
     fn pointer_move(&mut self, event: &MouseMoveEvent, _: &mut Window, cx: &mut Context<Self>) {
-        if self.gesture.is_empty() {
-            return;
-        }
         let Some(point) = self.document_pointer(event.position) else {
             return;
         };
+        if self.move_annotation_pointer(point, cx) {
+            return;
+        }
+        if self.gesture.is_empty() {
+            return;
+        }
         if self.tool == 4 && self.books[self.active].state.mode == Mode::Annotate {
             if self.gesture.len() < 20_000
                 && self
@@ -426,8 +463,16 @@ impl Breeze {
             text: String::new(),
         })
     }
-    fn pointer_up(&mut self, _: &MouseUpEvent, _: &mut Window, cx: &mut Context<Self>) {
+    fn pointer_up(&mut self, _: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self.finish_annotation_move(cx) {
+            return;
+        }
         if self.gesture.is_empty() {
+            return;
+        }
+        if self.books[self.active].state.mode == Mode::Annotate && self.tool == 6 {
+            let point = self.gesture[0];
+            self.begin_text_annotation(point, window, cx);
             return;
         }
         let region = Rect::between(
@@ -452,10 +497,7 @@ impl Breeze {
                 "已选择 {} 个字符 · ⌘/Ctrl+C 复制",
                 self.selected_text.chars().count()
             );
-        } else if let Some(mut annotation) = self.draft() {
-            if annotation.kind == Kind::Note {
-                annotation.text = self.text_input.read(cx).value().to_string();
-            }
+        } else if let Some(annotation) = self.draft() {
             match annotation.validate() {
                 Ok(()) => {
                     let history = &mut self.books[self.active].annotations.history;
@@ -468,6 +510,7 @@ impl Breeze {
                         + annotation.quads.len();
                     if history.items.len() < 5000 && points <= 100_000 {
                         history.add(annotation);
+                        self.annotation_editing.clear();
                         self.schedule_annotation_save(self.active, cx);
                         self.message = "批注已修改，正在自动保存…".into();
                     } else {
@@ -494,16 +537,28 @@ impl Breeze {
             .history
             .items
             .iter()
-            .filter(|a| a.page == current && !self.books[self.active].annotations.source_conflict)
-            .cloned()
+            .enumerate()
+            .filter(|(_, a)| {
+                a.page == current && !self.books[self.active].annotations.source_conflict
+            })
+            .map(|(index, a)| self.displayed_annotation(index, a))
             .collect();
         if let Some(draft) = self.draft().filter(|a| a.page == current) {
             annotations.push(draft);
         }
-        let notes = annotations
+        let notes = self.books[self.active]
+            .annotations
+            .history
+            .items
             .iter()
-            .filter(|a| a.kind == Kind::Note)
-            .cloned()
+            .enumerate()
+            .filter(|(index, a)| {
+                a.page == current
+                    && a.kind == Kind::Note
+                    && !self.text_annotation_being_edited(*index)
+                    && !self.books[self.active].annotations.source_conflict
+            })
+            .map(|(index, a)| (index, self.displayed_annotation(index, a)))
             .collect::<Vec<_>>();
         let view = cx.entity();
         let bounds_cell = std::rc::Rc::new(std::cell::Cell::new(None));
@@ -527,12 +582,19 @@ impl Breeze {
                     }
                 });
             })
+            .capture_any_mouse_down(cx.listener(move |this, _: &MouseDownEvent, _, _| {
+                if this.annotation_editing.pending_text()
+                    && current != this.books[this.active].state.navigation.page()
+                {
+                    return;
+                }
+                this.books[this.active].state.navigation.go_to(current);
+                this.preview = Some(page_preview.clone());
+                this.surface_bounds = bounds_cell.get();
+            }))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event, window, cx| {
-                    this.books[this.active].state.navigation.go_to(current);
-                    this.preview = Some(page_preview.clone());
-                    this.surface_bounds = bounds_cell.get();
                     this.pointer_down(event, window, cx);
                 }),
             )
@@ -578,22 +640,56 @@ impl Breeze {
                         .size_full(),
                     ),
             )
-            .children(notes.into_iter().filter_map(|a| {
+            .children(notes.into_iter().filter_map(|(index, a)| {
                 let position = geometry.display(*a.points.first()?);
                 let (w, h) = geometry.size();
+                let expected = self.books[self.active].annotations.history.items[index].clone();
+                let source = self.books[self.active].source.clone();
+                let revision = self.books[self.active].annotations.history.revision();
                 Some(
                     div()
+                        .id(("page-annotation-text", index))
+                        .test_support()
                         .absolute()
                         .left(px(position.x / w * width))
                         .top(px(position.y / h * height))
-                        .max_w(px(220.))
-                        .p_1()
-                        .bg(rgb(0xfff0b3))
-                        .text_color(rgb(0x342d19))
-                        .text_size(px(13.))
-                        .child(a.text),
+                        .max_w(px((220. * width / w).min(width)))
+                        .text_color(Rgba {
+                            r: a.color[0],
+                            g: a.color[1],
+                            b: a.color[2],
+                            a: a.opacity,
+                        })
+                        .text_size(px(13. * width / w))
+                        .border_1()
+                        .border_color(if self.is_selected_annotation(index) {
+                            Theme::global(cx).primary
+                        } else {
+                            transparent_black()
+                        })
+                        .child(a.text)
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                                cx.stop_propagation();
+                                let book = &this.books[this.active];
+                                if book.source != source
+                                    || book.annotations.history.revision() != revision
+                                    || book.annotations.history.items.get(index) != Some(&expected)
+                                {
+                                    return;
+                                }
+                                this.select_annotation(index, window, cx);
+                                if event.click_count >= 2 {
+                                    this.edit_selected_annotation_text(window, cx);
+                                } else if let Some(point) = this.document_pointer(event.position) {
+                                    this.begin_annotation_move(point);
+                                }
+                            }),
+                        ),
                 )
             }))
+            .children(self.annotation_edit_layers(current, geometry, width, height, cx))
             .into_any_element()
     }
 }

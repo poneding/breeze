@@ -14,6 +14,8 @@ breeze-app -> breeze-core
 - `breeze-storage` owns background state writes, process locking, atomic JSON, fingerprints, and optimistic sidecar revision checks.
 - `breeze-app` owns the native window, document sessions, Home/Reader/Settings views, appearance preferences, command dispatch, and component tests.
 
+`annotation_editing.rs` owns page-local text drafts, selection targets, and preview-to-history commits. Its geometry helpers hit-test the independent sidecar shapes after converting the pointer through each page's CropBox/rotation transform. Targets contain the source, fingerprint, history revision, item index, and expected annotation; asynchronous saves and UI callbacks cannot apply stale edits to a replacement item. The history revision is transient and does not change the sidecar schema. Text Input entities are created only for active page editing and respect native IME composition. Annotation previews are independent overlays and do not invalidate PDF raster tiles.
+
 The initial exploratory tool is no longer part of the workspace. Do not add empty storage/platform/editor crates ahead of concrete responsibilities. No dynamic plugins, generic event bus, script runtime, or multiple-engine fallback framework is needed.
 
 ## Format and session boundaries

@@ -39,6 +39,8 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Underline / strikeout | `underline` / `strikethrough` | `Underline` / `Strikethrough` |
 | Pen / eraser | `pencil` / `eraser` | `Pencil` / `Eraser` |
 | Text annotation | `type` | `Type` |
+| Select annotations | `mouse-pointer-2` | `MousePointer2` |
+| Delete selected annotation | `trash` | `Trash` |
 | Circle / rectangle | `circle` / `square` | `Circle` / `Square` |
 | Line / wavy line / arrow | `minus` / `line-squiggle` / `arrow-up-right` | `Minus` / `LineSquiggle` / `ArrowUpRight` |
 | Edit / insert text | `text-cursor-input` / `type` | `TextCursorInput` / `Type` |

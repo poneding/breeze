@@ -102,7 +102,6 @@ impl Default for ToolSettings {
             annotation[index].color = CategoryColor::Amber;
             annotation[index].opacity = 40;
         }
-        annotation[6].color = CategoryColor::Amber;
         Self {
             annotation,
             text: [TextStyle::default(); 2],
@@ -142,6 +141,25 @@ impl Breeze {
             .min_w_0()
             .overflow_x_scroll()
             .gap_1()
+            .when(mode == Mode::Annotate, |tools| {
+                tools.child(
+                    Button::new(("tool", annotation_editing::SELECT_TOOL))
+                        .ghost()
+                        .small()
+                        .icon(IconName::MousePointer2)
+                        .selected(self.tool == annotation_editing::SELECT_TOOL)
+                        .accessibility_label("选择标注")
+                        .tooltip("选择标注以修改、移动或删除")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            if !this.annotation_navigation_allowed(cx) {
+                                return;
+                            }
+                            this.tool = annotation_editing::SELECT_TOOL;
+                            this.gesture.clear();
+                            cx.notify();
+                        })),
+                )
+            })
             .children(tools.into_iter().enumerate().map(|(index, (icon, label))| {
                 let key = ToolKey { mode, index };
                 let button = Button::new(("tool", index))
@@ -151,6 +169,9 @@ impl Breeze {
                     .accessibility_label(label)
                     .selected(self.tool == index)
                     .on_click(cx.listener(move |this, event, _, cx| {
+                        if !this.annotation_navigation_allowed(cx) {
+                            return;
+                        }
                         this.gesture.clear();
                         this.tool = index;
                         if mode != Mode::Read && matches!(event, ClickEvent::Keyboard(_)) {
@@ -267,15 +288,11 @@ impl Breeze {
             })
             .child(self.tool_opacity_choices(key, cx))
             .when(key.index == 6, |content| {
-                content
-                    .child(setting_label("便笺内容", muted))
-                    .child(Input::new(&self.text_input).small())
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(muted)
-                            .child("输入后点击页面放置。导出为可打开全文的便笺图标。"),
-                    )
+                content.child(
+                    div().text_size(px(11.)).text_color(muted).child(
+                        "点击页面输入文本，Enter 完成，Esc 取消。导出为可打开全文的便笺图标。",
+                    ),
+                )
             })
     }
 
