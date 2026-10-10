@@ -1,6 +1,12 @@
 use crate::*;
 use breeze_core::library::CategoryColor;
-use gpui_kit::component::{Theme, hover_card::HoverCard, popover::Popover};
+use gpui_kit::component::{
+    Theme,
+    hover_card::HoverCard,
+    input::NumberInput,
+    popover::Popover,
+    slider::{Slider, SliderEvent, SliderState},
+};
 use std::time::Duration;
 
 actions!(breeze_tool_settings, [CloseToolSettings]);
@@ -12,7 +18,7 @@ pub(super) const ANNOTATION_TOOLS: [(IconName, &str); 12] = [
     (IconName::Strikethrough, "删除线"),
     (IconName::Pencil, "画笔"),
     (IconName::Eraser, "橡皮擦"),
-    (IconName::StickyNote, "文本批注"),
+    (IconName::Type, "文本批注"),
     (IconName::Circle, "圆形"),
     (IconName::Square, "矩形"),
     (IconName::Minus, "直线"),
@@ -79,6 +85,14 @@ pub(super) struct ToolSettings {
     text: [TextStyle; 2],
     keyboard_open: Option<ToolKey>,
     epoch: usize,
+    controls: Option<ToolControls>,
+}
+
+struct ToolControls {
+    key: ToolKey,
+    width: Entity<InputState>,
+    opacity: Entity<SliderState>,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl Default for ToolSettings {
@@ -94,6 +108,7 @@ impl Default for ToolSettings {
             text: [TextStyle::default(); 2],
             keyboard_open: None,
             epoch: 0,
+            controls: None,
         }
     }
 }
@@ -101,6 +116,7 @@ impl Default for ToolSettings {
 impl ToolSettings {
     pub fn dismiss(&mut self) {
         self.keyboard_open = None;
+        self.controls = None;
         self.epoch = self.epoch.wrapping_add(1);
     }
 }
@@ -189,11 +205,12 @@ impl Breeze {
     }
 
     fn tool_settings_content(
-        &self,
+        &mut self,
         key: ToolKey,
-        window: &Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> AnyElement {
+        self.prepare_tool_controls(key, window, cx);
         let label = if key.mode == Mode::Annotate {
             ANNOTATION_TOOLS[key.index].1
         } else {
@@ -229,7 +246,6 @@ impl Breeze {
                 .text_color(muted)
                 .child("点击笔迹可擦除整条笔画，原文和其他标注保持不变。");
         }
-        let style = self.tool_settings.annotation[key.index];
         column()
             .gap_3()
             .child(self.tool_color_choices(key, false, cx))
@@ -237,24 +253,16 @@ impl Breeze {
                 content.child(
                     column()
                         .gap_1()
-                        .child(setting_label("线宽（pt）", muted))
-                        .child(
-                            row()
-                                .gap_1()
-                                .children([1_u16, 2, 3, 4, 6, 8].into_iter().map(|width| {
-                                    Button::new(("ink-width", width as usize))
-                                        .small()
-                                        .ghost()
-                                        .label(width.to_string())
-                                        .selected(style.width == width as f32)
-                                        .accessibility_label(format!("线宽 {width} pt"))
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.tool_settings.annotation[key.index].width =
-                                                width as f32;
-                                            cx.notify();
-                                        }))
-                                })),
-                        ),
+                        .child(setting_label("线宽（0.25–100 pt）", muted))
+                        .when_some(self.tool_settings.controls.as_ref(), |content, controls| {
+                            content.child(
+                                div()
+                                    .id("ink-width")
+                                    .test_support()
+                                    .w_full()
+                                    .child(NumberInput::new(&controls.width).small().suffix("pt")),
+                            )
+                        }),
                 )
             })
             .child(self.tool_opacity_choices(key, cx))
@@ -361,29 +369,126 @@ impl Breeze {
         };
         column()
             .gap_1()
-            .child(setting_label(
-                "不透明度",
-                Theme::global(cx).muted_foreground,
-            ))
             .child(
                 row()
-                    .gap_1()
-                    .children([25_u16, 40, 60, 80, 100].into_iter().map(|value| {
-                        Button::new(("tool-opacity", value as usize))
-                            .small()
-                            .ghost()
-                            .label(format!("{value}%"))
-                            .selected(opacity == value)
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                if key.mode == Mode::Annotate {
-                                    this.tool_settings.annotation[key.index].opacity = value;
-                                } else {
-                                    this.tool_settings.text[key.index / 2].opacity = value;
-                                }
-                                cx.notify();
-                            }))
-                    })),
+                    .justify_between()
+                    .child(setting_label(
+                        "不透明度",
+                        Theme::global(cx).muted_foreground,
+                    ))
+                    .child(
+                        div()
+                            .id("tool-opacity-value")
+                            .test_support()
+                            .text_size(px(11.))
+                            .child(format!("{opacity}%")),
+                    ),
             )
+            .when_some(self.tool_settings.controls.as_ref(), |content, controls| {
+                content.child(
+                    div()
+                        .id("tool-opacity")
+                        .test_support()
+                        .w_full()
+                        .px_2()
+                        .child(Slider::new(&controls.opacity)),
+                )
+            })
+    }
+
+    fn prepare_tool_controls(&mut self, key: ToolKey, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .tool_settings
+            .controls
+            .as_ref()
+            .is_some_and(|controls| controls.key == key)
+        {
+            return;
+        }
+        let width_value = self
+            .tool_settings
+            .annotation
+            .get(key.index)
+            .map_or(2., |style| style.width);
+        let opacity_value = if key.mode == Mode::Annotate {
+            self.tool_settings.annotation[key.index].opacity
+        } else {
+            self.tool_settings.text[key.index / 2].opacity
+        };
+        let width = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value(width_value.to_string())
+                .step(0.25)
+                .min(0.25)
+                .max(100.)
+        });
+        let opacity = cx.new(|_| {
+            SliderState::new()
+                .min(0.)
+                .max(100.)
+                .step(1.)
+                .default_value(opacity_value as f32)
+        });
+        let width_subscription =
+            cx.subscribe_in(&width, window, move |this, input, event, window, cx| {
+                if !this
+                    .tool_settings
+                    .controls
+                    .as_ref()
+                    .is_some_and(|controls| controls.width == *input && controls.key == key)
+                {
+                    return;
+                }
+                if key.mode != Mode::Annotate {
+                    return;
+                }
+                let value = input
+                    .read(cx)
+                    .value()
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|value| value.is_finite() && (0.25..=100.).contains(value));
+                if matches!(
+                    event,
+                    InputEvent::Change | InputEvent::PressEnter { .. } | InputEvent::Blur
+                ) {
+                    if let Some(value) = value {
+                        this.tool_settings.annotation[key.index].width = value;
+                    } else if !matches!(event, InputEvent::Change) {
+                        let previous = this.tool_settings.annotation[key.index].width;
+                        input.update(cx, |input, cx| {
+                            input.set_value(previous.to_string(), window, cx)
+                        });
+                    }
+                    cx.notify();
+                }
+            });
+        let opacity_subscription = cx.subscribe(&opacity, move |this, slider, event, cx| {
+            if !this
+                .tool_settings
+                .controls
+                .as_ref()
+                .is_some_and(|controls| controls.opacity == slider && controls.key == key)
+            {
+                return;
+            }
+            if let SliderEvent::Change(value) = event {
+                let value = value.end().round().clamp(0., 100.) as u16;
+                if key.mode == Mode::Annotate {
+                    this.tool_settings.annotation[key.index].opacity = value;
+                } else {
+                    this.tool_settings.text[key.index / 2].opacity = value;
+                }
+                cx.notify();
+            }
+        });
+        self.tool_settings.controls = Some(ToolControls {
+            key,
+            width,
+            opacity,
+            _subscriptions: vec![width_subscription, opacity_subscription],
+        });
     }
 
     fn edit_tool_settings(&self, key: ToolKey, cx: &mut Context<Self>) -> Div {

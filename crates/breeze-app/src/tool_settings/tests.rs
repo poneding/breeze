@@ -44,14 +44,44 @@ fn hover_settings_remain_interactive_and_style_only_their_tool(cx: &mut TestAppC
             assert!(window.find(("tool-color", index)).visible());
         }
         window.click(("tool-color", 5usize), cx);
-        window.click(("ink-width", 8usize), cx);
-        window.click(("tool-opacity", 60usize), cx);
+        let width_input = view
+            .read(cx)
+            .tool_settings
+            .controls
+            .as_ref()
+            .unwrap()
+            .width
+            .clone();
+        width_input.update(cx, |input, cx| {
+            input.focus(window, cx);
+            input.select_all(window, cx);
+        });
+        window.input("8", cx);
+        window.press("up", cx);
+        let slider = view
+            .read(cx)
+            .tool_settings
+            .controls
+            .as_ref()
+            .unwrap()
+            .opacity
+            .clone();
+        let bounds = window.find(("slider", slider.entity_id())).bounds();
+        window.click_at(
+            ("slider", slider.entity_id()),
+            point(bounds.size.width * 0.6, bounds.size.height / 2.),
+            cx,
+        );
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
         let settings = &view.read(cx).tool_settings;
         assert_eq!(
             settings.annotation[4],
             AnnotationStyle {
                 color: CategoryColor::Blue,
-                width: 8.,
+                width: 8.25,
                 opacity: 60
             }
         );
@@ -77,7 +107,7 @@ fn hover_settings_remain_interactive_and_style_only_their_tool(cx: &mut TestAppC
             .unwrap()
             .clone();
         assert_eq!(annotation.color, colors::components(CategoryColor::Blue));
-        assert_eq!(annotation.width, 8.);
+        assert_eq!(annotation.width, 8.25);
         assert_eq!(annotation.opacity, 0.6);
         window.press("secondary-shift-t", cx);
         assert_eq!(
@@ -135,7 +165,7 @@ fn note_and_edit_settings_are_reachable_without_a_sidebar(cx: &mut TestAppContex
     advance(cx, handle, 400);
     cx.update_window(handle, |_, window, cx| {
         assert!(window.find("tool-settings-content").visible());
-        assert!(window.try_find(("ink-width", 2usize)).is_none());
+        assert!(window.try_find("ink-width").is_none());
         assert!(!view.read(cx).document_panel.open);
         view.read(cx)
             .text_input
@@ -168,4 +198,52 @@ fn note_and_edit_settings_are_reachable_without_a_sidebar(cx: &mut TestAppContex
         assert!(!view.read(cx).document_panel.open);
     })
     .unwrap();
+}
+
+#[gpui_kit::test]
+fn numeric_controls_reject_invalid_values_and_discard_old_tool_events(cx: &mut TestAppContext) {
+    let (handle, view) = crate::ui_tests::app(cx);
+    let width = cx
+        .update_window(handle, |_, window, cx| {
+            view.update(cx, |view, cx| {
+                view.prepare_tool_controls(
+                    ToolKey {
+                        mode: Mode::Annotate,
+                        index: 4,
+                    },
+                    window,
+                    cx,
+                );
+                view.tool_settings.controls.as_ref().unwrap().width.clone()
+            })
+        })
+        .unwrap();
+    for value in ["NaN", "inf", "0", "101", "-"] {
+        cx.update_window(handle, |_, window, cx| {
+            width.update(cx, |input, cx| input.set_value(value, window, cx));
+        })
+        .unwrap();
+        assert_eq!(
+            view.read_with(cx, |view, _| view.tool_settings.annotation[4].width),
+            2.
+        );
+    }
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| {
+            view.prepare_tool_controls(
+                ToolKey {
+                    mode: Mode::Annotate,
+                    index: 9,
+                },
+                window,
+                cx,
+            )
+        });
+        width.update(cx, |input, cx| input.set_value("7", window, cx));
+    })
+    .unwrap();
+    view.read_with(cx, |view, _| {
+        assert_eq!(view.tool_settings.annotation[4].width, 2.);
+        assert_eq!(view.tool_settings.annotation[9].width, 2.);
+    });
 }

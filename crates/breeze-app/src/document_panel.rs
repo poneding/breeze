@@ -51,7 +51,7 @@ fn kind_presentation(kind: Kind) -> (IconName, &'static str) {
         Kind::Underline => (IconName::Underline, "下划线"),
         Kind::Strikeout => (IconName::Strikethrough, "删除线"),
         Kind::Ink => (IconName::Pencil, "画笔"),
-        Kind::Note => (IconName::StickyNote, "文本批注"),
+        Kind::Note => (IconName::Type, "文本批注"),
         Kind::Ellipse => (IconName::Circle, "圆形"),
         Kind::Rectangle => (IconName::Square, "矩形"),
         Kind::Line => (IconName::Minus, "直线"),

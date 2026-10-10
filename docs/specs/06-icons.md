@@ -38,7 +38,7 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Text highlight / area highlight | `highlighter` / `scan` | `Highlighter` / `Scan` |
 | Underline / strikeout | `underline` / `strikethrough` | `Underline` / `Strikethrough` |
 | Pen / eraser | `pencil` / `eraser` | `Pencil` / `Eraser` |
-| Text note | `sticky-note` | `StickyNote` |
+| Text annotation | `type` | `Type` |
 | Circle / rectangle | `circle` / `square` | `Circle` / `Square` |
 | Line / wavy line / arrow | `minus` / `line-squiggle` / `arrow-up-right` | `Minus` / `LineSquiggle` / `ArrowUpRight` |
 | Edit / insert text | `text-cursor-input` / `type` | `TextCursorInput` / `Type` |

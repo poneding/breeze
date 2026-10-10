@@ -225,3 +225,9 @@ Isolated native macOS runs used `cargo run --locked -p breeze-app` and review st
 ## Library Empty state (October 10, 2026)
 
 The fourth item in [library interaction refinement](11-library-interactions.md) is complete. Empty libraries and filtered results use the native Kit Empty component with a small icon and “暂无文档”; table headings and the persistence footer are omitted for empty results. The committed baseline plus this change passed formatting, 116 workspace tests (three existing probes ignored), Clippy, startup, and native macOS empty-layout inspection. Other in-progress reader/settings changes remain outside this validation; Windows/Linux runtime acceptance remains pending.
+
+## October 10 native annotation controls
+
+Text annotations use Lucide `type` in the toolbar and annotation list. Line width uses a Kit NumberInput with decimal input, 0.25 pt steps, and a 0.25–100 pt range. Opacity uses a Kit Slider across 0–100% and displays the current percentage. Controls retain each tool's independent values and reject stale events after changing tools; invalid line-width input does not change the applied style.
+
+Formatting, workspace tests (123 passed, three existing probes ignored), and Clippy with warnings denied pass. Component checks cover typed/stepped widths, slider pointer updates, persisted gesture values, invalid numeric values, and stale tool events. An isolated native macOS run confirmed the Type icon, decimal NumberInput, and continuous opacity Slider in the tool hover card. Screenshots and state are excluded under `target/annotation-edit-review/`; the review window that received user interaction is preserved. Windows/Linux native checks remain unperformed. Text placement and page selection are implemented in the second phase of [work package 15](15-direct-annotation-editing.md).
