@@ -321,7 +321,6 @@ impl Breeze {
                     )
                     .child(
                         Button::new("save-category")
-                            .primary()
                             .small()
                             .label("保存")
                             .on_click(cx.listener(|this, _, _, cx| this.save_category(cx))),
