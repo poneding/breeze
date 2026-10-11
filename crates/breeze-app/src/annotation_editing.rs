@@ -84,7 +84,7 @@ impl AnnotationEditing {
 impl Breeze {
     pub(super) fn annotation_navigation_allowed(&mut self, cx: &mut Context<Self>) -> bool {
         if self.annotation_editing.editor.is_some() {
-            self.message = "请按 Enter 完成文本标注，或按 Esc 取消，再切换位置".into();
+            self.message = tr!("请按 Enter 完成文本标注，或按 Esc 取消，再切换位置").into();
             cx.notify();
             return false;
         }
@@ -155,7 +155,7 @@ impl Breeze {
         let input = cx.new(|cx| {
             InputState::new(window, cx)
                 .default_value(annotation.text.clone())
-                .placeholder("输入文本，Enter 完成")
+                .placeholder(tr!("输入文本，Enter 完成"))
                 .validate(|text, _| text.len() <= 16_384)
         });
         let subscription = cx.subscribe_in(&input, window, |this, input, event, window, cx| {
@@ -194,7 +194,7 @@ impl Breeze {
             _subscriptions: vec![subscription, observer],
         });
         input.update(cx, |input, cx| input.focus(window, cx));
-        self.message = "Enter 完成文本标注 · Esc 取消".into();
+        self.message = tr!("Enter 完成文本标注 · Esc 取消").into();
         cx.notify();
     }
 
@@ -212,7 +212,7 @@ impl Breeze {
         let mut annotation = editor.annotation.clone();
         annotation.text = editor.input.read(cx).value().to_string();
         if let Err(error) = annotation.validate() {
-            self.message = format!("无法完成文本标注：{error}");
+            self.message = tf!("无法完成文本标注：{}", error);
             cx.notify();
             return;
         }
@@ -225,7 +225,7 @@ impl Breeze {
                 .as_ref()
                 .is_some_and(|target| !target.matches(book))
         {
-            self.message = "标注或文档已变化，输入内容已保留；请复制内容后按 Esc 取消".into();
+            self.message = tr!("标注或文档已变化，输入内容已保留；请复制内容后按 Esc 取消").into();
             cx.notify();
             return;
         }
@@ -238,7 +238,7 @@ impl Breeze {
             original.index
         } else {
             if !can_add(book, &annotation) {
-                self.message = "当前文档标注数量已达上限，输入内容已保留".into();
+                self.message = tr!("当前文档标注数量已达上限，输入内容已保留").into();
                 cx.notify();
                 return;
             }
@@ -248,7 +248,7 @@ impl Breeze {
         };
         self.annotation_editing.editor = None;
         self.schedule_annotation_save(self.active, cx);
-        self.message = "文本标注已完成".into();
+        self.message = tr!("文本标注已完成").into();
         self.select_annotation(index, window, cx);
         window.focus(&self.focus, cx);
         cx.notify();
@@ -369,7 +369,7 @@ impl Breeze {
         let book = &mut self.books[self.active];
         if !selected.target.matches(book) {
             self.annotation_editing.clear();
-            self.message = "标注已变化，请重新选择".into();
+            self.message = tr!("标注已变化，请重新选择").into();
             cx.notify();
             return;
         }
@@ -401,7 +401,7 @@ impl Breeze {
             items.remove(selected.target.index);
             book.annotations.history.replace(items);
             self.schedule_annotation_save(self.active, cx);
-            self.message = "标注已删除，可撤销".into();
+            self.message = tr!("标注已删除，可撤销").into();
         }
         self.annotation_editing.clear();
         window.focus(&self.focus, cx);
@@ -640,15 +640,15 @@ impl Breeze {
             .child(
                 row()
                     .gap_1()
-                    .child(div().flex_1().text_size(px(11.)).child("已选中标注"))
+                    .child(div().flex_1().text_size(px(11.)).child(tr!("已选中标注")))
                     .when(selected.preview.kind == Kind::Note, |row| {
                         row.child(
                             Button::new("edit-annotation-text")
                                 .ghost()
                                 .small()
                                 .icon(IconName::Type)
-                                .accessibility_label("编辑标注文本")
-                                .tooltip("编辑文本")
+                                .accessibility_label(tr!("编辑标注文本"))
+                                .tooltip(tr!("编辑文本"))
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.commit_selected_annotation(cx);
                                     if let Some(selected) = this
@@ -672,9 +672,9 @@ impl Breeze {
                             .ghost()
                             .small()
                             .icon(IconName::Trash)
-                            .accessibility_label("删除选中标注")
+                            .accessibility_label(tr!("删除选中标注"))
                             .tooltip_with_action(
-                                "删除选中标注",
+                                tr!("删除选中标注"),
                                 &DeleteSelectedAnnotation,
                                 Some("Breeze"),
                             )
@@ -733,7 +733,7 @@ impl Breeze {
                     content.child(
                         row()
                             .gap_2()
-                            .child(div().text_size(px(11.)).child("线宽"))
+                            .child(div().text_size(px(11.)).child(tr!("线宽")))
                             .child(
                                 div()
                                     .id("selected-annotation-width")
@@ -748,7 +748,7 @@ impl Breeze {
                 row()
                     .justify_between()
                     .text_size(px(11.))
-                    .child("不透明度")
+                    .child(tr!("不透明度"))
                     .child(format!("{:.0}%", selected.preview.opacity * 100.)),
             )
             .child(
@@ -774,4 +774,14 @@ fn can_add(book: &Book, annotation: &Annotation) -> bool {
             + annotation.points.len()
             + annotation.quads.len()
             <= 100_000
+}
+
+impl Breeze {
+    pub(super) fn refresh_annotation_language(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(state) = &self.annotation_editing.editor {
+            state.input.update(cx, |input, cx| {
+                input.set_placeholder(tr!("输入文本，Enter 完成"), window, cx)
+            });
+        }
+    }
 }

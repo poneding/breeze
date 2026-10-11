@@ -2,14 +2,14 @@ use breeze_core::library::CategoryColor;
 
 pub(super) fn label(color: CategoryColor) -> &'static str {
     match color {
-        CategoryColor::Red => "红色",
-        CategoryColor::Orange => "橙色",
-        CategoryColor::Amber => "琥珀色",
-        CategoryColor::Green => "绿色",
-        CategoryColor::Teal => "青色",
-        CategoryColor::Blue => "蓝色",
-        CategoryColor::Violet => "紫色",
-        CategoryColor::Pink => "粉色",
+        CategoryColor::Red => tr!("红色"),
+        CategoryColor::Orange => tr!("橙色"),
+        CategoryColor::Amber => tr!("琥珀色"),
+        CategoryColor::Green => tr!("绿色"),
+        CategoryColor::Teal => tr!("青色"),
+        CategoryColor::Blue => tr!("蓝色"),
+        CategoryColor::Violet => tr!("紫色"),
+        CategoryColor::Pink => tr!("粉色"),
     }
 }
 

@@ -11,26 +11,30 @@ use std::time::Duration;
 
 actions!(breeze_tool_settings, [CloseToolSettings]);
 
-pub(super) const ANNOTATION_TOOLS: [(IconName, &str); 12] = [
-    (IconName::Highlighter, "文本高亮"),
-    (IconName::Scan, "区域高亮"),
-    (IconName::Underline, "下划线"),
-    (IconName::Strikethrough, "删除线"),
-    (IconName::Pencil, "画笔"),
-    (IconName::Eraser, "橡皮擦"),
-    (IconName::Type, "文本批注"),
-    (IconName::Circle, "圆形"),
-    (IconName::Square, "矩形"),
-    (IconName::Minus, "直线"),
-    (IconName::LineSquiggle, "波浪线"),
-    (IconName::ArrowUpRight, "箭头"),
-];
-const EDIT_TOOLS: [(IconName, &str); 4] = [
-    (IconName::TextCursorInput, "文字"),
-    (IconName::Image, "图片"),
-    (IconName::Type, "插入文字"),
-    (IconName::ImagePlus, "插入图片"),
-];
+pub(super) fn annotation_tools() -> [(IconName, &'static str); 12] {
+    [
+        (IconName::Highlighter, tr!("文本高亮")),
+        (IconName::Scan, tr!("区域高亮")),
+        (IconName::Underline, tr!("下划线")),
+        (IconName::Strikethrough, tr!("删除线")),
+        (IconName::Pencil, tr!("画笔")),
+        (IconName::Eraser, tr!("橡皮擦")),
+        (IconName::Type, tr!("文本批注")),
+        (IconName::Circle, tr!("圆形")),
+        (IconName::Square, tr!("矩形")),
+        (IconName::Minus, tr!("直线")),
+        (IconName::LineSquiggle, tr!("波浪线")),
+        (IconName::ArrowUpRight, tr!("箭头")),
+    ]
+}
+fn edit_tools() -> [(IconName, &'static str); 4] {
+    [
+        (IconName::TextCursorInput, tr!("文字")),
+        (IconName::Image, tr!("图片")),
+        (IconName::Type, tr!("插入文字")),
+        (IconName::ImagePlus, tr!("插入图片")),
+    ]
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ToolKey {
@@ -131,9 +135,9 @@ pub(super) fn bind(cx: &mut App) {
 impl Breeze {
     pub(super) fn tools(&self, mode: Mode, cx: &mut Context<Self>) -> Stateful<Div> {
         let tools = match mode {
-            Mode::Read => vec![(IconName::MousePointer2, "浏览")],
-            Mode::Annotate => ANNOTATION_TOOLS.to_vec(),
-            Mode::Edit => EDIT_TOOLS.to_vec(),
+            Mode::Read => vec![(IconName::MousePointer2, tr!("浏览"))],
+            Mode::Annotate => annotation_tools().to_vec(),
+            Mode::Edit => edit_tools().to_vec(),
         };
         row()
             .id("tools")
@@ -148,8 +152,8 @@ impl Breeze {
                         .small()
                         .icon(IconName::MousePointer2)
                         .selected(self.tool == annotation_editing::SELECT_TOOL)
-                        .accessibility_label("选择标注")
-                        .tooltip("选择标注以修改、移动或删除")
+                        .accessibility_label(tr!("选择标注"))
+                        .tooltip(tr!("选择标注以修改、移动或删除"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if !this.annotation_navigation_allowed(cx) {
                                 return;
@@ -233,9 +237,9 @@ impl Breeze {
     ) -> AnyElement {
         self.prepare_tool_controls(key, window, cx);
         let label = if key.mode == Mode::Annotate {
-            ANNOTATION_TOOLS[key.index].1
+            annotation_tools()[key.index].1
         } else {
-            EDIT_TOOLS[key.index].1
+            edit_tools()[key.index].1
         };
         column()
             .id("tool-settings-content")
@@ -265,7 +269,7 @@ impl Breeze {
             return div()
                 .text_size(px(12.))
                 .text_color(muted)
-                .child("点击笔迹可擦除整条笔画，原文和其他标注保持不变。");
+                .child(tr!("点击笔迹可擦除整条笔画，原文和其他标注保持不变。"));
         }
         column()
             .gap_3()
@@ -274,7 +278,7 @@ impl Breeze {
                 content.child(
                     column()
                         .gap_1()
-                        .child(setting_label("线宽（0.25–100 pt）", muted))
+                        .child(setting_label(tr!("线宽（0.25–100 pt）"), muted))
                         .when_some(self.tool_settings.controls.as_ref(), |content, controls| {
                             content.child(
                                 div()
@@ -288,11 +292,9 @@ impl Breeze {
             })
             .child(self.tool_opacity_choices(key, cx))
             .when(key.index == 6, |content| {
-                content.child(
-                    div().text_size(px(11.)).text_color(muted).child(
-                        "点击页面输入文本，Enter 完成，Esc 取消。导出为可打开全文的便笺图标。",
-                    ),
-                )
+                content.child(div().text_size(px(11.)).text_color(muted).child(tr!(
+                    "点击页面输入文本，Enter 完成，Esc 取消。导出为可打开全文的便笺图标。"
+                )))
             })
     }
 
@@ -309,7 +311,11 @@ impl Breeze {
         column()
             .gap_1()
             .child(setting_label(
-                if background { "背景色" } else { "颜色" },
+                if background {
+                    tr!("背景色")
+                } else {
+                    tr!("颜色")
+                },
                 theme.muted_foreground,
             ))
             .child(
@@ -334,7 +340,11 @@ impl Breeze {
                                 .p_0()
                                 .accessibility_label(format!(
                                     "{}：{}",
-                                    if background { "背景色" } else { "颜色" },
+                                    if background {
+                                        tr!("背景色")
+                                    } else {
+                                        tr!("颜色")
+                                    },
                                     colors::label(color)
                                 ))
                                 .child(
@@ -368,7 +378,7 @@ impl Breeze {
                     Button::new("clear-text-background")
                         .ghost()
                         .small()
-                        .label("无背景")
+                        .label(tr!("无背景"))
                         .selected(selected.is_none())
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.tool_settings.text[key.index / 2].background = None;
@@ -390,7 +400,7 @@ impl Breeze {
                 row()
                     .justify_between()
                     .child(setting_label(
-                        "不透明度",
+                        tr!("不透明度"),
                         Theme::global(cx).muted_foreground,
                     ))
                     .child(
@@ -513,12 +523,12 @@ impl Breeze {
         if key.index == 1 || key.index == 3 {
             return column()
                 .gap_2()
-                .child(setting_label("原图编辑尚未开放", muted))
+                .child(setting_label(tr!("原图编辑尚未开放"), muted))
                 .children(
                     [
-                        (IconName::Scaling, "缩放"),
-                        (IconName::RotateCw, "旋转"),
-                        (IconName::Trash, "删除"),
+                        (IconName::Scaling, tr!("缩放")),
+                        (IconName::RotateCw, tr!("旋转")),
+                        (IconName::Trash, tr!("删除")),
                     ]
                     .into_iter()
                     .map(|(icon, label)| {
@@ -533,7 +543,7 @@ impl Breeze {
         let style = self.tool_settings.text[key.index / 2];
         column()
             .gap_3()
-            .child(setting_label("独立样式预览 · 原文编辑尚未开放", muted))
+            .child(setting_label(tr!("独立样式预览 · 原文编辑尚未开放"), muted))
             .child(Input::new(&self.font_input).small())
             .child(
                 row()
@@ -543,7 +553,7 @@ impl Breeze {
                             .ghost()
                             .small()
                             .icon(IconName::Minus)
-                            .accessibility_label("减小预览字号")
+                            .accessibility_label(tr!("减小预览字号"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let style = &mut this.tool_settings.text[key.index / 2];
                                 style.size = style.size.saturating_sub(2).max(8);
@@ -561,7 +571,7 @@ impl Breeze {
                             .ghost()
                             .small()
                             .icon(IconName::Plus)
-                            .accessibility_label("增大预览字号")
+                            .accessibility_label(tr!("增大预览字号"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let style = &mut this.tool_settings.text[key.index / 2];
                                 style.size = (style.size + 2).min(72);
@@ -573,7 +583,7 @@ impl Breeze {
                             .ghost()
                             .small()
                             .icon(IconName::Bold)
-                            .accessibility_label("粗体预览")
+                            .accessibility_label(tr!("粗体预览"))
                             .selected(style.bold)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let style = &mut this.tool_settings.text[key.index / 2];
@@ -586,7 +596,7 @@ impl Breeze {
                             .ghost()
                             .small()
                             .icon(IconName::Italic)
-                            .accessibility_label("斜体预览")
+                            .accessibility_label(tr!("斜体预览"))
                             .selected(style.italic)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 let style = &mut this.tool_settings.text[key.index / 2];
@@ -601,9 +611,9 @@ impl Breeze {
             .child(
                 row().gap_1().children(
                     [
-                        (IconName::TextAlignStart, "左对齐"),
-                        (IconName::TextAlignCenter, "居中"),
-                        (IconName::TextAlignEnd, "右对齐"),
+                        (IconName::TextAlignStart, tr!("左对齐")),
+                        (IconName::TextAlignCenter, tr!("居中")),
+                        (IconName::TextAlignEnd, tr!("右对齐")),
                     ]
                     .into_iter()
                     .enumerate()
@@ -645,7 +655,7 @@ impl Breeze {
                     .child(self.edit_text_input.read(cx).value()),
             )
             .child(setting_label(
-                "字体名称仅供输入预览，暂不切换实际字体。",
+                tr!("字体名称仅供输入预览，暂不切换实际字体。"),
                 muted,
             ))
     }

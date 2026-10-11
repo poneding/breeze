@@ -86,7 +86,7 @@ impl SavedState {
             "Invalid sidebar width"
         );
         anyhow::ensure!(
-            self.language < 2 && self.updates < 3 && self.window < 3,
+            self.language < 3 && self.updates < 3 && self.window < 3,
             "Invalid preferences"
         );
         anyhow::ensure!(
@@ -240,11 +240,12 @@ impl Breeze {
                         }
                     }
                     Ok(Err(e)) => {
-                        this.storage_error = Some(format!("本地状态加载失败，已禁止写入：{e:#}"));
+                        this.storage_error =
+                            Some(tf!("本地状态加载失败，已禁止写入：{}", format!("{:#}", e)));
                         this.storage = None;
                     }
                     Err(_) => {
-                        this.storage_error = Some("本地状态线程不可用".into());
+                        this.storage_error = Some(tr!("本地状态线程不可用").into());
                         this.storage = None;
                     }
                 }
@@ -366,13 +367,14 @@ impl Breeze {
                                 }
                             }
                             Ok(Err(error)) => {
-                                this.storage_error = Some(format!("本地状态保存失败：{error:#}"));
+                                this.storage_error =
+                                    Some(tf!("本地状态保存失败：{}", format!("{:#}", error)));
                                 this.last_snapshot = None;
                                 this.storage_ready = false;
                                 cx.notify();
                             }
                             Err(error) => {
-                                this.storage_error = Some(format!("本地状态保存被中断：{error}"));
+                                this.storage_error = Some(tf!("本地状态保存被中断：{}", error));
                                 this.last_snapshot = None;
                                 this.storage_ready = false;
                                 cx.notify();
@@ -399,7 +401,7 @@ impl Breeze {
         self.page_task = None;
         self.reading.cancel();
         if self.restoring {
-            self.message = "请等待本地状态加载完成".into();
+            self.message = tr!("请等待本地状态加载完成").into();
             cx.notify();
             return false;
         }
@@ -409,7 +411,7 @@ impl Breeze {
         let receive = match store.save(self.snapshot()) {
             Ok(r) => r,
             Err(e) => {
-                self.storage_error = Some(format!("关闭前保存失败：{e:#}"));
+                self.storage_error = Some(tf!("关闭前保存失败：{}", format!("{:#}", e)));
                 cx.notify();
                 return false;
             }
@@ -426,11 +428,12 @@ impl Breeze {
                         window.remove_window();
                     }
                     Ok(Err(e)) => {
-                        this.storage_error = Some(format!("关闭前保存失败，窗口已保留：{e:#}"));
+                        this.storage_error =
+                            Some(tf!("关闭前保存失败，窗口已保留：{}", format!("{:#}", e)));
                         cx.notify();
                     }
                     Err(e) => {
-                        this.storage_error = Some(format!("保存被中断：{e}"));
+                        this.storage_error = Some(tf!("保存被中断：{}", e));
                         cx.notify();
                     }
                 }

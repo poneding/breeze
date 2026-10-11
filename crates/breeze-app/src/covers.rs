@@ -106,7 +106,7 @@ impl Breeze {
                 self.covers.insert(
                     Cover {
                         source,
-                        image: Err(format!("封面不可用：{error:#}")),
+                        image: Err(tf!("封面不可用：{}", format!("{:#}", error))),
                         bytes: 0,
                     },
                     cx,
@@ -129,7 +129,8 @@ impl Breeze {
                         .map_err(anyhow::Error::from)
                         .and_then(|page| page)
                         .and_then(|page| {
-                            page.pixels.ok_or_else(|| anyhow::anyhow!("封面像素不可用"))
+                            page.pixels
+                                .ok_or_else(|| anyhow::anyhow!(tr!("封面像素不可用")))
                         })
                         .and_then(|pixels| {
                             let bytes = pixels.bgra.len();
@@ -137,7 +138,7 @@ impl Breeze {
                         });
                     let (image, bytes) = match result {
                         Ok((image, bytes)) => (Ok(image), bytes),
-                        Err(error) => (Err(format!("封面不可用：{error:#}")), 0),
+                        Err(error) => (Err(tf!("封面不可用：{}", format!("{:#}", error))), 0),
                     };
                     this.covers.insert(
                         Cover {

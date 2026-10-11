@@ -46,7 +46,7 @@ pub fn init(cx: &mut App) -> Result<()> {
     for (name, content) in GALLERY {
         registry
             .load_themes_from_str(content)
-            .with_context(|| format!("无法加载内置主题：{name}"))?;
+            .with_context(|| tf!("无法加载内置主题：{}", name))?;
     }
     Ok(())
 }
@@ -89,9 +89,9 @@ impl ThemePreference {
             )
         };
         vec![
-            SelectGroup::new("系统").item(Self::System),
-            group("浅色", ThemeMode::Light),
-            group("深色", ThemeMode::Dark),
+            SelectGroup::new(tr!("系统")).item(Self::System),
+            group(tr!("浅色"), ThemeMode::Light),
+            group(tr!("深色"), ThemeMode::Dark),
         ]
     }
 
@@ -128,7 +128,7 @@ impl ThemePreference {
                 .themes()
                 .get(name.as_str())
                 .cloned()
-                .with_context(|| format!("主题不可用：{name}")),
+                .with_context(|| tf!("主题不可用：{}", name)),
         }
     }
 }
@@ -138,7 +138,7 @@ impl SelectItem for ThemePreference {
 
     fn title(&self) -> SharedString {
         match self {
-            Self::System => "跟随系统".into(),
+            Self::System => tr!("跟随系统").into(),
             Self::Theme(name) => name.clone().into(),
         }
     }

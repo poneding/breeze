@@ -245,7 +245,7 @@ impl Breeze {
             return;
         }
         if self.books[index].annotations.dirty() || self.books[index].annotations.saving {
-            self.message = "请先保存当前文档的批注，再关闭标签".into();
+            self.message = tr!("请先保存当前文档的批注，再关闭标签").into();
             cx.notify();
             return;
         }
@@ -279,7 +279,7 @@ impl Breeze {
                     .gap_1()
                     .pr_2()
                     .child(
-                        self.command("home-tab", IconName::House, "主页", &Home, cx)
+                        self.command("home-tab", IconName::House, tr!("主页"), &Home, cx)
                             .selected(self.screen == Screen::Home),
                     )
                     .child(
@@ -359,9 +359,11 @@ impl Breeze {
                                                                 .ghost()
                                                                 .small()
                                                                 .icon(IconName::X)
-                                                                .accessibility_label("关闭标签")
+                                                                .accessibility_label(tr!(
+                                                                    "关闭标签"
+                                                                ))
                                                                 .tooltip_with_action(
-                                                                    "关闭标签",
+                                                                    tr!("关闭标签"),
                                                                     &CloseTab,
                                                                     Some("Breeze"),
                                                                 )
@@ -377,7 +379,13 @@ impl Breeze {
                                 },
                             )),
                     )
-                    .child(self.command("open", IconName::FilePlusCorner, "打开文档", &Open, cx))
+                    .child(self.command(
+                        "open",
+                        IconName::FilePlusCorner,
+                        tr!("打开文档"),
+                        &Open,
+                        cx,
+                    ))
                     .child(self.command(
                         "theme",
                         if self.theme_preference == ThemePreference::System {
@@ -387,53 +395,59 @@ impl Breeze {
                         } else {
                             IconName::Sun
                         },
-                        "切换主题",
+                        tr!("切换主题"),
                         &CycleTheme,
                         cx,
                     ))
                     .child(
-                        self.command("settings", IconName::Settings, "设置", &Preferences, cx)
-                            .selected(self.screen == Screen::Settings),
+                        self.command(
+                            "settings",
+                            IconName::Settings,
+                            tr!("设置"),
+                            &Preferences,
+                            cx,
+                        )
+                        .selected(self.screen == Screen::Settings),
                     ),
             )
     }
 }
 fn action_label(action: &dyn Action) -> &'static str {
     macro_rules! name {
-        ($ty:ty,$label:literal) => {
+        ($ty:ty,$label:expr) => {
             if action.as_any().is::<$ty>() {
                 return $label;
             }
         };
     }
-    name!(SaveAnnotations, "保存批注旁置文件");
-    name!(ExportPdf, "导出批注 PDF · 新文件，不覆盖原件");
-    name!(SaveAnnotationsAs, "选择新的批注保存位置");
-    name!(UndoAnnotation, "撤销批注");
-    name!(RedoAnnotation, "重做批注");
-    name!(SearchDocument, "搜索文档");
-    name!(CycleLayout, "切换阅读布局");
-    name!(CopySelection, "复制选中文字");
-    name!(Open, "打开文档");
-    name!(Home, "主页");
-    name!(Preferences, "设置");
-    name!(CloseTab, "关闭当前标签");
-    name!(CycleTheme, "切换主题：跟随系统与内置主题");
-    name!(ToggleSidebar, "展开 / 收起导航");
-    name!(ToggleDocumentPanel, "展开 / 收起文档侧栏");
-    name!(NextPage, "下一页");
-    name!(PreviousPage, "上一页");
-    name!(FocusPage, "跳转到页");
-    name!(Favorite, "收藏 / 取消收藏");
-    name!(ZoomIn, "放大");
-    name!(ZoomOut, "缩小");
-    name!(FitPage, "适合页面");
-    name!(FitWidth, "适合宽度");
-    name!(ActualSize, "实际大小");
-    name!(ShowOutline, "目录");
-    name!(ShowThumbnails, "缩略图");
-    name!(ReadMode, "阅读模式");
-    name!(AnnotateMode, "标注模式");
-    name!(EditMode, "编辑模式 · 工具预览");
-    "命令"
+    name!(SaveAnnotations, tr!("保存批注旁置文件"));
+    name!(ExportPdf, tr!("导出批注 PDF · 新文件，不覆盖原件"));
+    name!(SaveAnnotationsAs, tr!("选择新的批注保存位置"));
+    name!(UndoAnnotation, tr!("撤销批注"));
+    name!(RedoAnnotation, tr!("重做批注"));
+    name!(SearchDocument, tr!("搜索文档"));
+    name!(CycleLayout, tr!("切换阅读布局"));
+    name!(CopySelection, tr!("复制选中文字"));
+    name!(Open, tr!("打开文档"));
+    name!(Home, tr!("主页"));
+    name!(Preferences, tr!("设置"));
+    name!(CloseTab, tr!("关闭当前标签"));
+    name!(CycleTheme, tr!("切换主题：跟随系统与内置主题"));
+    name!(ToggleSidebar, tr!("展开 / 收起导航"));
+    name!(ToggleDocumentPanel, tr!("展开 / 收起文档侧栏"));
+    name!(NextPage, tr!("下一页"));
+    name!(PreviousPage, tr!("上一页"));
+    name!(FocusPage, tr!("跳转到页"));
+    name!(Favorite, tr!("收藏 / 取消收藏"));
+    name!(ZoomIn, tr!("放大"));
+    name!(ZoomOut, tr!("缩小"));
+    name!(FitPage, tr!("适合页面"));
+    name!(FitWidth, tr!("适合宽度"));
+    name!(ActualSize, tr!("实际大小"));
+    name!(ShowOutline, tr!("目录"));
+    name!(ShowThumbnails, tr!("缩略图"));
+    name!(ReadMode, tr!("阅读模式"));
+    name!(AnnotateMode, tr!("标注模式"));
+    name!(EditMode, tr!("编辑模式 · 工具预览"));
+    tr!("命令")
 }

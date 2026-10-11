@@ -33,8 +33,8 @@ impl Breeze {
         }
         if book.annotations.dirty() {
             book.annotations.source_conflict = true;
-            book.annotations.error = Some("源文档已变化，保留未保存批注并暂停写入".into());
-            self.message = "源文档已变化：旧批注已隐藏，写入已暂停".into();
+            book.annotations.error = Some(tr!("源文档已变化，保留未保存批注并暂停写入").into());
+            self.message = tr!("源文档已变化：旧批注已隐藏，写入已暂停").into();
             return;
         }
         let path = if let Some(path) = book.annotations.path.clone() {
@@ -80,7 +80,8 @@ impl Breeze {
                             .iter()
                             .any(|a| a.page >= book.state.navigation.total())
                         {
-                            book.annotations.error = Some("批注页码超出文档范围，未载入".into());
+                            book.annotations.error =
+                                Some(tr!("批注页码超出文档范围，未载入").into());
                             cx.notify();
                             return;
                         }
@@ -89,7 +90,9 @@ impl Breeze {
                         book.annotations.revision = revision;
                         book.annotations.ready = true;
                     }
-                    Err(e) => book.annotations.error = Some(format!("无法加载批注：{e:#}")),
+                    Err(e) => {
+                        book.annotations.error = Some(tf!("无法加载批注：{}", format!("{:#}", e)))
+                    }
                 }
                 cx.notify();
             });
@@ -98,7 +101,7 @@ impl Breeze {
     }
     pub(super) fn save_annotations(&mut self, cx: &mut Context<Self>) {
         if self.annotation_editing.pending_text() {
-            self.message = "请先按 Enter 完成文本标注，再保存".into();
+            self.message = tr!("请先按 Enter 完成文本标注，再保存").into();
             cx.notify();
             return;
         }
@@ -123,7 +126,7 @@ impl Breeze {
             || a.fingerprint.is_empty()
             || (!save_as && a.error.is_some())
         {
-            self.message = "批注未就绪或存在冲突，不能保存".into();
+            self.message = tr!("批注未就绪或存在冲突，不能保存").into();
             cx.notify();
             return;
         }
@@ -176,14 +179,15 @@ impl Breeze {
                         if !book.annotations.source_conflict {
                             book.annotations.error = None;
                         }
-                        this.message = format!("批注已保存：{destination}");
+                        this.message = tf!("批注已保存：{}", destination);
                     }
                     Err(e) => {
                         if save_as {
-                            this.message = format!("批注另存失败，原保存位置保持不变：{e:#}");
+                            this.message =
+                                tf!("批注另存失败，原保存位置保持不变：{}", format!("{:#}", e));
                         } else {
-                            book.annotations.error = Some(format!("保存失败：{e:#}"));
-                            this.message = format!("批注保存失败：{e:#}");
+                            book.annotations.error = Some(tf!("保存失败：{}", format!("{:#}", e)));
+                            this.message = tf!("批注保存失败：{}", format!("{:#}", e));
                         }
                     }
                 }
@@ -225,7 +229,7 @@ impl Breeze {
     }
     pub(super) fn save_annotations_as(&mut self, cx: &mut Context<Self>) {
         if self.annotation_editing.pending_text() {
-            self.message = "请先按 Enter 完成文本标注，再另存为".into();
+            self.message = tr!("请先按 Enter 完成文本标注，再另存为").into();
             cx.notify();
             return;
         }
@@ -233,7 +237,7 @@ impl Breeze {
         let book = &mut self.books[self.active];
         let a = &mut book.annotations;
         if !a.ready || a.saving || a.source_conflict || a.fingerprint.is_empty() {
-            self.message = "批注尚未载入、正在保存或源文档存在冲突，不能另存".into();
+            self.message = tr!("批注尚未载入、正在保存或源文档存在冲突，不能另存").into();
             cx.notify();
             return;
         }
@@ -261,15 +265,15 @@ impl Breeze {
                 let selected = match result {
                     Ok(Ok(Some(path))) => Some(path),
                     Ok(Ok(None)) => {
-                        this.message = "已取消批注另存，原保存位置保持不变".into();
+                        this.message = tr!("已取消批注另存，原保存位置保持不变").into();
                         None
                     }
                     Ok(Err(e)) => {
-                        this.message = format!("无法选择批注保存位置：{e:#}");
+                        this.message = tf!("无法选择批注保存位置：{}", format!("{:#}", e));
                         None
                     }
                     Err(e) => {
-                        this.message = format!("批注文件对话框已中断：{e}");
+                        this.message = tf!("批注文件对话框已中断：{}", e);
                         None
                     }
                 };
@@ -292,18 +296,18 @@ impl Breeze {
     }
     pub(super) fn allow_close(&mut self, cx: &mut Context<Self>) -> bool {
         if self.annotation_editing.pending_text() {
-            self.message = "请按 Enter 完成文本标注，或按 Esc 取消，再关闭".into();
+            self.message = tr!("请按 Enter 完成文本标注，或按 Esc 取消，再关闭").into();
             cx.notify();
             return false;
         }
         self.commit_selected_annotation(cx);
         if self.export_busy {
-            self.message = "请等待 PDF 导出完成或取消文件选择".into();
+            self.message = tr!("请等待 PDF 导出完成或取消文件选择").into();
             cx.notify();
             return false;
         }
         if self.has_unsaved_annotations() {
-            self.message = "存在未保存批注，请切换到对应文档并按 ⌘/Ctrl+S 保存后关闭".into();
+            self.message = tr!("存在未保存批注，请切换到对应文档并按 ⌘/Ctrl+S 保存后关闭").into();
             cx.notify();
             return false;
         }
@@ -342,7 +346,7 @@ impl Breeze {
         if self.books[self.active].state.mode == Mode::Annotate {
             let data = &self.books[self.active].annotations;
             if !data.ready || data.error.is_some() {
-                self.message = "批注文件未就绪；请检查存储或冲突提示".into();
+                self.message = tr!("批注文件未就绪；请检查存储或冲突提示").into();
                 cx.notify();
                 return;
             }
@@ -493,7 +497,7 @@ impl Breeze {
                     .map(|g| g.character)
                     .collect();
             }
-            self.message = format!(
+            self.message = tf!(
                 "已选择 {} 个字符 · ⌘/Ctrl+C 复制",
                 self.selected_text.chars().count()
             );
@@ -512,12 +516,12 @@ impl Breeze {
                         history.add(annotation);
                         self.annotation_editing.clear();
                         self.schedule_annotation_save(self.active, cx);
-                        self.message = "批注已修改，正在自动保存…".into();
+                        self.message = tr!("批注已修改，正在自动保存…").into();
                     } else {
-                        self.message = "当前文档批注数量已达上限".into();
+                        self.message = tr!("当前文档批注数量已达上限").into();
                     }
                 }
-                Err(e) => self.message = format!("未创建批注：{e}"),
+                Err(e) => self.message = tf!("未创建批注：{}", e),
             }
         }
         self.gesture.clear();

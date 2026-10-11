@@ -18,7 +18,7 @@ impl Breeze {
             return;
         }
         if self.search_busy {
-            self.message = "请先取消正在进行的搜索".into();
+            self.message = tr!("请先取消正在进行的搜索").into();
             cx.notify();
             return;
         }
@@ -26,7 +26,7 @@ impl Breeze {
         let generation = self.search_generation;
         self.search_hits.clear();
         self.search_busy = true;
-        self.search_notice = "正在搜索…".into();
+        self.search_notice = tr!("正在搜索…").into();
         let token = Arc::new(AtomicBool::new(false));
         self.search_cancel = Some(token.clone());
         let source = self.books[self.active].source.clone();
@@ -41,11 +41,11 @@ impl Breeze {
                 }
                 match result {
                     Ok(hits) => {
-                        this.search_notice = format!(
+                        this.search_notice = tf!(
                             "{} 处匹配{}",
                             hits.len(),
                             if hits.len() == 300 {
-                                "（达到上限）"
+                                tr!("（达到上限）")
                             } else {
                                 ""
                             }
@@ -67,7 +67,7 @@ impl Breeze {
         }
         self.search_generation += 1;
         self.search_hits.clear();
-        self.search_notice = "搜索已取消".into();
+        self.search_notice = tr!("搜索已取消").into();
     }
     pub(super) fn close_search(&mut self, cx: &mut Context<Self>) {
         self.cancel_search();
@@ -97,7 +97,7 @@ impl Breeze {
                     .child(
                         Button::new("start-search")
                             .small()
-                            .label("搜索")
+                            .label(tr!("搜索"))
                             .disabled(self.search_busy)
                             .on_click(cx.listener(|this, _, _, cx| this.run_search(cx))),
                     )
@@ -106,7 +106,7 @@ impl Breeze {
                             .ghost()
                             .small()
                             .icon(IconName::X)
-                            .tooltip("取消并关闭搜索")
+                            .tooltip(tr!("取消并关闭搜索"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.close_search(cx);
                             })),

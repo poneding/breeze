@@ -82,7 +82,7 @@ impl Breeze {
                     .child(self.command(
                         "collapse",
                         IconName::PanelLeft,
-                        "导航面板",
+                        tr!("导航面板"),
                         &ToggleSidebar,
                         cx,
                     ))
@@ -101,18 +101,18 @@ impl Breeze {
                                 this.tool = 0;
                                 cx.notify();
                             }))
-                            .child(Tab::new().label("阅读").tooltip(|window, cx| {
-                                Tooltip::new("阅读模式")
+                            .child(Tab::new().label(tr!("阅读")).tooltip(|window, cx| {
+                                Tooltip::new(tr!("阅读模式"))
                                     .action(&ReadMode, Some("Breeze"))
                                     .build(window, cx)
                             }))
-                            .child(Tab::new().label("标注").tooltip(|window, cx| {
-                                Tooltip::new("标注模式")
+                            .child(Tab::new().label(tr!("标注")).tooltip(|window, cx| {
+                                Tooltip::new(tr!("标注模式"))
                                     .action(&AnnotateMode, Some("Breeze"))
                                     .build(window, cx)
                             }))
-                            .child(Tab::new().label("编辑").tooltip(|window, cx| {
-                                Tooltip::new("编辑模式 · 工具预览")
+                            .child(Tab::new().label(tr!("编辑")).tooltip(|window, cx| {
+                                Tooltip::new(tr!("编辑模式 · 工具预览"))
                                     .action(&EditMode, Some("Breeze"))
                                     .build(window, cx)
                             })),
@@ -123,28 +123,36 @@ impl Breeze {
                         self.command(
                             "reader-search",
                             IconName::Search,
-                            "搜索文档",
+                            tr!("搜索文档"),
                             &SearchDocument,
                             cx,
                         )
                         .selected(self.search_open),
                     )
                     .child(
-                        self.command("reader-star", IconName::Bookmark, "收藏", &Favorite, cx)
-                            .icon(document_icons::bookmark_icon(
-                                self.books[self.active].favorite,
-                            ))
-                            .accessibility_label(if self.books[self.active].favorite {
-                                "取消收藏"
+                        self.command(
+                            "reader-star",
+                            IconName::Bookmark,
+                            tr!("收藏"),
+                            &Favorite,
+                            cx,
+                        )
+                        .icon(document_icons::bookmark_icon(
+                            self.books[self.active].favorite,
+                        ))
+                        .accessibility_label(
+                            if self.books[self.active].favorite {
+                                tr!("取消收藏")
                             } else {
-                                "收藏"
-                            }),
+                                tr!("收藏")
+                            },
+                        ),
                     )
                     .child(
                         self.command(
                             "document-panel-toggle",
                             IconName::PanelRight,
-                            "文档侧栏",
+                            tr!("文档侧栏"),
                             &ToggleDocumentPanel,
                             cx,
                         )
@@ -242,14 +250,14 @@ impl Breeze {
                                 cx.notify()
                             }))
                             .when(has_outline, |tabs| {
-                                tabs.child(Tab::new().label("目录").tooltip(|window, cx| {
-                                    Tooltip::new("目录")
+                                tabs.child(Tab::new().label(tr!("目录")).tooltip(|window, cx| {
+                                    Tooltip::new(tr!("目录"))
                                         .action(&ShowOutline, Some("Breeze"))
                                         .build(window, cx)
                                 }))
                             })
-                            .child(Tab::new().label("缩略图").tooltip(|window, cx| {
-                                Tooltip::new("缩略图")
+                            .child(Tab::new().label(tr!("缩略图")).tooltip(|window, cx| {
+                                Tooltip::new(tr!("缩略图"))
                                     .action(&ShowThumbnails, Some("Breeze"))
                                     .build(window, cx)
                             })),
@@ -266,8 +274,8 @@ impl Breeze {
                                         .small()
                                         .icon(IconName::Search)
                                         .selected(self.outline_search_open())
-                                        .accessibility_label("搜索目录标题")
-                                        .tooltip("搜索目录标题")
+                                        .accessibility_label(tr!("搜索目录标题"))
+                                        .tooltip(tr!("搜索目录标题"))
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.toggle_outline_search(window, cx);
                                         })),
@@ -300,18 +308,18 @@ impl Breeze {
             .ghost()
             .small()
             .icon(IconName::EllipsisVertical)
-            .accessibility_label("更多目录操作")
-            .tooltip("更多目录操作")
+            .accessibility_label(tr!("更多目录操作"))
+            .tooltip(tr!("更多目录操作"))
             .dropdown_menu(move |menu, window, _| {
                 menu.item(
-                    PopupMenuItem::new("全部展开")
+                    PopupMenuItem::new(tr!("全部展开"))
                         .icon(IconName::ListChevronsUpDown)
                         .on_click(window.listener_for(&view, |this, _, _, cx| {
                             this.set_outline_expanded(true, cx);
                         })),
                 )
                 .item(
-                    PopupMenuItem::new("全部收起")
+                    PopupMenuItem::new(tr!("全部收起"))
                         .icon(IconName::ListChevronsDownUp)
                         .on_click(window.listener_for(&view, |this, _, _, cx| {
                             this.set_outline_expanded(false, cx);
@@ -338,7 +346,7 @@ impl Breeze {
                 self.command(
                     "previous",
                     IconName::ChevronLeft,
-                    "上一页",
+                    tr!("上一页"),
                     &PreviousPage,
                     cx,
                 )
@@ -350,7 +358,7 @@ impl Breeze {
                 s.navigation.total()
             )))
             .child(
-                self.command("next", IconName::ChevronRight, "下一页", &NextPage, cx)
+                self.command("next", IconName::ChevronRight, tr!("下一页"), &NextPage, cx)
                     .disabled(visible.end == s.navigation.total()),
             )
             .child(div().w(px(42.)).child(Input::new(&self.page_input).small()))
@@ -359,9 +367,9 @@ impl Breeze {
                     .ghost()
                     .small()
                     .icon(IconName::CornerDownLeft)
-                    .accessibility_label("跳转到输入页码")
+                    .accessibility_label(tr!("跳转到输入页码"))
                     .tooltip_with_action(
-                        "跳转到输入页码；快捷键聚焦页码框",
+                        tr!("跳转到输入页码；快捷键聚焦页码框"),
                         &FocusPage,
                         Some("Breeze"),
                     )
@@ -376,19 +384,19 @@ impl Breeze {
                     .text_color(p.muted)
                     .child(
                         if let Some(error) = &self.books[self.active].annotations.error {
-                            format!("标注异常：{error}")
+                            tf!("标注异常：{}", error)
                         } else if !self.message.is_empty() {
                             self.message.clone()
                         } else if self.books[self.active].annotations.dirty() {
-                            "批注未保存".into()
+                            tr!("批注未保存").into()
                         } else {
-                            "原件未修改".into()
+                            tr!("原件未修改").into()
                         },
                     ),
             )
             .child(self.layout_button(cx))
             .child(self.zoom_button(cx))
-            .child(self.command("zoom-out", IconName::Minus, "缩小", &ZoomOut, cx))
+            .child(self.command("zoom-out", IconName::Minus, tr!("缩小"), &ZoomOut, cx))
             .child(
                 div()
                     .id("zoom-percent")
@@ -398,7 +406,7 @@ impl Breeze {
                     .text_size(px(12.))
                     .child(format!("{:.0}%", self.display_zoom(window))),
             )
-            .child(self.command("zoom-in", IconName::Plus, "放大", &ZoomIn, cx))
+            .child(self.command("zoom-in", IconName::Plus, tr!("放大"), &ZoomIn, cx))
             .into_any_element()
     }
     pub(super) fn submit_page(&mut self, cx: &mut Context<Self>) {

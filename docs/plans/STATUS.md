@@ -75,7 +75,7 @@ One controlled export fixture run took about 14.72 ms in the development profile
 - Renderer fidelity/corpus coverage, adaptive DPI/tiles, and representative-corpus layout/scroll performance acceptance. Fixed-raster continuous/spread layouts and virtualized navigation are implemented.
 - True original text/image editing, insertion into PDF content, source-object hit testing, and rich text-block formatting.
 - Importing/editing pre-existing PDF annotations without duplicate appearances.
-- Complete localization, OS file associations/open events, configured update sources, signing, and production-ready installers/packages.
+- Native localization acceptance outside macOS, OS file associations/open events, configured update sources, signing, and production-ready installers/packages.
 - Complete conflict recovery/reassociation UX and native three-platform/resource/fuzz acceptance.
 
 The remaining-work plan lists prerequisites and explicit gates; release automation does not waive them.
@@ -246,3 +246,26 @@ The document sidebar now sits beside the complete reader content below the title
 Document text search now opens the right sidebar automatically. Its input, confirm button, and close button occupy the right sidebar toolbar in place of Information and Annotations; results remain below that toolbar. The left Outline/Thumbnails navigation remains unchanged while search is active. Opening search records whether the right sidebar was already open: closing with X, Search, or Escape restores the prior open/closed state. The sidebar toggle cancels active search before closing the panel.
 
 Formatting, the complete workspace suite (96 passed, three existing PDF probes ignored), and Clippy with warnings denied pass. Focused component tests cover uniform icon spacing, top alignment, narrow-window bounds, icon-button switching, toolbar search controls, automatic right-sidebar search, search-result placement, Escape dismissal, and restoration from both sidebar states. Native macOS capture under `target/right-sidebar-review/` confirms the aligned right panel and evenly spaced Information/Annotations buttons; search-toolbar interaction remains covered by component tests. Windows/Linux native checks and the existing production fidelity/release gates remain open.
+
+## October 11 interface languages
+
+The language preview is now a native Kit Select offering English, Simplified Chinese,
+and Traditional Chinese. Application-owned chrome, menus, tooltips, input placeholders,
+annotation tools and new notices use a compiled catalog. Theme groups and existing
+inputs refresh immediately; filenames, user category names, document content and
+official theme names are preserved. The three choices persist using the existing
+numeric preference mapping (0/1 retained, 2 added for Traditional Chinese). Kit's own
+locale follows the selection. Platform dialogs and underlying library/OS diagnostic
+details can retain their platform or dependency language; previously emitted notices
+retain the language in which they were produced.
+
+Formatting, workspace tests (143 passed, three existing PDF probes ignored), all-target
+Clippy with warnings denied, build and isolated `cargo run --locked -p breeze-app`
+startup pass. The isolated commit candidate passes 131 workspace tests (the same
+three probes ignored), formatting and Clippy. New tests cover catalog/parameter completeness, actual dropdown keyboard
+selection, live chrome/input refresh, user-content preservation and persisted restore.
+Native macOS interaction with the isolated review bundle verified all three dropdown
+choices and complete settings layouts in English and both Chinese variants. The
+review data directory is `target/language-update-review/native/`. Windows/Linux native
+localization checks remain unperformed. Release checks are the second phase of
+[work package 17](17-language-and-updates.md).

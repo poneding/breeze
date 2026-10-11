@@ -40,3 +40,5 @@ These work-package documents were written before the corresponding code changes.
 8. [14 — Reader tools and document details](14-reader-tools-and-details.md): filled favorites, an optional information/annotation sidebar, and interactive tool settings with a shared eight-color vocabulary.
 
 9. [15 — Direct annotation editing](15-direct-annotation-editing.md): native numeric controls, text input at the clicked page position, and selection/editing/deletion of sidecar annotations.
+
+11. [17 — Interface languages and release checks](17-language-and-updates.md): three persisted interface languages and bounded stable-release checks for the user-designated GitHub repository.

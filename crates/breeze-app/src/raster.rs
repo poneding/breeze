@@ -67,13 +67,13 @@ impl RasterView {
     }
     fn insert(&mut self, key: Key, pixels: Pixels, cx: &mut App) -> Result<()> {
         let bytes = pixels.bgra.len();
-        anyhow::ensure!(bytes <= BUDGET, "页面分块超过内存预算");
+        anyhow::ensure!(bytes <= BUDGET, tr!("页面分块超过内存预算"));
         while self.cache.iter().map(|e| e.2).sum::<usize>() + bytes > BUDGET {
             let index = self
                 .cache
                 .iter()
                 .position(|e| !self.wanted.contains(&e.0))
-                .ok_or_else(|| anyhow::anyhow!("当前可见区域超过清晰显示内存预算"))?;
+                .ok_or_else(|| anyhow::anyhow!(tr!("当前可见区域超过清晰显示内存预算")))?;
             if let Some((_, image, _)) = self.cache.remove(index) {
                 cx.defer(move |cx| cx.drop_image(image, None));
             }
@@ -93,7 +93,7 @@ fn tiles(
     let scale = width / points.0 * dpr;
     anyhow::ensure!(
         scale.is_finite() && scale > 0. && scale <= 64.,
-        "不支持的页面缩放"
+        tr!("不支持的页面缩放")
     );
     let w = (points.0 * scale).ceil() as u32;
     let h = (points.1 * scale).ceil() as u32;
@@ -104,7 +104,7 @@ fn tiles(
     let y1 = ((bottom.max(0.) * dpr).ceil() as u32).min(h).div_ceil(EDGE);
     anyhow::ensure!(
         u64::from(x1.saturating_sub(x0)) * u64::from(y1.saturating_sub(y0)) <= 128,
-        "可见区域超过分块数量预算"
+        tr!("可见区域超过分块数量预算")
     );
     let mut keys = Vec::new();
     for row in y0..y1 {
@@ -239,7 +239,7 @@ impl Breeze {
                             ) {
                                 // GPU upload failures must not be reported as successful draws.
                                 let view = paint_view.clone();
-                                let message = format!("页面纹理上传失败：{error:#}");
+                                let message = tf!("页面纹理上传失败：{}", format!("{:#}", error));
                                 cx.defer(move |cx| {
                                     view.update(cx, |this, cx| {
                                         if generation == this.generation {
@@ -301,16 +301,19 @@ impl Breeze {
                 this.raster.busy = false;
                 if this.raster.wanted.contains(&key) {
                     let result = (|| -> Result<()> {
-                        let page = result.map_err(|e| anyhow::anyhow!("页面请求取消：{e}"))??;
+                        let page =
+                            result.map_err(|e| anyhow::anyhow!(tf!("页面请求取消：{}", e)))??;
                         anyhow::ensure!(
                             page.fingerprint == this.reading.fingerprint,
-                            "文档已在外部改变，请重新打开"
+                            tr!("文档已在外部改变，请重新打开")
                         );
-                        anyhow::ensure!(page.tile == Some(key.tile), "页面分块不匹配");
-                        let pixels = page.pixels.ok_or_else(|| anyhow::anyhow!("缺少页面像素"))?;
+                        anyhow::ensure!(page.tile == Some(key.tile), tr!("页面分块不匹配"));
+                        let pixels = page
+                            .pixels
+                            .ok_or_else(|| anyhow::anyhow!(tr!("缺少页面像素")))?;
                         anyhow::ensure!(
                             pixels.width == key.tile.width && pixels.height == key.tile.height,
-                            "渲染器未返回所需清晰度"
+                            tr!("渲染器未返回所需清晰度")
                         );
                         this.raster.insert(key, pixels, cx)
                     })();

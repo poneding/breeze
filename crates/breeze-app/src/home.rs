@@ -47,9 +47,9 @@ impl Breeze {
                     .border_color(p.line)
                     .children(
                         [
-                            (IconName::LibraryBig, "全部文档", 2),
-                            (IconName::Clock3, "最近阅读", 0),
-                            (IconName::Bookmark, "收藏", 1),
+                            (IconName::LibraryBig, tr!("全部文档"), 2),
+                            (IconName::Clock3, tr!("最近阅读"), 0),
+                            (IconName::Bookmark, tr!("收藏"), 1),
                         ]
                         .into_iter()
                         .map(|(icon, label, index)| {
@@ -81,17 +81,17 @@ impl Breeze {
                                     .text_size(px(16.))
                                     .font_weight(FontWeight::SEMIBOLD)
                                     .child(match self.library_filter {
-                                        1 => "收藏".to_owned(),
-                                        2 => "全部文档".to_owned(),
+                                        1 => tr!("收藏").to_owned(),
+                                        2 => tr!("全部文档").to_owned(),
                                         n if n >= 3 => self.category_name(n - 3),
-                                        _ => "最近阅读".to_owned(),
+                                        _ => tr!("最近阅读").to_owned(),
                                     }),
                             )
                             .child(
                                 div()
                                     .text_size(px(12.))
                                     .text_color(p.muted)
-                                    .child(format!("{} 份", filtered.len())),
+                                    .child(tf!("{} 份", filtered.len())),
                             )
                             .child(div().flex_1())
                             .child(
@@ -101,8 +101,8 @@ impl Breeze {
                             )
                             .children(
                                 [
-                                    (false, IconName::List, "列表视图"),
-                                    (true, IconName::LayoutGrid, "网格视图"),
+                                    (false, IconName::List, tr!("列表视图")),
+                                    (true, IconName::LayoutGrid, tr!("网格视图")),
                                 ]
                                 .into_iter()
                                 .map(|(grid, icon, label)| {
@@ -124,7 +124,7 @@ impl Breeze {
                                 d.child(self.command(
                                     "home-open",
                                     IconName::FilePlusCorner,
-                                    "打开文档",
+                                    tr!("打开文档"),
                                     &Open,
                                     cx,
                                 ))
@@ -140,7 +140,7 @@ impl Breeze {
                                 .text_size(px(11.))
                                 .text_color(p.muted)
                                 .gap_2()
-                                .child(div().flex_1().min_w_0().child("文档"))
+                                .child(div().flex_1().min_w_0().child(tr!("文档")))
                                 .child(
                                     div()
                                         .id("category-heading")
@@ -148,7 +148,7 @@ impl Breeze {
                                         .w(px(CATEGORY_WIDTH))
                                         .flex_shrink_0()
                                         .px_2()
-                                        .child("分类"),
+                                        .child(tr!("分类")),
                                 )
                                 .child(
                                     div()
@@ -156,7 +156,7 @@ impl Breeze {
                                         .test_support()
                                         .w(px(POSITION_WIDTH))
                                         .flex_shrink_0()
-                                        .child("位置"),
+                                        .child(tr!("位置")),
                                 )
                                 .child(div().w(px(ACTIONS_WIDTH)).flex_shrink_0()),
                         )
@@ -175,7 +175,7 @@ impl Breeze {
                             div()
                                 .text_size(px(11.))
                                 .text_color(p.muted)
-                                .child("收藏、分类、外观与阅读状态自动保存在本机。"),
+                                .child(tr!("收藏、分类、外观与阅读状态自动保存在本机。")),
                         )
                     }),
             )
@@ -190,7 +190,7 @@ impl Breeze {
             .group_hover("library-row", move |s| s.bg(p.tint))
             .small()
             .w_full()
-            .accessibility_label(format!("阅读文档：{}", b.title))
+            .accessibility_label(tf!("阅读文档：{}", b.title))
             .tooltip(self.cover_description(index))
             .on_click(cx.listener(move |this, _, _, cx| this.open_book(index, cx)))
             .h(px(48.))
@@ -235,9 +235,9 @@ impl Breeze {
                             .text_size(px(12.))
                             .text_color(p.muted)
                             .child(if b.opened {
-                                format!("第 {} 页", b.state.navigation.page() + 1)
+                                tf!("第 {} 页", b.state.navigation.page() + 1)
                             } else {
-                                "尚未打开".into()
+                                tr!("尚未打开").into()
                             }),
                     )
                     .child(self.library_actions(index, cx)),
@@ -256,8 +256,12 @@ impl Breeze {
                     .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
                     .small()
                     .icon(document_icons::bookmark_icon(b.favorite))
-                    .accessibility_label(if b.favorite { "取消收藏" } else { "收藏" })
-                    .tooltip("收藏 / 取消收藏")
+                    .accessibility_label(if b.favorite {
+                        tr!("取消收藏")
+                    } else {
+                        tr!("收藏")
+                    })
+                    .tooltip(tr!("收藏 / 取消收藏"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.books[index].favorite = !this.books[index].favorite;
@@ -269,8 +273,8 @@ impl Breeze {
                     .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
                     .small()
                     .icon(IconName::ArrowUpRight)
-                    .accessibility_label("阅读文档")
-                    .tooltip("阅读文档")
+                    .accessibility_label(tr!("阅读文档"))
+                    .tooltip(tr!("阅读文档"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.open_book(index, cx)
@@ -281,8 +285,8 @@ impl Breeze {
                     .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
                     .small()
                     .icon(IconName::X)
-                    .accessibility_label("从资料库移除")
-                    .tooltip("移除条目，不删除文件")
+                    .accessibility_label(tr!("从资料库移除"))
+                    .tooltip(tr!("移除条目，不删除文件"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.forget_book(index, cx)
@@ -329,7 +333,7 @@ impl Breeze {
             .w_full()
             .h(px(264.))
             .p_2()
-            .accessibility_label(format!("阅读文档：{}", book.title))
+            .accessibility_label(tf!("阅读文档：{}", book.title))
             .tooltip(self.cover_description(index))
             .on_click(cx.listener(move |this, _, _, cx| this.open_book(index, cx)))
             .child(
@@ -365,9 +369,9 @@ impl Breeze {
                             .child(format!(
                                 "PDF · {}",
                                 if book.last_opened > 0 {
-                                    format!("第 {} 页", book.state.navigation.page() + 1)
+                                    tf!("第 {} 页", book.state.navigation.page() + 1)
                                 } else {
-                                    "尚未打开".into()
+                                    tr!("尚未打开").into()
                                 }
                             )),
                     )
@@ -407,7 +411,10 @@ impl Breeze {
                                     .font_weight(FontWeight::NORMAL)
                                     .text_color(p.muted)
                                     .child(
-                                        div().id("library-empty").test_support().child("暂无文档"),
+                                        div()
+                                            .id("library-empty")
+                                            .test_support()
+                                            .child(tr!("暂无文档")),
                                     ),
                             ),
                     ),

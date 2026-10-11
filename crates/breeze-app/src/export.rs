@@ -30,7 +30,7 @@ impl Breeze {
     pub(super) fn choose_pdf_export(&mut self, cx: &mut Context<Self>) {
         self.commit_selected_annotation(cx);
         let Some(mut request) = self.export_snapshot(PathBuf::new()) else {
-            self.message = "没有可导出的批注，或文档仍在加载/存在冲突".into();
+            self.message = tr!("没有可导出的批注，或文档仍在加载/存在冲突").into();
             cx.notify();
             return;
         };
@@ -53,8 +53,9 @@ impl Breeze {
         };
         let picker = cx.prompt_for_new_path(&directory, Some(&name));
         self.export_busy = true;
-        self.export_notice =
-            Some("选择新的 PDF 文件名；不会覆盖原件或已有文件。便笺以图标和弹窗内容导出。".into());
+        self.export_notice = Some(
+            tr!("选择新的 PDF 文件名；不会覆盖原件或已有文件。便笺以图标和弹窗内容导出。").into(),
+        );
         cx.notify();
         cx.spawn(async move |this, cx| {
             let selected = picker.await;
@@ -65,17 +66,17 @@ impl Breeze {
                 }
                 Ok(Ok(None)) => {
                     this.export_busy = false;
-                    this.export_notice = Some("已取消导出".into());
+                    this.export_notice = Some(tr!("已取消导出").into());
                     cx.notify();
                 }
                 Ok(Err(e)) => {
                     this.export_busy = false;
-                    this.export_notice = Some(format!("无法选择导出位置：{e:#}"));
+                    this.export_notice = Some(tf!("无法选择导出位置：{}", format!("{:#}", e)));
                     cx.notify();
                 }
                 Err(e) => {
                     this.export_busy = false;
-                    this.export_notice = Some(format!("文件对话框已中断：{e}"));
+                    this.export_notice = Some(tf!("文件对话框已中断：{}", e));
                     cx.notify();
                 }
             });
@@ -91,7 +92,7 @@ impl Breeze {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "PDF".into()),
         };
-        self.export_notice = Some(format!("正在导出 {label} 并验证内容…"));
+        self.export_notice = Some(tf!("正在导出 {} 并验证内容…", label));
         let work = cx.background_spawn(async move { export_annotations(request) });
         cx.spawn(async move |this, cx| {
             let result = work.await;
@@ -99,13 +100,14 @@ impl Breeze {
                 this.export_busy = false;
                 match result {
                     Ok(receipt) => {
-                        this.export_notice = Some(format!(
-                            "已导出 {label}：{} 条批注，{} 字节。{}{}",
+                        this.export_notice = Some(tf!(
+                            "已导出 {}：{} 条批注，{} 字节。{}{}",
+                            label,
                             receipt.annotations,
                             receipt.bytes,
                             receipt.destination.display(),
                             if receipt.sticky_notes > 0 {
-                                "；便笺内容保留在批注弹窗中"
+                                tr!("；便笺内容保留在批注弹窗中")
                             } else {
                                 ""
                             }
@@ -113,7 +115,10 @@ impl Breeze {
                         this.last_export = Some(receipt.destination);
                     }
                     Err(e) => {
-                        this.export_notice = Some(format!("导出失败，未替换原件或已有文件：{e:#}"))
+                        this.export_notice = Some(tf!(
+                            "导出失败，未替换原件或已有文件：{}",
+                            format!("{:#}", e)
+                        ))
                     }
                 }
                 cx.notify();
@@ -125,9 +130,9 @@ impl Breeze {
     pub(super) fn export_controls(&self, cx: &mut Context<Self>) -> Div {
         let p = self.p(cx);
         column().gap_2()
-            .child(self.command("export-pdf",IconName::Download,"导出批注 PDF（验证版）",&ExportPdf,cx).label(if self.export_busy{"正在导出…"}else{"导出 PDF · 验证版"}).disabled(!self.can_export_pdf()))
-            .child(div().text_size(px(11.)).text_color(p.muted).child("新文件、不覆盖原件。文本便笺导出为图标，全文保留在批注弹窗中。表单、签名、加密文档暂不支持。"))
+            .child(self.command("export-pdf",IconName::Download,tr!("导出批注 PDF（验证版）"),&ExportPdf,cx).label(if self.export_busy{tr!("正在导出…")}else{tr!("导出 PDF · 验证版")}).disabled(!self.can_export_pdf()))
+            .child(div().text_size(px(11.)).text_color(p.muted).child(tr!("新文件、不覆盖原件。文本便笺导出为图标，全文保留在批注弹窗中。表单、签名、加密文档暂不支持。")))
             .when_some(self.export_notice.clone(),|d,message|d.child(div().text_size(px(12.)).child(message)))
-            .when_some(self.last_export.clone(),|d,path|d.child(Button::new("reveal-export").ghost().small().icon(IconName::FolderOpen).label("显示上次导出文件").on_click(move|_,_,cx|cx.reveal_path(&path))))
+            .when_some(self.last_export.clone(),|d,path|d.child(Button::new("reveal-export").ghost().small().icon(IconName::FolderOpen).label(tr!("显示上次导出文件")).on_click(move|_,_,cx|cx.reveal_path(&path))))
     }
 }

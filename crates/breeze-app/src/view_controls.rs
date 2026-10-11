@@ -19,13 +19,13 @@ impl Breeze {
             } else {
                 IconName::File
             })
-            .label(selected.label())
-            .accessibility_label(format!("阅读布局：{}", selected.label()))
-            .tooltip_with_action("切换阅读布局", &CycleLayout, Some("Breeze"))
+            .label(tr!(selected.label()))
+            .accessibility_label(tf!("阅读布局：{}", tr!(selected.label())))
+            .tooltip_with_action(tr!("切换阅读布局"), &CycleLayout, Some("Breeze"))
             .dropdown_menu(move |menu, window, _| {
                 menu.check_side(Side::Right)
                     .item(
-                        PopupMenuItem::new("单页")
+                        PopupMenuItem::new(tr!("单页"))
                             .icon(IconName::File)
                             .checked(!selected.is_spread())
                             .on_click(window.listener_for(&view, |this, _, _, cx| {
@@ -36,7 +36,7 @@ impl Breeze {
                             })),
                     )
                     .item(
-                        PopupMenuItem::new("双页")
+                        PopupMenuItem::new(tr!("双页"))
                             .icon(IconName::Columns2)
                             .checked(selected.is_spread())
                             .on_click(window.listener_for(&view, |this, _, _, cx| {
@@ -48,7 +48,7 @@ impl Breeze {
                     )
                     .separator()
                     .item(
-                        PopupMenuItem::new("连续")
+                        PopupMenuItem::new(tr!("连续"))
                             .icon(IconName::GalleryVertical)
                             .checked(selected.is_continuous())
                             .on_click(window.listener_for(&view, |this, _, _, cx| {
@@ -66,22 +66,22 @@ impl Breeze {
         let selected = self.books[self.active].state.zoom;
         let view = cx.entity();
         let (icon, label): (_, String) = match selected {
-            Zoom::FitPage => (IconName::Maximize, "适合页面".into()),
-            Zoom::FitWidth => (IconName::MoveHorizontal, "适合宽度".into()),
-            Zoom::ActualSize => (IconName::Scan, "实际大小".into()),
-            Zoom::Percent(_) => (IconName::SlidersHorizontal, "自定义比例".into()),
+            Zoom::FitPage => (IconName::Maximize, tr!("适合页面").into()),
+            Zoom::FitWidth => (IconName::MoveHorizontal, tr!("适合宽度").into()),
+            Zoom::ActualSize => (IconName::Scan, tr!("实际大小").into()),
+            Zoom::Percent(_) => (IconName::SlidersHorizontal, tr!("自定义比例").into()),
         };
         Button::new("zoom")
             .ghost()
             .small()
             .icon(icon)
             .label(label)
-            .accessibility_label("缩放选项")
-            .tooltip("选择缩放方式")
+            .accessibility_label(tr!("缩放选项"))
+            .tooltip(tr!("选择缩放方式"))
             .dropdown_menu(move |menu, window, _| {
                 menu.check_side(Side::Right)
                     .item(
-                        PopupMenuItem::new("适合页面")
+                        PopupMenuItem::new(tr!("适合页面"))
                             .icon(IconName::Maximize)
                             .checked(selected == Zoom::FitPage)
                             .action(Box::new(FitPage))
@@ -90,7 +90,7 @@ impl Breeze {
                             })),
                     )
                     .item(
-                        PopupMenuItem::new("适合宽度")
+                        PopupMenuItem::new(tr!("适合宽度"))
                             .icon(IconName::MoveHorizontal)
                             .checked(selected == Zoom::FitWidth)
                             .action(Box::new(FitWidth))
@@ -99,7 +99,7 @@ impl Breeze {
                             })),
                     )
                     .item(
-                        PopupMenuItem::new("实际大小")
+                        PopupMenuItem::new(tr!("实际大小"))
                             .icon(IconName::Scan)
                             .checked(selected == Zoom::ActualSize)
                             .action(Box::new(ActualSize))
@@ -108,7 +108,7 @@ impl Breeze {
                             })),
                     )
                     .item(
-                        PopupMenuItem::new("自定义比例")
+                        PopupMenuItem::new(tr!("自定义比例"))
                             .icon(IconName::SlidersHorizontal)
                             .checked(matches!(selected, Zoom::Percent(_)))
                             .on_click(window.listener_for(&view, |this, _, window, cx| {

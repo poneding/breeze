@@ -71,7 +71,7 @@ Separate `ThemePreference` from `ColorScheme`:
 - Apply the selected `ThemeConfig` through `Theme::update` / `apply_config`. Application chrome reads the active Kit theme colors; Breeze no longer overrides them with its own palettes. Preserve compact typography and control radii.
 - The titlebar button and Primary+Shift+T cycle the same choices and keep the settings selection synchronized.
 
-PDF pages are not inverted, tinted, or rerendered by theme selection. Theme preference, library state, and restoration switches persist locally. Legacy states retain Follow System or migrate explicit Light/Dark to the corresponding built-in name; retired palette fields are accepted on read but omitted from new snapshots. Language/update selectors remain behavior previews. Opening-window policies are implemented separately from page zoom and applied once for new/restored active documents.
+PDF pages are not inverted, tinted, or rerendered by theme selection. Theme preference, library state, and restoration switches persist locally. Legacy states retain Follow System or migrate explicit Light/Dark to the corresponding built-in name; retired palette fields are accepted on read but omitted from new snapshots. The language dropdown applies English, Simplified Chinese, or Traditional Chinese to application chrome immediately and persists the choice; user names, paths, document content, and official theme names are preserved. Update checking remains pending. Opening-window policies are implemented separately from page zoom and applied once for new/restored active documents.
 
 ## Annotation and editing modes
 

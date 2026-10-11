@@ -88,7 +88,7 @@ The reader currently caps PDF input at 256 MiB and 20,000 pages and uses trusted
 - Page rasterization remains fixed at 144 DPI, capped at four megapixels. Zoom does not request higher-resolution tiles. Extremely dense visible-page ranges can hit the cache budget; affected pages report the limit rather than repeatedly evicting/rerendering one another.
 - Text selection uses glyph bounding boxes, not general paragraph/complex-script selection. Rotated glyph runs are excluded. Scans require region tools; no OCR is performed.
 - Outline and thumbnail lists are virtualized. Named outline destinations remain unsupported. Search is a bounded-result linear scan, not an indexed full-text service.
-- Theme preferences, restoration, and opening-window policies work. Default keeps geometry; Maximized maximizes a newly opened document; Fit Document sizes once within available display space without changing zoom. Final native rechecking after the position-aware sizing fix remains pending. Language/update selectors, file associations, signing, and automatic updates are not implemented.
+- Theme preferences, restoration, and opening-window policies work. Default keeps geometry; Maximized maximizes a newly opened document; Fit Document sizes once within available display space without changing zoom. Final native rechecking after the position-aware sizing fix remains pending. Interface language applies immediately through a native dropdown (English, Simplified Chinese, Traditional Chinese) and persists locally. Update checks, file associations, signing, and automatic installation remain pending.
 - Engine font fidelity and real-document tail latency remain release risks. Passing the controlled sample tests is not broad PDF compatibility certification.
 
 ## Repository
