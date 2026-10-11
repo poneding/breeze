@@ -75,7 +75,7 @@ One controlled export fixture run took about 14.72 ms in the development profile
 - Renderer fidelity/corpus coverage, adaptive DPI/tiles, and representative-corpus layout/scroll performance acceptance. Fixed-raster continuous/spread layouts and virtualized navigation are implemented.
 - True original text/image editing, insertion into PDF content, source-object hit testing, and rich text-block formatting.
 - Importing/editing pre-existing PDF annotations without duplicate appearances.
-- Native localization acceptance outside macOS, OS file associations/open events, configured update sources, signing, and production-ready installers/packages.
+- Native localization acceptance outside macOS, OS file associations/open events, signed update/install delivery and production-ready installers/packages.
 - Complete conflict recovery/reassociation UX and native three-platform/resource/fuzz acceptance.
 
 The remaining-work plan lists prerequisites and explicit gates; release automation does not waive them.
@@ -269,3 +269,42 @@ choices and complete settings layouts in English and both Chinese variants. The
 review data directory is `target/language-update-review/native/`. Windows/Linux native
 localization checks remain unperformed. Release checks are the second phase of
 [work package 17](17-language-and-updates.md).
+
+## October 11 stable-release checks
+
+Settings now checks the latest stable GitHub Release for `poneding/breeze`, the future
+repository supplied by the user. Manual remains the default. Automatic checks once
+after startup restoration or when first enabled in the session; Never prevents
+background checks. A manual check remains available in every mode. Policy persists;
+results are session-only. A newer version shows a dismissible notification outside
+Settings and a button to open its release page. No download, installation, remote
+creation or publication occurs.
+
+The background Rust HTTP client enforces HTTPS, a 15-second total deadline (including
+body reads), a 1 MiB metadata limit, no redirects, and one in-flight request. SemVer
+comparison handles numeric ordering, optional v/V tags, prereleases and build metadata.
+Only a validated stable tag can produce a link, constructed under the fixed GitHub
+repository. Missing releases/repositories, invalid metadata, network errors, rate
+limits and HTTP failures cannot produce an up-to-date result. An automatic result
+is discarded if background checks were disabled while its request was running.
+
+Validation: formatting, 148 workspace tests (three existing PDF probes ignored),
+all-target Clippy with warnings denied, and the debug build pass. Five new tests
+exercise version ordering and link validation, real loopback HTTP headers/statuses,
+response-size and body-read timeouts, automatic/manual/never policy and in-flight
+bounds, and real Kit loading/result/banner interactions across languages. Native macOS startup used `cargo run --locked -p breeze-app` with isolated state.
+The review bundle restored Traditional Chinese across restart, performed a real
+HTTPS check, showed GitHub's actual rate-limit failure (HTTP 403 with remaining
+quota zero), re-enabled Check Now, and relocalized that result when switched to
+English. Both update layouts were inspected without clipping. The English reader was also
+inspected with an isolated bundled-sample copy, including navigation, toolbar and
+status labels. The future repository
+has no user-published release yet; successful/newer-release and missing-release
+responses are verified with local HTTP fixtures, not a claimed live publication.
+Windows/Linux native checks remain unperformed.
+
+The isolated release-check commit candidate passes 136 workspace tests (the same
+three existing probes ignored), formatting and all-target Clippy. The control test
+uses an actual simulated 900×650 viewport and verifies the check button remains
+inside it. Only the four HTTP-client support packages and the required Rustls log
+feature were added to the lockfile; unrelated locked resolutions were retained.

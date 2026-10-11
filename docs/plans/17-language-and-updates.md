@@ -24,3 +24,13 @@ startup and visual inspection where available. Tests must exercise translation
 coverage, live Select changes and persisted restoration; update fixtures must cover
 version ordering, HTTP failures, bounds and concurrent/stale requests. All review
 state, screenshots and scratch outputs stay under `target/`.
+
+## Implemented behavior
+
+Both phases are implemented. The update client checks GitHub's latest stable release
+endpoint, accepts valid SemVer tags (optional v/V prefix), uses a 15-second total
+deadline and 1 MiB response limit, and never follows redirects. It constructs release
+links under the fixed repository and does not interpret server-supplied HTML/URLs.
+Automatic checks run once per session at startup or first enablement; explicit checks
+remain available after errors and under every policy. See STATUS for executed checks
+and native/platform limits.

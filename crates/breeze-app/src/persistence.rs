@@ -227,6 +227,7 @@ impl Breeze {
                             this.restore(state, cx);
                             this.storage_ready = true;
                             this.last_snapshot = Some(this.snapshot());
+                            this.check_updates(true, cx);
                             let observer =
                                 cx.observe(&cx.entity(), |this, _, cx| this.persist_if_changed(cx));
                             this._subscriptions.push(observer);

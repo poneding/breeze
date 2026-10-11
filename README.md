@@ -88,7 +88,7 @@ The reader currently caps PDF input at 256 MiB and 20,000 pages and uses trusted
 - Page rasterization remains fixed at 144 DPI, capped at four megapixels. Zoom does not request higher-resolution tiles. Extremely dense visible-page ranges can hit the cache budget; affected pages report the limit rather than repeatedly evicting/rerendering one another.
 - Text selection uses glyph bounding boxes, not general paragraph/complex-script selection. Rotated glyph runs are excluded. Scans require region tools; no OCR is performed.
 - Outline and thumbnail lists are virtualized. Named outline destinations remain unsupported. Search is a bounded-result linear scan, not an indexed full-text service.
-- Theme preferences, restoration, and opening-window policies work. Default keeps geometry; Maximized maximizes a newly opened document; Fit Document sizes once within available display space without changing zoom. Final native rechecking after the position-aware sizing fix remains pending. Interface language applies immediately through a native dropdown (English, Simplified Chinese, Traditional Chinese) and persists locally. Update checks, file associations, signing, and automatic installation remain pending.
+- Theme preferences, restoration, and opening-window policies work. Default keeps geometry; Maximized maximizes a newly opened document; Fit Document sizes once within available display space without changing zoom. Final native rechecking after the position-aware sizing fix remains pending. Interface language applies immediately through a native dropdown (English, Simplified Chinese, Traditional Chinese) and persists locally. Update checks use stable GitHub Releases from `poneding/breeze`: Manual by default, Automatic once per startup, or Never for background checks. Settings shows the installed version, result and retry button; newer versions link to the release page. File associations, signing, and automatic installation remain pending.
 - Engine font fidelity and real-document tail latency remain release risks. Passing the controlled sample tests is not broad PDF compatibility certification.
 
 ## Repository
@@ -136,3 +136,15 @@ GPUI Kit is pinned to 0.7.0, PDF Oxide to 0.3.78, and the annotation writer (`lo
 PDF Oxide's high-level annotation Contents decoder has a known UTF-16 issue. Exported Unicode notes were independently verified with pypdf and PDFKit; standard encoding is not changed to hide that reader defect. External verification tools (Poppler, PDFKit, and pypdf) are not application dependencies.
 
 Generated screenshots, reports, bundles, and test state belong under ignored `target/`, not in version control.
+
+
+## Publishing update metadata
+
+Update discovery is read-only and uses `poneding/breeze` GitHub Releases. Create the
+public repository and publish a non-draft, non-prerelease Release with a SemVer tag
+such as `v0.2.0` to advertise a version newer than the current `0.1.0` build. The
+checker accepts optional `v`/`V` prefixes, compares numeric versions and ignores build
+metadata for precedence. Missing/private repositories and missing stable releases
+are reported as unavailable, never as up to date. GitHub rate limits and network
+errors remain retryable. Breeze opens a release page only on request; it does not
+download, install, sign, or publish binaries.

@@ -1,6 +1,7 @@
 #[macro_use]
 mod i18n;
 mod localization;
+mod updates;
 #[cfg(test)]
 use core::prelude::v1::test;
 use gpui_kit::prelude::FluentBuilder;
@@ -183,6 +184,7 @@ struct Breeze {
     applied_language: Option<usize>,
     language_select: Entity<SelectState<Vec<i18n::Language>>>,
     update_policy: usize,
+    updates: updates::Updates,
     window_policy: usize,
 }
 impl Breeze {
@@ -349,6 +351,7 @@ impl Breeze {
             applied_language: None,
             language_select,
             update_policy: 0,
+            updates: updates::Updates::default(),
             window_policy: 0,
         }
     }
@@ -782,6 +785,7 @@ impl Render for Breeze {
                         .child(e),
                 )
             })
+            .when_some(self.update_banner(cx), |view, banner| view.child(banner))
             .child(body)
     }
 }
