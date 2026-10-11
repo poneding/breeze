@@ -137,6 +137,10 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         );
         assert!(window.find("document-panel-search-toolbar").visible());
         assert!(window.try_find("document-panel-information").is_none());
+        let search_toolbar = window.find("document-panel-search-toolbar").bounds();
+        let panel = window.find("document-panel").bounds();
+        assert_eq!(search_toolbar.size.width, panel.size.width - px(16.));
+        assert!(search_toolbar.size.width >= px(240.));
         window.press("escape", cx);
         assert!(!view.read(cx).search_open);
         assert!(!view.read(cx).document_panel.open);

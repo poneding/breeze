@@ -81,6 +81,9 @@ impl Breeze {
         div()
             .id("document-panel-search-toolbar")
             .test_support()
+            .flex_1()
+            .min_w_0()
+            .w_full()
             .child(
                 row()
                     .h(px(38.))
@@ -92,6 +95,7 @@ impl Breeze {
                         div()
                             .flex_1()
                             .min_w_0()
+                            .w_full()
                             .child(Input::new(&self.search_input).small()),
                     )
                     .child(
