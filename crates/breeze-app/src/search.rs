@@ -67,7 +67,7 @@ impl Breeze {
         }
         self.search_generation += 1;
         self.search_hits.clear();
-        self.search_notice = tr!("搜索已取消").into();
+        self.search_notice.clear();
     }
     pub(super) fn close_search(&mut self, cx: &mut Context<Self>) {
         self.cancel_search();
@@ -126,12 +126,14 @@ impl Breeze {
             .bg(p.panel)
             .p_2()
             .gap_2()
-            .child(
-                div()
-                    .text_size(px(12.))
-                    .text_color(p.muted)
-                    .child(self.search_notice.clone()),
-            )
+            .when(!self.search_notice.is_empty(), |results| {
+                results.child(
+                    div()
+                        .text_size(px(12.))
+                        .text_color(p.muted)
+                        .child(self.search_notice.clone()),
+                )
+            })
             .child(
                 column()
                     .id("search-results")

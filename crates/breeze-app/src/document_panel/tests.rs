@@ -143,6 +143,7 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         assert!(search_toolbar.size.width >= px(240.));
         window.press("escape", cx);
         assert!(!view.read(cx).search_open);
+        assert!(view.read(cx).search_notice.is_empty());
         assert!(!view.read(cx).document_panel.open);
         assert!(window.try_find("document-panel").is_none());
         window.click("document-panel-toggle", cx);
