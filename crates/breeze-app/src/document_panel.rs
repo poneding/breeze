@@ -94,45 +94,48 @@ impl Breeze {
                     .px_2()
                     .border_b_1()
                     .border_color(theme.border)
-                    .child(
-                        Button::new("document-panel-information")
-                            .ghost()
-                            .small()
-                            .icon(IconName::Info)
-                            .selected(!self.search_open && self.document_panel.tab == 0)
-                            .accessibility_label("文档信息")
-                            .tooltip("文档信息")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.cancel_search();
-                                this.search_open = false;
-                                this.document_panel.open = true;
-                                this.document_panel.tab = 0;
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        Button::new("document-panel-annotations")
-                            .ghost()
-                            .small()
-                            .icon(IconName::Highlighter)
-                            .selected(!self.search_open && self.document_panel.tab == 1)
-                            .accessibility_label("当前文档的标注")
-                            .tooltip("当前文档的标注")
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.cancel_search();
-                                this.search_open = false;
-                                this.document_panel.open = true;
-                                this.document_panel.tab = 1;
-                                cx.notify();
-                            })),
-                    ),
+                    .when(self.search_open, |header| header.child(self.search_bar(cx)))
+                    .when(!self.search_open, |header| {
+                        header
+                            .child(
+                                Button::new("document-panel-information")
+                                    .ghost()
+                                    .small()
+                                    .icon(IconName::Info)
+                                    .selected(!self.search_open && self.document_panel.tab == 0)
+                                    .accessibility_label("文档信息")
+                                    .tooltip("文档信息")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.cancel_search();
+                                        this.search_open = false;
+                                        this.search_restore_document_panel_open = None;
+                                        this.document_panel.open = true;
+                                        this.document_panel.tab = 0;
+                                        cx.notify();
+                                    })),
+                            )
+                            .child(div().w(px(4.)).flex_shrink_0())
+                            .child(
+                                Button::new("document-panel-annotations")
+                                    .ghost()
+                                    .small()
+                                    .icon(IconName::Highlighter)
+                                    .selected(!self.search_open && self.document_panel.tab == 1)
+                                    .accessibility_label("当前文档的标注")
+                                    .tooltip("当前文档的标注")
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.cancel_search();
+                                        this.search_open = false;
+                                        this.search_restore_document_panel_open = None;
+                                        this.document_panel.open = true;
+                                        this.document_panel.tab = 1;
+                                        cx.notify();
+                                    })),
+                            )
+                    }),
             )
             .child(if self.search_open {
-                column()
-                    .size_full()
-                    .child(self.search_bar(cx))
-                    .child(self.search_results(cx))
-                    .into_any_element()
+                self.search_results(cx).into_any_element()
             } else if self.document_panel.tab == 0 {
                 self.document_information(cx).into_any_element()
             } else {

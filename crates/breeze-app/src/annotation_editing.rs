@@ -102,6 +102,11 @@ impl Breeze {
     }
 
     pub(super) fn cancel_annotation_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.search_open {
+            self.close_search(cx);
+            window.focus(&self.focus, cx);
+            return;
+        }
         self.annotation_editing.editor = None;
         self.annotation_editing.clear();
         self.gesture.clear();

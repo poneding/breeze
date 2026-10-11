@@ -133,6 +133,7 @@ struct Breeze {
     selected_text: String,
     search_input: Entity<InputState>,
     search_open: bool,
+    search_restore_document_panel_open: Option<bool>,
     search_busy: bool,
     search_generation: u64,
     search_hits: Vec<breeze_pdf::SearchHit>,
@@ -267,6 +268,7 @@ impl Breeze {
             selected_text: String::new(),
             search_input,
             search_open: false,
+            search_restore_document_panel_open: None,
             search_busy: false,
             search_generation: 0,
             search_hits: Vec::new(),
@@ -340,6 +342,7 @@ impl Breeze {
         self.pending_window_policy = false;
         self.pending_fit = None;
         self.search_open = false;
+        self.search_restore_document_panel_open = None;
         self.screen = Screen::Home;
         self.generation += 1;
         self.loading = false;
@@ -354,6 +357,7 @@ impl Breeze {
             self.document_panel.reset_document();
             self.cancel_search();
             self.search_open = false;
+            self.search_restore_document_panel_open = None;
         }
         self.pending_window_policy = !self.books[index].opened;
         self.active = index;

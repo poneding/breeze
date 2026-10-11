@@ -76,6 +76,9 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
             window.find("document-panel-header").bounds().origin.y,
             window.find("reader-toolbar").bounds().origin.y
         );
+        let information = window.find("document-panel-information").bounds();
+        let annotations = window.find("document-panel-annotations").bounds();
+        assert!(annotations.origin.x - information.right() >= px(4.));
         assert!(window.find("document-panel").bounds().right() <= window.viewport_size().width);
         window.click("document-panel-annotations", cx);
         window.render_frame(cx);
@@ -132,6 +135,19 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
                 .focus_handle(cx)
                 .is_focused(window)
         );
+        assert!(window.find("document-panel-search-toolbar").visible());
+        assert!(window.try_find("document-panel-information").is_none());
+        window.press("escape", cx);
+        assert!(!view.read(cx).search_open);
+        assert!(!view.read(cx).document_panel.open);
+        assert!(window.try_find("document-panel").is_none());
+        window.click("document-panel-toggle", cx);
+        window.click("reader-search", cx);
+        assert!(view.read(cx).search_open);
+        window.press("escape", cx);
+        assert!(!view.read(cx).search_open);
+        assert!(view.read(cx).document_panel.open);
+        assert!(window.find("document-panel-information").visible());
     })
     .unwrap();
 }

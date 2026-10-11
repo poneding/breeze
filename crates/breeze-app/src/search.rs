@@ -69,33 +69,56 @@ impl Breeze {
         self.search_hits.clear();
         self.search_notice = "搜索已取消".into();
     }
-    pub(super) fn search_bar(&self, cx: &mut Context<Self>) -> Div {
-        search_row(self.p(cx).line)
-            .child(div().flex_1().child(Input::new(&self.search_input).small()))
+    pub(super) fn close_search(&mut self, cx: &mut Context<Self>) {
+        self.cancel_search();
+        self.search_open = false;
+        if self.search_restore_document_panel_open.take() == Some(false) {
+            self.document_panel.open = false;
+        }
+        cx.notify();
+    }
+    pub(super) fn search_bar(&self, cx: &mut Context<Self>) -> AnyElement {
+        div()
+            .id("document-panel-search-toolbar")
+            .test_support()
             .child(
-                Button::new("start-search")
-                    .small()
-                    .label("搜索")
-                    .disabled(self.search_busy)
-                    .on_click(cx.listener(|this, _, _, cx| this.run_search(cx))),
+                row()
+                    .h(px(38.))
+                    .w_full()
+                    .flex_shrink_0()
+                    .px_1()
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .child(Input::new(&self.search_input).small()),
+                    )
+                    .child(
+                        Button::new("start-search")
+                            .small()
+                            .label("搜索")
+                            .disabled(self.search_busy)
+                            .on_click(cx.listener(|this, _, _, cx| this.run_search(cx))),
+                    )
+                    .child(
+                        Button::new("cancel-search")
+                            .ghost()
+                            .small()
+                            .icon(IconName::X)
+                            .tooltip("取消并关闭搜索")
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.close_search(cx);
+                            })),
+                    ),
             )
-            .child(
-                Button::new("cancel-search")
-                    .ghost()
-                    .small()
-                    .icon(IconName::X)
-                    .tooltip("取消并关闭搜索")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.cancel_search();
-                        this.search_open = false;
-                        cx.notify();
-                    })),
-            )
+            .into_any_element()
     }
     pub(super) fn search_results(&self, cx: &mut Context<Self>) -> Div {
         let p = self.p(cx);
         column()
-            .size_full()
+            .flex_1()
+            .min_h_0()
             .bg(p.panel)
             .p_2()
             .gap_2()

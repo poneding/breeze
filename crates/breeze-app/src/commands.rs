@@ -161,9 +161,9 @@ impl Breeze {
                     return;
                 }
                 if self.search_open {
-                    self.cancel_search();
-                    self.search_open = false;
+                    self.close_search(cx);
                 } else {
+                    self.search_restore_document_panel_open = Some(self.document_panel.open);
                     self.search_open = true;
                     self.document_panel.open = true;
                 }
@@ -182,8 +182,7 @@ impl Breeze {
             } else if action.as_any().is::<ToggleDocumentPanel>() {
                 if self.document_panel.open {
                     if self.search_open {
-                        self.cancel_search();
-                        self.search_open = false;
+                        self.close_search(cx);
                     }
                     self.document_panel.open = false;
                 } else {
