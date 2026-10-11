@@ -307,13 +307,8 @@ impl Breeze {
             )
             .child(
                 row()
+                    .justify_end()
                     .gap_1()
-                    .child(
-                        Button::new("save-category")
-                            .small()
-                            .label("保存")
-                            .on_click(cx.listener(|this, _, _, cx| this.save_category(cx))),
-                    )
                     .child(
                         Button::new("cancel-category")
                             .ghost()
@@ -323,6 +318,13 @@ impl Breeze {
                                 this.category_form = false;
                                 cx.notify();
                             })),
+                    )
+                    .child(
+                        Button::new("save-category")
+                            .primary()
+                            .small()
+                            .label("保存")
+                            .on_click(cx.listener(|this, _, _, cx| this.save_category(cx))),
                     ),
             )
             .when(!self.message.is_empty(), |d| {

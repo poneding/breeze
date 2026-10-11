@@ -1650,3 +1650,23 @@ fn category_color_tags_stay_on_one_row(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn category_editor_actions_are_right_aligned_and_ordered(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| view.show_home(cx));
+        window.render_frame(cx);
+        window.click("new-category", cx);
+        window.render_frame(cx);
+        let editor = window.find("category-editor").bounds();
+        let cancel = window.find("cancel-category").bounds();
+        let save = window.find("save-category").bounds();
+        assert_eq!(cancel.origin.y, save.origin.y);
+        assert!(cancel.origin.x < save.origin.x);
+        assert!(save.right() <= editor.right());
+        assert!(editor.right() - save.right() <= px(2.));
+        assert!(cancel.origin.x > editor.origin.x);
+    })
+    .unwrap();
+}
