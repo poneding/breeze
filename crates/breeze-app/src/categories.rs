@@ -280,29 +280,31 @@ impl Breeze {
         column()
             .id("category-editor")
             .test_support()
-            .w(px(216.))
+            .w(px(232.))
             .gap_2()
             .child(Input::new(&self.category_input).small())
-            .children(CategoryColor::ALL.chunks(4).map(|colors| {
-                row().gap_1().children(colors.iter().copied().map(|color| {
-                    Button::new(("category-color", color as usize))
-                        .ghost()
-                        .small()
-                        .size(px(24.))
-                        .icon(
-                            Icon::new(IconName::Tag)
-                                .small()
-                                .text_color(category_tint(color, cx)),
-                        )
-                        .selected(self.category_color == color)
-                        .accessibility_label(format!("分类颜色：{}", colors::label(color)))
-                        .tooltip(colors::label(color))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.category_color = color;
-                            cx.notify();
-                        }))
-                }))
-            }))
+            .child(
+                row()
+                    .gap_1()
+                    .children(CategoryColor::ALL.into_iter().map(|color| {
+                        Button::new(("category-color", color as usize))
+                            .ghost()
+                            .small()
+                            .size(px(24.))
+                            .icon(
+                                Icon::new(IconName::Tag)
+                                    .small()
+                                    .text_color(category_tint(color, cx)),
+                            )
+                            .selected(self.category_color == color)
+                            .accessibility_label(format!("分类颜色：{}", colors::label(color)))
+                            .tooltip(colors::label(color))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.category_color = color;
+                                cx.notify();
+                            }))
+                    })),
+            )
             .child(
                 row()
                     .gap_1()

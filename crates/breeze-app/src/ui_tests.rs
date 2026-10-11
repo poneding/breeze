@@ -1631,3 +1631,22 @@ fn library_empty_component_is_centered_in_both_views(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn category_color_tags_stay_on_one_row(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| view.show_home(cx));
+        window.render_frame(cx);
+        window.click("new-category", cx);
+        window.render_frame(cx);
+        let first = window.find(("category-color", 0usize)).bounds();
+        for color in 1..8 {
+            let bounds = window.find(("category-color", color as usize)).bounds();
+            assert_eq!(bounds.origin.y, first.origin.y);
+            assert!(bounds.origin.x > first.origin.x);
+        }
+        assert!(window.find("category-editor").bounds().size.width >= px(228.));
+    })
+    .unwrap();
+}
