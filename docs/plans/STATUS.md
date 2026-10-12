@@ -308,3 +308,20 @@ three existing probes ignored), formatting and all-target Clippy. The control te
 uses an actual simulated 900×650 viewport and verifies the check button remains
 inside it. Only the four HTTP-client support packages and the required Rustls log
 feature were added to the lockfile; unrelated locked resolutions were retained.
+
+## October 12 left navigation button state
+
+The left navigation toolbar button now derives its selected appearance from the
+existing sidebar open state, matching the right document-sidebar toggle. Clicking
+the toggle, using its shortcut, opening Outline/Thumbnails, and restoring saved
+sidebar state all use that same state.
+
+Formatting, the full working-checkout workspace suite (142 passed; three existing
+PDF probes ignored), and all-target Clippy with warnings denied pass. Existing
+component tests cover shortcut toggling and collapse/width restoration. An isolated
+`cargo run --locked -p breeze-app` launched on macOS with state under
+`target/navigation-toggle-review/native/`. The initial native visual check was blocked
+by a locked Mac. A subsequent isolated review under `target/search-close-review/native/`
+confirmed the selected appearance while expanded, its removal after clicking to
+collapse, and restoration after Command+B reopened navigation. Windows/Linux native
+checks remain unperformed.

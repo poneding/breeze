@@ -79,13 +79,16 @@ impl Breeze {
                     .gap_2()
                     .border_b_1()
                     .border_color(p.line)
-                    .child(self.command(
-                        "collapse",
-                        IconName::PanelLeft,
-                        tr!("导航面板"),
-                        &ToggleSidebar,
-                        cx,
-                    ))
+                    .child(
+                        self.command(
+                            "collapse",
+                            IconName::PanelLeft,
+                            tr!("导航面板"),
+                            &ToggleSidebar,
+                            cx,
+                        )
+                        .selected(self.sidebar),
+                    )
                     .child(
                         TabBar::new("reader-modes")
                             .segmented()
