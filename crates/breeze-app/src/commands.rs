@@ -284,8 +284,8 @@ impl Breeze {
                 None,
             )
             .width();
-        // Small icon (0.875 rem), icon gap (0.25 rem), left padding (0.5 rem), right padding.
-        (width + window.rem_size() * 1.625 + px(2.)).clamp(px(40.), px(228.))
+        // Small icon (0.875 rem), icon gap (0.25 rem), and equal 0.5 rem side padding.
+        (width + window.rem_size() * 2.125).clamp(px(40.), px(228.))
     }
 
     fn document_tab(&self, index: usize, width: gpui_kit::Pixels, cx: &Context<Self>) -> Button {
@@ -352,8 +352,7 @@ impl Breeze {
             .w(width)
             .min_w(px(40.))
             .max_w(px(228.))
-            .pl_2()
-            .pr(px(2.))
+            .px_2()
             .accessibility_label(book.title.clone())
             .tooltip(book.title.clone())
             // Custom variants tint their base color; keep this token exact.
@@ -366,6 +365,8 @@ impl Breeze {
             }))
             .child(
                 row()
+                    .id(("document-tab-content", index))
+                    .test_support()
                     .relative()
                     .size_full()
                     .min_w_0()
