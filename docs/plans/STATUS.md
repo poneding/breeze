@@ -339,3 +339,12 @@ input filling the toolbar beside Close, Enter returning document matches, and
 Close restoring the previously closed right sidebar. Review state is under
 `target/search-close-review/native/`; the review window is retained after user
 interaction. Windows/Linux native checks remain unperformed.
+
+
+## October 12 titlebar tab compression and hover Close
+
+Titlebar content and its document scroller now have zero flex bases so Kit's enclosing bar cannot request the combined intrinsic width of every tab. Home and the grouped Open/theme/Settings controls retain their widths, and Kit's Windows/Linux window-control sibling keeps its own space. Document tabs share the remaining width equally up to 228 px, compress to 40 px, then scroll only within their bounded region. The 4 px leading shadow inset is retained.
+
+Close is now an absolute 18.5 px square overlay with no reserved text slot. On hover, a 12 px transparent-to-surface gradient precedes a solid area around Close, hiding text without changing its layout. The fade uses the same composited hover color as the tab, including dark-theme opacity. Independent Close feedback, click propagation, keyboard closing, the exact theme active background, and the stronger active shadow are retained. This phase includes the previously pending title-tab surface and Close refinements as their required base.
+
+The complete working checkout passes formatting, 143 workspace tests (three existing PDF probes ignored), and Clippy with warnings denied. The isolated titlebar phase on the committed dependency versions also passes formatting, 137 workspace tests (the same three ignored), and Clippy. Component regressions cover 3/16/60 tabs at 298–1000 px, equal compression, bounded overflow, reachable global buttons, and stable full-width titles overlaid by Close. Intermediate widths model the 102 px consumed by all three Kit window buttons; this is geometry coverage, not native Windows/Linux validation. Isolated macOS startup and captures of 16 long titles confirmed compression at 1340 px and the 900 px native minimum, separate global controls, light/dark hover fades, active-tab fading, and independent Close hover. Native Windows/Linux checks remain unperformed. Orca is unavailable; native inspection used the existing macOS window-capture and CoreGraphics review helper. Review copies/state/screenshots are under `target/titlebar-tab-density/` and excluded from version control.

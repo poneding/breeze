@@ -1,6 +1,6 @@
 //! Bindings are the single source of truth for command buttons and Kit's Kbd tooltips.
 use crate::*;
-use gpui_kit::component::TitleBar;
+use gpui_kit::component::{TitleBar, button::ButtonCustomVariant};
 
 pub fn bind(cx: &mut App) {
     tool_settings::bind(cx);
@@ -260,6 +260,102 @@ impl Breeze {
             cx.notify()
         }
     }
+    fn document_tab(&self, index: usize, cx: &Context<Self>) -> Button {
+        let book = &self.books[index];
+        let active = self.screen == Screen::Reader && index == self.active;
+        let p = self.p(cx);
+        let theme = Theme::global(cx);
+        let tab_hover = if theme.is_dark() {
+            theme.accent.opacity(0.5)
+        } else {
+            theme.accent
+        };
+        let close_surface = p.panel.blend(tab_hover);
+        let close_overlay = row()
+            .id(("document-tab-close-overlay", index))
+            .test_support()
+            .absolute()
+            .right_0()
+            .top_0()
+            .h_full()
+            .w(px(34.5))
+            .invisible()
+            .group_hover("document-tab", |s| s.visible())
+            .child(
+                div()
+                    .w(px(12.))
+                    .flex_shrink_0()
+                    .h_full()
+                    .bg(linear_gradient(
+                        90.,
+                        linear_color_stop(close_surface.opacity(0.), 0.),
+                        linear_color_stop(close_surface, 1.),
+                    )),
+            )
+            .child(
+                row()
+                    .h_full()
+                    .flex_1()
+                    .justify_end()
+                    .bg(close_surface)
+                    .child(
+                        Button::new(("close", index))
+                            .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
+                            .small()
+                            .size(px(18.5))
+                            .icon(IconName::X)
+                            .accessibility_label(tr!("关闭标签"))
+                            .tooltip_with_action(tr!("关闭标签"), &CloseTab, Some("Breeze"))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.stop_propagation();
+                                this.close_book(index, cx);
+                            })),
+                    ),
+            );
+        Button::new(("document", index))
+            .custom(
+                ButtonCustomVariant::new(cx)
+                    .hover(tab_hover)
+                    .active(tab_hover),
+            )
+            .small()
+            .group("document-tab")
+            .flex_1()
+            .min_w(px(40.))
+            .max_w(px(228.))
+            .pl_2()
+            .pr(px(2.))
+            .accessibility_label(book.title.clone())
+            .tooltip(book.title.clone())
+            // Custom variants tint their base color; keep this token exact.
+            .when(active, |d| d.bg(theme.tokens.background).shadow_sm())
+            // Keep one hover surface while the pointer crosses the Close overlay.
+            .group_hover("document-tab", move |s| s.bg(tab_hover))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                window.focus(&this.focus, cx);
+                this.open_book(index, cx);
+            }))
+            .child(
+                row()
+                    .relative()
+                    .size_full()
+                    .min_w_0()
+                    .gap_1()
+                    .child(document_icons::file_icon(&book.source, cx).flex_shrink_0())
+                    .child(
+                        div()
+                            .id(("document-tab-title", index))
+                            .test_support()
+                            .flex_1()
+                            .min_w_0()
+                            .text_ellipsis()
+                            .child(book.title.clone()),
+                    )
+                    // Absolute positioning keeps the full title width until hover.
+                    .child(close_overlay),
+            )
+    }
+
     pub(super) fn header(&self, cx: &mut Context<Self>) -> TitleBar {
         let p = self.p(cx);
         TitleBar::new()
@@ -274,7 +370,11 @@ impl Breeze {
                 row()
                     .id("titlebar-content")
                     .test_support()
-                    .size_full()
+                    // A zero basis prevents Kit's nonshrinking titlebar wrapper
+                    // from requesting the tabs' combined intrinsic width.
+                    .h_full()
+                    .w_0()
+                    .flex_1()
                     .min_w_0()
                     .gap_1()
                     .pr_2()
@@ -285,129 +385,59 @@ impl Breeze {
                     .child(
                         row()
                             .id("document-tabs")
+                            .test_support()
                             .h_full()
+                            .w_0()
                             .flex_1()
                             .min_w_0()
                             .overflow_x_scroll()
                             // Keep the first tab's shadow inside the scroll clip.
                             .pl(px(4.))
                             .gap_1()
-                            .children(self.books.iter().enumerate().filter(|(_, b)| b.opened).map(
-                                |(index, book)| {
-                                    let active =
-                                        self.screen == Screen::Reader && index == self.active;
-                                    row()
-                                        .h_full()
-                                        .gap_1()
-                                        .when(
-                                            !active
-                                                && self.books[..index]
-                                                    .iter()
-                                                    .enumerate()
-                                                    .rfind(|(_, b)| b.opened)
-                                                    .is_some_and(|(previous, _)| {
-                                                        !(self.screen == Screen::Reader
-                                                            && previous == self.active)
-                                                    }),
-                                            |d| d.child(div().w(px(1.)).h(px(14.)).bg(p.line)),
-                                        )
-                                        .child(
-                                            Button::new(("document", index))
-                                                .ghost()
-                                                .small()
-                                                .group("document-tab")
-                                                .min_w(px(128.))
-                                                .max_w(px(228.))
-                                                .pl_2()
-                                                .pr_0()
-                                                .accessibility_label(book.title.clone())
-                                                .tooltip(book.title.clone())
-                                                .when(active, |d| d.bg(p.bg))
-                                                .on_click(cx.listener(
-                                                    move |this, _, window, cx| {
-                                                        window.focus(&this.focus, cx);
-                                                        this.open_book(index, cx);
-                                                    },
-                                                ))
-                                                .child(
-                                                    row()
-                                                        .w_full()
-                                                        .min_w_0()
-                                                        .gap_1()
-                                                        .child(document_icons::file_icon(
-                                                            &book.source,
-                                                            cx,
-                                                        ))
-                                                        .child(
-                                                            div()
-                                                                .flex_1()
-                                                                .min_w_0()
-                                                                .text_ellipsis()
-                                                                .child(book.title.clone()),
-                                                        ),
-                                                )
-                                                .child(
-                                                    div()
-                                                        .flex_shrink_0()
-                                                        .h_full()
-                                                        .invisible()
-                                                        .group_hover("document-tab", |s| {
-                                                            s.visible()
-                                                        })
-                                                        .child(
-                                                            Button::new(("close", index))
-                                                                .ghost()
-                                                                .small()
-                                                                .icon(IconName::X)
-                                                                .accessibility_label(tr!(
-                                                                    "关闭标签"
-                                                                ))
-                                                                .tooltip_with_action(
-                                                                    tr!("关闭标签"),
-                                                                    &CloseTab,
-                                                                    Some("Breeze"),
-                                                                )
-                                                                .on_click(cx.listener(
-                                                                    move |this, _, _, cx| {
-                                                                        cx.stop_propagation();
-                                                                        this.close_book(index, cx);
-                                                                    },
-                                                                )),
-                                                        ),
-                                                ),
-                                        )
-                                },
-                            )),
+                            .children(
+                                self.books
+                                    .iter()
+                                    .enumerate()
+                                    .filter(|(_, book)| book.opened)
+                                    .map(|(index, _)| self.document_tab(index, cx)),
+                            ),
                     )
-                    .child(self.command(
-                        "open",
-                        IconName::FilePlusCorner,
-                        tr!("打开文档"),
-                        &Open,
-                        cx,
-                    ))
-                    .child(self.command(
-                        "theme",
-                        if self.theme_preference == ThemePreference::System {
-                            IconName::Monitor
-                        } else if Theme::global(cx).is_dark() {
-                            IconName::Moon
-                        } else {
-                            IconName::Sun
-                        },
-                        tr!("切换主题"),
-                        &CycleTheme,
-                        cx,
-                    ))
                     .child(
-                        self.command(
-                            "settings",
-                            IconName::Settings,
-                            tr!("设置"),
-                            &Preferences,
-                            cx,
-                        )
-                        .selected(self.screen == Screen::Settings),
+                        row()
+                            .id("titlebar-actions")
+                            .test_support()
+                            .flex_shrink_0()
+                            .gap_1()
+                            .child(self.command(
+                                "open",
+                                IconName::FilePlusCorner,
+                                tr!("打开文档"),
+                                &Open,
+                                cx,
+                            ))
+                            .child(self.command(
+                                "theme",
+                                if self.theme_preference == ThemePreference::System {
+                                    IconName::Monitor
+                                } else if Theme::global(cx).is_dark() {
+                                    IconName::Moon
+                                } else {
+                                    IconName::Sun
+                                },
+                                tr!("切换主题"),
+                                &CycleTheme,
+                                cx,
+                            ))
+                            .child(
+                                self.command(
+                                    "settings",
+                                    IconName::Settings,
+                                    tr!("设置"),
+                                    &Preferences,
+                                    cx,
+                                )
+                                .selected(self.screen == Screen::Settings),
+                            ),
                     ),
             )
     }

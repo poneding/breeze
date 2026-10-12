@@ -1011,21 +1011,92 @@ fn tab_close_is_hover_only_and_does_not_activate_its_document(cx: &mut TestAppCo
         window.render_frame(cx);
         window.hover("home-tab", cx);
         assert!(!window.find(("close", 1usize)).visible());
+        let title = window.find(("document-tab-title", 1usize)).bounds();
         window.hover(("document", 1usize), cx);
         assert!(window.find(("close", 1usize)).visible());
+        assert_eq!(window.find(("document-tab-title", 1usize)).bounds(), title);
         let before = window.find(("document", 1usize)).bounds();
         let home = window.find("home-tab").bounds();
         let close = window.find(("close", 1usize)).bounds();
         assert_eq!(before.size.height, home.size.height);
         assert_eq!(before.origin.y, home.origin.y);
         assert!(close.right() <= before.right());
-        assert!(before.right() - close.right() <= px(2.));
+        assert!(before.right() - close.right() <= px(4.));
+        assert!(before.right() - close.right() >= px(2.));
+        assert_eq!(close.size.width, close.size.height);
+        assert!(close.size.height < before.size.height);
+        assert!(close.origin.y > before.origin.y);
+        assert!(close.bottom() < before.bottom());
+        assert!(title.right() > close.left());
+        let overlay = window.find(("document-tab-close-overlay", 1usize)).bounds();
+        assert!(overlay.left() < close.left());
+        assert!(overlay.right() <= before.right());
+        window.hover(("close", 1usize), cx);
+        assert!(window.find(("close", 1usize)).visible());
         window.click(("close", 1usize), cx);
         assert!(!view.read(cx).books[1].opened);
         assert_eq!(view.read(cx).active, 0);
         assert!(before.size.width > px(0.));
     })
     .unwrap();
+}
+
+#[gpui_kit::test]
+fn document_tabs_compress_without_covering_titlebar_actions(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    for count in [3usize, 16, 60] {
+        cx.update_window(handle, |_, _, cx| {
+            view.update(cx, |view, _| {
+                view.books.truncate(1);
+                view.books.extend((1..count).map(|index| Book {
+                    source: Source::Sample,
+                    title: format!("Long document title number {index}"),
+                    favorite: false,
+                    categories: Vec::new(),
+                    state: ReaderState::default(),
+                    opened: true,
+                    last_opened: 0,
+                    annotations: DocumentAnnotations::default(),
+                }));
+            });
+        })
+        .unwrap();
+        let mut previous_width = None;
+        // The intermediate sizes also remove the 102 px occupied by Kit's
+        // three Windows/Linux control buttons from the available content width.
+        for width in [1000., 898., 640., 538., 400., 298.] {
+            cx.simulate_window_resize(handle, size(px(width), px(700.)));
+            cx.update_window(handle, |_, window, cx| {
+                window.render_frame(cx);
+                let content = window.find("titlebar-content").bounds();
+                let tabs = window.find("document-tabs").bounds();
+                let actions = window.find("titlebar-actions").bounds();
+                let first = window.find(("document", 0usize)).bounds();
+                assert!(content.right() <= px(width), "{count} tabs at {width}px");
+                assert!(tabs.right() <= actions.left());
+                assert!(actions.right() <= content.right());
+                for id in ["open", "theme", "settings"] {
+                    let button = window.find(id);
+                    assert!(button.visible());
+                    assert!(button.bounds().left() >= actions.left());
+                    assert!(button.bounds().right() <= actions.right());
+                }
+                if (count <= 3 && width >= 640.) || (count == 16 && width >= 898.) {
+                    let last = window.find(("document", count - 1)).bounds();
+                    assert!(last.right() <= tabs.right() + px(1.));
+                    assert!((first.size.width - last.size.width).abs() < px(1.));
+                }
+                assert!(first.size.width >= px(40.));
+                if let Some(previous) = previous_width {
+                    assert!(first.size.width <= previous);
+                }
+                previous_width = Some(first.size.width);
+                window.click("settings", cx);
+                assert!(view.read(cx).screen == Screen::Settings);
+            })
+            .unwrap();
+        }
+    }
 }
 
 #[gpui_kit::test]
