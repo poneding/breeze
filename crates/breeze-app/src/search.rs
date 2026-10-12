@@ -99,13 +99,6 @@ impl Breeze {
                             .child(Input::new(&self.search_input).small()),
                     )
                     .child(
-                        Button::new("start-search")
-                            .small()
-                            .label(tr!("搜索"))
-                            .disabled(self.search_busy)
-                            .on_click(cx.listener(|this, _, _, cx| this.run_search(cx))),
-                    )
-                    .child(
                         Button::new("cancel-search")
                             .ghost()
                             .small()

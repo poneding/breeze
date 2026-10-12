@@ -325,3 +325,17 @@ by a locked Mac. A subsequent isolated review under `target/search-close-review/
 confirmed the selected appearance while expanded, its removal after clicking to
 collapse, and restoration after Command+B reopened navigation. Windows/Linux native
 checks remain unperformed.
+
+## October 12 simplified document search toolbar
+
+The right-sidebar search toolbar now contains only the expanding search input and
+its Close icon button. The separate Search confirmation button is removed; Enter
+continues to submit the query through the existing input event handler.
+
+Formatting, the full working-checkout workspace suite (142 passed; three existing
+PDF probes ignored), and all-target Clippy with warnings denied pass. Isolated
+`cargo run --locked -p breeze-app` startup and native macOS review confirmed the
+input filling the toolbar beside Close, Enter returning document matches, and
+Close restoring the previously closed right sidebar. Review state is under
+`target/search-close-review/native/`; the review window is retained after user
+interaction. Windows/Linux native checks remain unperformed.
