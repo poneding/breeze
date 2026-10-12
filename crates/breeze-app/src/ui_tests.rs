@@ -1155,7 +1155,7 @@ fn document_tabs_compress_without_covering_titlebar_actions(cx: &mut TestAppCont
                 if (count <= 3 && width >= 640.) || (count == 16 && width >= 898.) {
                     let last = window.find(("document", count - 1)).bounds();
                     assert!(last.right() <= tabs.right() + px(1.));
-                    assert!((first.size.width - last.size.width).abs() < px(1.));
+                    assert!(last.size.width <= px(228.));
                 }
                 assert!(first.size.width >= px(40.));
                 if let Some(previous) = previous_width {
@@ -1176,12 +1176,67 @@ fn document_tabs_compress_without_covering_titlebar_actions(cx: &mut TestAppCont
         });
         window.render_frame(cx);
         assert!(window.find("add-document").visible());
-        assert!(window.find("document-tabs").bounds().size.width <= px(4.));
+        assert!(window.find("document-tabs").bounds().size.width <= px(10.));
         window.click("add-document", cx);
     })
     .unwrap();
     assert!(cx.did_prompt_for_paths());
     cx.simulate_path_prompt_response(|_| None);
+}
+
+#[gpui_kit::test]
+fn short_document_titles_use_content_width_and_leave_room_for_shadow(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    let mut wide_widths = Vec::new();
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.books[0].title = "A.pdf".into();
+            for title in [
+                "短.pdf",
+                "A very long document name that needs truncation.pdf",
+            ] {
+                view.books.push(Book {
+                    source: Source::Sample,
+                    title: title.into(),
+                    favorite: false,
+                    categories: Vec::new(),
+                    state: ReaderState::default(),
+                    opened: true,
+                    last_opened: 0,
+                    annotations: DocumentAnnotations::default(),
+                });
+            }
+            view.active = 2;
+        });
+        window.render_frame(cx);
+        let short = window.find(("document", 0usize)).bounds();
+        let unicode = window.find(("document", 1usize)).bounds();
+        let long = window.find(("document", 2usize)).bounds();
+        assert!(short.size.width >= px(40.) && short.size.width < px(128.));
+        assert!(unicode.size.width >= px(40.) && unicode.size.width < px(128.));
+        assert_eq!(long.size.width, px(228.));
+        let divider = window.find("document-tab-divider").bounds();
+        assert!(divider.left() - long.right() >= px(9.));
+        window.hover(("document", 0usize), cx);
+        assert_eq!(window.find(("document", 0usize)).bounds(), short);
+        window.hover(("close", 0usize), cx);
+        assert_eq!(window.find(("document", 0usize)).bounds(), short);
+        wide_widths = vec![short.size.width, unicode.size.width, long.size.width];
+    })
+    .unwrap();
+    cx.simulate_window_resize(handle, size(px(400.), px(700.)));
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        for (index, wide) in wide_widths.iter().enumerate() {
+            let width = window.find(("document", index)).bounds().size.width;
+            assert!(width >= px(40.) && width <= *wide);
+        }
+        assert!(window.find(("document", 2usize)).bounds().size.width < px(228.));
+        let actions = window.find("titlebar-actions").bounds();
+        assert!(window.find("document-tab-add").bounds().right() <= actions.left());
+        assert!(window.find("settings").visible());
+    })
+    .unwrap();
 }
 
 #[gpui_kit::test]

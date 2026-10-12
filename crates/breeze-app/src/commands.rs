@@ -266,7 +266,29 @@ impl Breeze {
             cx.notify()
         }
     }
-    fn document_tab(&self, index: usize, cx: &Context<Self>) -> Button {
+    fn document_tab_width(&self, index: usize, window: &Window, cx: &App) -> gpui_kit::Pixels {
+        let theme = Theme::global(cx);
+        // Use the same Small text size and font as Kit, including Unicode shaping.
+        let title: SharedString = self.books[index].title.replace(['\r', '\n'], " ").into();
+        let width = window
+            .text_system()
+            .shape_line(
+                title.clone(),
+                window.rem_size() * 0.875,
+                &[TextRun {
+                    len: title.len(),
+                    font: font(theme.font_family.clone()),
+                    color: theme.foreground,
+                    ..Default::default()
+                }],
+                None,
+            )
+            .width();
+        // Small icon (0.875 rem), icon gap (0.25 rem), left padding (0.5 rem), right padding.
+        (width + window.rem_size() * 1.625 + px(2.)).clamp(px(40.), px(228.))
+    }
+
+    fn document_tab(&self, index: usize, width: gpui_kit::Pixels, cx: &Context<Self>) -> Button {
         let book = &self.books[index];
         let active = self.screen == Screen::Reader && index == self.active;
         let p = self.p(cx);
@@ -326,7 +348,8 @@ impl Breeze {
             )
             .small()
             .group("document-tab")
-            .flex_1()
+            .flex_initial()
+            .w(width)
             .min_w(px(40.))
             .max_w(px(228.))
             .pl_2()
@@ -336,7 +359,7 @@ impl Breeze {
             // Custom variants tint their base color; keep this token exact.
             .when(active, |d| d.bg(theme.tokens.background).shadow_sm())
             // Keep one hover surface while the pointer crosses the Close overlay.
-            .group_hover("document-tab", move |s| s.bg(tab_hover))
+            .group_hover("document-tab", move |s| s.bg(tab_hover).shadow_sm())
             .on_click(cx.listener(move |this, _, window, cx| {
                 window.focus(&this.focus, cx);
                 this.open_book(index, cx);
@@ -362,13 +385,22 @@ impl Breeze {
             )
     }
 
-    pub(super) fn header(&self, cx: &mut Context<Self>) -> TitleBar {
+    pub(super) fn header(&self, window: &Window, cx: &mut Context<Self>) -> TitleBar {
         let p = self.p(cx);
-        let open_count = self.books.iter().filter(|book| book.opened).count();
-        // Prefer full tab widths, then shrink only this strip when space runs out.
-        let tab_strip_width = px(4.)
-            + px(228.) * open_count as f32
-            + Theme::global(cx).font_size * 0.25 * open_count.saturating_sub(1) as f32;
+        let tabs: Vec<_> = self
+            .books
+            .iter()
+            .enumerate()
+            .filter(|(_, book)| book.opened)
+            .map(|(index, _)| (index, self.document_tab_width(index, window, cx)))
+            .collect();
+        // Cap the strip at its actual content width so Plus follows short titles.
+        let tab_strip_width = px(10.)
+            + tabs
+                .iter()
+                .map(|(_, width)| *width)
+                .sum::<gpui_kit::Pixels>()
+            + window.rem_size() * 0.25 * tabs.len().saturating_sub(1) as f32;
         TitleBar::new()
             .on_close_window(cx.listener(|this, _, window, cx| {
                 if this.request_close(window, cx) {
@@ -413,13 +445,13 @@ impl Breeze {
                                     .overflow_x_scroll()
                                     // Keep the first tab's shadow inside the scroll clip.
                                     .pl(px(4.))
+                                    // Keep the last tab's shadow inside the clip and away from Plus.
+                                    .pr(px(6.))
                                     .gap_1()
                                     .children(
-                                        self.books
-                                            .iter()
-                                            .enumerate()
-                                            .filter(|(_, book)| book.opened)
-                                            .map(|(index, _)| self.document_tab(index, cx)),
+                                        tabs.into_iter().map(|(index, width)| {
+                                            self.document_tab(index, width, cx)
+                                        }),
                                     ),
                             )
                             .child(

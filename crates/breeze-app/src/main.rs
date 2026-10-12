@@ -665,7 +665,7 @@ impl Render for Breeze {
         let immersive = self.full_screen && self.screen == Screen::Reader;
         let mut chrome: Vec<AnyElement> = Vec::new();
         if !immersive {
-            chrome.push(self.header(cx).into_any_element());
+            chrome.push(self.header(window, cx).into_any_element());
             if let Some(error) = self.storage_error.clone() {
                 chrome.push(
                     div()
