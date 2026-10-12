@@ -90,6 +90,7 @@ impl Breeze {
         }
         self.commit_selected_annotation(cx);
         self.annotation_editing.clear();
+        self.gesture.clear();
         true
     }
 

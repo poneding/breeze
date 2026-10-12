@@ -130,6 +130,7 @@ mod tests {
             include_str!("colors.rs"),
             include_str!("view_controls.rs"),
             include_str!("annotations.rs"),
+            include_str!("annotations/recovery.rs"),
             include_str!("annotation_editing.rs"),
             include_str!("export.rs"),
             include_str!("search.rs"),

@@ -1,11 +1,20 @@
 //! Native overlays and explicit, conflict-checked sidecar saves; no PDF content writes.
 use crate::*;
 use breeze_core::annotations::{Annotation, History, Kind, PageGeometry, Point as DocPoint, Rect};
-use breeze_storage::AnnotationFile;
+use breeze_storage::{AnnotationConflict, AnnotationFile};
 use gpui_kit::component::ElementExt;
 
+mod recovery;
 #[cfg(test)]
 mod tests;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AnnotationFailure {
+    Io,
+    SidecarConflict,
+    SourceConflict,
+    InvalidData,
+}
 
 #[derive(Default)]
 pub(super) struct DocumentAnnotations {
@@ -19,6 +28,10 @@ pub(super) struct DocumentAnnotations {
     pub source_conflict: bool,
     pub saving: bool,
     pub error: Option<String>,
+    pub failure: Option<AnnotationFailure>,
+    pub identity: Arc<()>,
+    pub recovery_path: Option<PathBuf>,
+    pub recovery_notice: Option<String>,
 }
 impl DocumentAnnotations {
     pub fn dirty(&self) -> bool {
@@ -31,8 +44,10 @@ impl Breeze {
         if book.annotations.fingerprint == fingerprint {
             return;
         }
-        if book.annotations.dirty() {
+        if book.annotations.ready || book.annotations.saving || book.annotations.source_conflict {
             book.annotations.source_conflict = true;
+            book.annotations.failure = Some(AnnotationFailure::SourceConflict);
+            book.annotations.autosave = None;
             book.annotations.error = Some(tr!("源文档已变化，保留未保存批注并暂停写入").into());
             self.message = tr!("源文档已变化：旧批注已隐藏，写入已暂停").into();
             return;
@@ -58,30 +73,41 @@ impl Breeze {
         let source = book.source.clone();
         let expected_fingerprint = fingerprint.clone();
         let expected_path = path.clone();
-        let work = cx
-            .background_spawn(async move { breeze_storage::load_annotations(&path, &fingerprint) });
+        let identity = book.annotations.identity.clone();
+        let work = cx.background_spawn(async move { breeze_storage::inspect_annotations(&path) });
         cx.spawn(async move |this, cx| {
             let result = work.await;
             let _ = this.update(cx, |this, cx| {
                 let Some(book) = this.books.iter_mut().find(|b| b.source == source) else {
                     return;
                 };
-                if book.annotations.fingerprint != expected_fingerprint
+                if !Arc::ptr_eq(&book.annotations.identity, &identity)
+                    || book.annotations.fingerprint != expected_fingerprint
                     || book.annotations.path.as_ref() != Some(&expected_path)
                 {
                     return;
                 }
                 match result {
-                    Ok(AnnotationFile {
-                        annotations,
-                        revision,
-                    }) => {
-                        if annotations
-                            .iter()
-                            .any(|a| a.page >= book.state.navigation.total())
+                    Ok(snapshot) => {
+                        let (
+                            source_fingerprint,
+                            AnnotationFile {
+                                annotations,
+                                revision,
+                            },
+                        ) = snapshot.map_or_else(
+                            || (expected_fingerprint.clone(), AnnotationFile::default()),
+                            |s| (s.fingerprint, s.file),
+                        );
+                        let source_conflict = source_fingerprint != expected_fingerprint;
+                        if !source_conflict
+                            && annotations
+                                .iter()
+                                .any(|a| a.page >= book.state.navigation.total())
                         {
                             book.annotations.error =
                                 Some(tr!("批注页码超出文档范围，未载入").into());
+                            book.annotations.failure = Some(AnnotationFailure::InvalidData);
                             cx.notify();
                             return;
                         }
@@ -89,9 +115,24 @@ impl Breeze {
                         book.annotations.history.items = annotations;
                         book.annotations.revision = revision;
                         book.annotations.ready = true;
+                        book.annotations.fingerprint = source_fingerprint;
+                        book.annotations.source_conflict = source_conflict;
+                        if source_conflict {
+                            book.annotations.failure = Some(AnnotationFailure::SourceConflict);
+                            book.annotations.error = Some(
+                                tr!("源文档与批注指纹不符；旧批注已保留并隐藏，请恢复或重新关联")
+                                    .into(),
+                            );
+                        }
                     }
                     Err(e) => {
-                        book.annotations.error = Some(tf!("无法加载批注：{}", format!("{:#}", e)))
+                        book.annotations.error = Some(tf!("无法加载批注：{}", format!("{:#}", e)));
+                        book.annotations.failure =
+                            Some(if e.downcast_ref::<std::io::Error>().is_some() {
+                                AnnotationFailure::Io
+                            } else {
+                                AnnotationFailure::InvalidData
+                            });
                     }
                 }
                 cx.notify();
@@ -120,12 +161,7 @@ impl Breeze {
         let book = &mut self.books[index];
         let a = &mut book.annotations;
         let save_as = new_path.is_some();
-        if !a.ready
-            || a.saving
-            || a.source_conflict
-            || a.fingerprint.is_empty()
-            || (!save_as && a.error.is_some())
-        {
+        if !a.ready || a.saving || a.source_conflict || a.fingerprint.is_empty() {
             self.message = tr!("批注未就绪或存在冲突，不能保存").into();
             cx.notify();
             return;
@@ -137,6 +173,7 @@ impl Breeze {
         let fingerprint = a.fingerprint.clone();
         let revision = if save_as { None } else { a.revision.clone() };
         let original_path = a.path.clone();
+        let identity = a.identity.clone();
         let items = a.history.items.clone();
         let saved = items.clone();
         a.saving = true;
@@ -163,7 +200,8 @@ impl Breeze {
                 let Some(book) = this.books.iter_mut().find(|b| b.source == source) else {
                     return;
                 };
-                if book.annotations.fingerprint != saved_fingerprint
+                if !Arc::ptr_eq(&book.annotations.identity, &identity)
+                    || book.annotations.fingerprint != saved_fingerprint
                     || book.annotations.path != original_path
                 {
                     return;
@@ -178,13 +216,32 @@ impl Breeze {
                         book.annotations.saved = saved;
                         if !book.annotations.source_conflict {
                             book.annotations.error = None;
+                            book.annotations.failure = None;
                         }
                         this.message = tf!("批注已保存：{}", destination);
                     }
                     Err(e) => {
+                        let failure = match e.downcast_ref::<AnnotationConflict>() {
+                            Some(AnnotationConflict::SourceChanged) => {
+                                AnnotationFailure::SourceConflict
+                            }
+                            Some(AnnotationConflict::SidecarChanged) => {
+                                AnnotationFailure::SidecarConflict
+                            }
+                            None => AnnotationFailure::Io,
+                        };
+                        if !save_as || failure == AnnotationFailure::SourceConflict {
+                            book.annotations.failure = Some(failure);
+                            if failure == AnnotationFailure::SourceConflict {
+                                book.annotations.source_conflict = true;
+                            }
+                        }
                         if save_as {
                             this.message =
                                 tf!("批注另存失败，原保存位置保持不变：{}", format!("{:#}", e));
+                            if failure == AnnotationFailure::SourceConflict {
+                                book.annotations.error = Some(this.message.clone());
+                            }
                         } else {
                             book.annotations.error = Some(tf!("保存失败：{}", format!("{:#}", e)));
                             this.message = tf!("批注保存失败：{}", format!("{:#}", e));
@@ -207,6 +264,7 @@ impl Breeze {
         if !self.books[index].annotations.ready
             || self.books[index].annotations.path.is_none()
             || self.books[index].annotations.error.is_some()
+            || self.books[index].annotations.source_conflict
         {
             return;
         }
@@ -244,6 +302,7 @@ impl Breeze {
         let source = book.source.clone();
         let fingerprint = a.fingerprint.clone();
         let original_path = a.path.clone();
+        let identity = a.identity.clone();
         // A pending picker owns the same save slot as the subsequent write.
         // This prevents competing dialogs, autosaves and clean-document closes.
         a.saving = true;
@@ -258,7 +317,10 @@ impl Breeze {
                     return;
                 };
                 let a = &mut this.books[index].annotations;
-                if a.fingerprint != fingerprint || a.path != original_path {
+                if !Arc::ptr_eq(&a.identity, &identity)
+                    || a.fingerprint != fingerprint
+                    || a.path != original_path
+                {
                     return;
                 }
                 a.saving = false;
@@ -307,7 +369,17 @@ impl Breeze {
             return false;
         }
         if self.has_unsaved_annotations() {
-            self.message = tr!("存在未保存批注，请切换到对应文档并按 ⌘/Ctrl+S 保存后关闭").into();
+            if let Some(index) = self.books.iter().position(|b| b.annotations.dirty()) {
+                if index != self.active {
+                    self.open_book(index, cx);
+                }
+                self.screen = Screen::Reader;
+                self.cancel_search();
+                self.search_open = false;
+                self.search_restore_document_panel_open = None;
+                self.document_panel.show_annotations();
+            }
+            self.message = tr!("存在未保存批注：请保存、保留恢复副本或明确放弃更改后关闭").into();
             cx.notify();
             return false;
         }

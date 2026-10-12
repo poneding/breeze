@@ -42,6 +42,10 @@ impl DocumentPanel {
         self.current_page_only = false;
         self.scroll = UniformListScrollHandle::new();
     }
+    pub fn show_annotations(&mut self) {
+        self.open = true;
+        self.tab = 1;
+    }
 }
 
 fn kind_presentation(kind: Kind) -> (IconName, &'static str) {
@@ -402,6 +406,7 @@ impl Breeze {
                                 .child(error.clone()),
                         )
                     })
+                    .child(self.annotation_recovery_controls(cx))
                     .child(self.export_controls(cx)),
             )
     }

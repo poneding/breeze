@@ -1,5 +1,5 @@
 //! Local, atomic persistence. All public I/O functions must run outside the UI thread.
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, ensure};
 use breeze_core::annotations::Annotation;
 use futures::channel::oneshot;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
@@ -203,28 +203,61 @@ pub struct AnnotationFile {
     pub annotations: Vec<Annotation>,
     pub revision: Option<String>,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnnotationConflict {
+    SourceChanged,
+    SidecarChanged,
+}
+impl std::fmt::Display for AnnotationConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::SourceChanged => "Source changed; annotation save refused",
+            Self::SidecarChanged => "Sidecar changed externally; save refused",
+        })
+    }
+}
+impl std::error::Error for AnnotationConflict {}
+
+/// A bounded, validated sidecar snapshot. Reading it does not authorize applying
+/// its coordinates to a different source document.
+pub struct AnnotationSnapshot {
+    pub fingerprint: String,
+    pub file: AnnotationFile,
+}
 pub fn sidecar_path(source: &Path) -> PathBuf {
     let mut name = source.as_os_str().to_os_string();
     name.push(".breeze.json");
     PathBuf::from(name)
 }
 pub fn load_annotations(path: &Path, source_fingerprint: &str) -> Result<AnnotationFile> {
-    if !path.try_exists()? {
+    let Some(snapshot) = inspect_annotations(path)? else {
         return Ok(AnnotationFile::default());
+    };
+    if snapshot.fingerprint != source_fingerprint {
+        return Err(AnnotationConflict::SourceChanged.into());
+    }
+    Ok(snapshot.file)
+}
+pub fn inspect_annotations(path: &Path) -> Result<Option<AnnotationSnapshot>> {
+    if !path.try_exists()? {
+        return Ok(None);
     }
     let bytes = read_bounded(path, SIDECAR_LIMIT)?;
     let data: Sidecar = serde_json::from_slice(&bytes)
         .context("Invalid annotation sidecar; not loaded or overwritten")?;
     ensure!(data.version == 1, "Unsupported annotation version");
     ensure!(
-        data.fingerprint == source_fingerprint,
-        "PDF has changed; annotations must be reassociated explicitly"
+        data.fingerprint.len() == 64 && data.fingerprint.bytes().all(|b| b.is_ascii_hexdigit()),
+        "Invalid annotation source fingerprint"
     );
     validate_annotations(&data.annotations)?;
-    Ok(AnnotationFile {
-        annotations: data.annotations,
-        revision: Some(bytes_fingerprint(&bytes)),
-    })
+    Ok(Some(AnnotationSnapshot {
+        fingerprint: data.fingerprint,
+        file: AnnotationFile {
+            annotations: data.annotations,
+            revision: Some(bytes_fingerprint(&bytes)),
+        },
+    }))
 }
 fn validate_annotations(items: &[Annotation]) -> Result<()> {
     ensure!(items.len() <= 5000, "Too many annotations");
@@ -252,19 +285,19 @@ pub fn save_annotations(
         .open(lock_path)?;
     lock.try_lock()
         .context("Another annotation writer is active")?;
-    if let Some(source) = source {
-        ensure!(
-            fingerprint(source)? == expected_fingerprint,
-            "Source changed; annotation save refused"
-        );
+    if let Some(source) = source
+        && fingerprint(source)? != expected_fingerprint
+    {
+        return Err(AnnotationConflict::SourceChanged.into());
     }
     match (path.try_exists()?, expected_revision) {
-        (true, Some(revision)) => ensure!(
-            bytes_fingerprint(&read_bounded(path, SIDECAR_LIMIT)?) == revision,
-            "Sidecar changed externally; save refused"
-        ),
+        (true, Some(revision)) => {
+            if bytes_fingerprint(&read_bounded(path, SIDECAR_LIMIT)?) != revision {
+                return Err(AnnotationConflict::SidecarChanged.into());
+            }
+        }
         (false, None) => {}
-        _ => bail!("Sidecar existence changed; save refused"),
+        _ => return Err(AnnotationConflict::SidecarChanged.into()),
     }
     let bytes = serde_json::to_vec_pretty(&Sidecar {
         version: 1,
@@ -275,6 +308,11 @@ pub fn save_annotations(
         bytes.len() as u64 <= SIDECAR_LIMIT,
         "Sidecar exceeds size limit"
     );
+    if let Some(source) = source
+        && fingerprint(source)? != expected_fingerprint
+    {
+        return Err(AnnotationConflict::SourceChanged.into());
+    }
     atomic_write(path, &bytes, expected_revision.is_some())?;
     Ok(bytes_fingerprint(&bytes))
 }
