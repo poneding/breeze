@@ -254,6 +254,29 @@ fn row_geometry(
     );
     (row_width * scale + gap, row_height * scale, scale)
 }
+fn preserve_scroll_anchor(
+    old: &[Size<gpui_kit::Pixels>],
+    new: &[Size<gpui_kit::Pixels>],
+    offset: Point<gpui_kit::Pixels>,
+) -> Point<gpui_kit::Pixels> {
+    if old.len() == new.len() && old.iter().zip(new).all(|(a, b)| a.height == b.height) {
+        return offset;
+    }
+    let top = -f32::from(offset.y);
+    let mut before = 0.;
+    let mut row = 0;
+    while row + 1 < old.len() && before + f32::from(old[row].height) <= top {
+        before += f32::from(old[row].height);
+        row += 1;
+    }
+    let Some((old, new_row)) = old.get(row).zip(new.get(row)) else {
+        return offset;
+    };
+    let fraction = ((top - before) / f32::from(old.height).max(1.)).clamp(0., 1.);
+    let new_top = new[..row].iter().map(|s| f32::from(s.height)).sum::<f32>()
+        + fraction * f32::from(new_row.height);
+    point(offset.x, px(-new_top))
+}
 pub(super) fn outline_has_children(outline: &[breeze_pdf::Outline], index: usize) -> bool {
     outline
         .get(index)
@@ -446,10 +469,25 @@ impl Breeze {
                 self.reading.page(*p).is_none() && !self.reading.errors.contains_key(&(false, *p))
             })
             .map(|p| (false, p));
-        if next_page.is_none() && self.pump_raster(cx) {
+        if next_page.is_none() && self.pump_raster(false, cx) {
             return;
         }
-        let next = next_page.or_else(|| {
+        let nearby = if next_page.is_none() && self.raster.visible_ready() {
+            self.raster
+                .prefetch_pages()
+                .into_iter()
+                .find(|page| {
+                    self.reading.page(*page).is_none()
+                        && !self.reading.errors.contains_key(&(false, *page))
+                })
+                .map(|page| (false, page))
+        } else {
+            None
+        };
+        if next_page.is_none() && nearby.is_none() && self.pump_raster(true, cx) {
+            return;
+        }
+        let next = next_page.or(nearby).or_else(|| {
             if !self.sidebar || !self.show_thumbnails() {
                 return None;
             }
@@ -503,6 +541,7 @@ impl Breeze {
                         &this.reading.wanted_pages
                     })
                     .contains(&page_index)
+                        && (thumbnail || !this.raster.prefetch_pages().contains(&page_index))
                     {
                         return Ok(());
                     }
@@ -976,6 +1015,72 @@ impl Breeze {
         let height = (f32::from(window.viewport_size().height) - 34. - 38. - 32.).max(100.);
         (width, height)
     }
+    pub(super) fn page_display_scale(&self, page: usize, window: &Window) -> f32 {
+        let (width, height) = self.reading_viewport_size(window);
+        let sizes = &self.reading.sizes;
+        let state = &self.books[self.active].state;
+        if sizes.is_empty() {
+            return 1.;
+        }
+        row_geometry(
+            sizes,
+            state.layout.pages(page, sizes.len()),
+            width,
+            height,
+            state.zoom,
+        )
+        .2
+    }
+    pub(super) fn page_raster_scale(
+        &self,
+        page: usize,
+        points: (f32, f32),
+        window: &Window,
+    ) -> f32 {
+        let state = &self.books[self.active].state;
+        let (mut width, height) = self.reading_viewport_size(window);
+        // Reserve the density needed with the navigation panel collapsed. Its
+        // resizing changes presentation geometry, not the page's pixel identity.
+        if self.sidebar {
+            width += self.navigation_width;
+        }
+        let sizes = &self.reading.sizes;
+        let scale = if sizes.is_empty() {
+            page_scale(points, width - 24., height - 24., state.zoom)
+        } else {
+            row_geometry(
+                sizes,
+                state.layout.pages(page, sizes.len()),
+                width,
+                height,
+                state.zoom,
+            )
+            .2
+        };
+        let (visible_width, visible_height) = self.reading_viewport_size(window);
+        let actual = if sizes.is_empty() {
+            page_scale(
+                points,
+                visible_width - 24.,
+                visible_height - 24.,
+                state.zoom,
+            )
+        } else {
+            self.page_display_scale(page, window)
+        };
+        let oversampling = scale / actual;
+        let estimated_bytes =
+            visible_width * visible_height * (window.scale_factor() * oversampling).powi(2) * 4.;
+        // Keep room for tile rounding and pending replacement in large windows.
+        // If oversampling would exhaust it, retain the previous picture while
+        // preparing the exact native density instead of reducing final quality.
+        let scale = if scale > actual && estimated_bytes > 44. * 1024. * 1024. {
+            actual
+        } else {
+            scale
+        };
+        scale * window.scale_factor()
+    }
     pub(super) fn display_zoom(&self, window: &Window) -> f32 {
         let state = &self.books[self.active].state;
         match state.zoom {
@@ -1070,6 +1175,9 @@ impl Breeze {
                     .max_by(|(_, a), (_, b)| a.width.cmp(&b.width))
                     .map(|(i, _)| i)
                     .unwrap_or(0);
+                let offset = metrics.as_ref().map(|old| {
+                    preserve_scroll_anchor(&old.items, &items, self.reading.pages_scroll.offset())
+                });
                 *metrics = Some(PageMetrics {
                     width,
                     height,
@@ -1078,9 +1186,13 @@ impl Breeze {
                     items: Rc::new(items),
                     widest,
                 });
-                self.reading
-                    .pages_scroll
-                    .scroll_to_item(layout.row(page), ScrollStrategy::Top);
+                if let Some(offset) = offset {
+                    self.reading.pages_scroll.base_handle().set_offset(offset);
+                } else {
+                    self.reading
+                        .pages_scroll
+                        .scroll_to_item(layout.row(page), ScrollStrategy::Top);
+                }
             }
             let items = metrics
                 .as_ref()

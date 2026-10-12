@@ -27,7 +27,7 @@ Native title bar: window controls | Home | document tabs | divider | Plus | them
 Current logical dimensions:
 
 | Element | Size |
-|---|---|
+| --- | --- |
 | Title bar | 34 px, with Kit-managed native controls |
 | Reader toolbar | 38 px |
 | Status bar | 32 px |
@@ -50,7 +50,7 @@ The page itself retains the document's font and colors. UI density changes do no
 
 ## Home and reader behavior
 
-Home provides compact list and cover-grid views with recent/favorite/category filters. Library entries refer to original files; do not silently import copies. New libraries are empty. Legacy sample entries remain ordinary removable entries to preserve reading state and annotations. Both views use real first-page thumbnails, loaded only for visible entries, and share the same document actions. Grid metadata is centered and action icons appear only on card hover. Empty results use a minimal Kit Empty with an icon and “暂无文档”, without descriptions or extra actions.
+Home provides compact list and cover-grid views with recent/favorite/category filters. Library entries refer to original files; do not silently import copies. New libraries are empty. Legacy sample entries remain ordinary removable entries to preserve reading state and annotations. Both views use real first-page thumbnails, loaded only for visible entries, and share the same document actions. Grid metadata is centered and action icons appear only on card hover. Empty results use a minimal Kit Empty with an icon and “No documents”, without descriptions or extra actions.
 
 The reader has independent one/two-page and continuous-scrolling choices, defaulting to continuous single-page reading. Its status menu places Single (`file`) and Two pages (`columns-2`) above a separator, with Continuous (`gallery-vertical`) below it. The trigger shows an icon and 单页 / 双页 / 连续单页 / 连续双页. Continuous two-page reading virtualizes spreads and retains a lone final page for odd page counts. Outline and thumbnail navigation are virtualized across the document; raster requests cover visible ranges, not every page. Cancellable search and rectangular glyph selection/copy are implemented. Every displayed surface carries its page identity, including annotation gestures. State must never label an old rendered page as a newly requested page.
 
@@ -62,7 +62,7 @@ The prototype raster is fixed at 144 DPI; zoom currently changes display size. D
 
 ## Appearance
 
-Separate `ThemePreference` from `ColorScheme`:
+Use one GPUI Kit Select labeled Theme, replacing the segmented mode control and separate light/dark palette rows:
 
 - Follow System is the default application preference. It subscribes to window appearance events rather than polling and resolves to Kit's default light/dark theme.
 - Bundle the complete official GPUI Kit gallery from the same source commit as the pinned 0.7.0 dependency; see [theme provenance](../../assets/themes/README.md). Core Kit initialization provides two default themes, and Breeze explicitly registers the other 36 upstream theme definitions from compiled-in assets. No runtime network request or theme-directory watcher is used.
@@ -71,7 +71,7 @@ Separate `ThemePreference` from `ColorScheme`:
 - Apply the selected `ThemeConfig` through `Theme::update` / `apply_config`. Application chrome reads the active Kit theme colors; Breeze no longer overrides them with its own palettes. Preserve compact typography and control radii.
 - The titlebar button and Primary+Shift+T cycle the same choices and keep the settings selection synchronized.
 
-PDF pages are not inverted, tinted, or rerendered by theme selection. Theme preference, library state, and restoration switches persist locally. Legacy states retain Follow System or migrate explicit Light/Dark to the corresponding built-in name; retired palette fields are accepted on read but omitted from new snapshots. The language dropdown applies English, Simplified Chinese, or Traditional Chinese to application chrome immediately and persists the choice; user names, paths, document content, and official theme names are preserved. Update checks use the user-designated `poneding/breeze` stable GitHub Releases source. Manual is the default, Automatic checks once per startup, and Never prevents background checks. Explicit checks remain available in every policy. A newer release offers its GitHub page; automatic download/install is unavailable. Opening-window policies are implemented separately from page zoom and applied once for new/restored active documents.
+PDF pages are not inverted, tinted, or rerendered by theme selection. Theme preference, library state, and restoration switches persist locally. State versions 1–2 retain Follow System or migrate explicit Light/Dark to the corresponding built-in name; retired palette fields are accepted on read but omitted from version-3 snapshots. The language dropdown applies English, Simplified Chinese, or Traditional Chinese to application chrome immediately and persists the choice; user names, paths, document content, and official theme names are preserved. Update checks use the user-designated `poneding/breeze` stable GitHub Releases source. Manual is the default, Automatic checks once per startup, and Never prevents background checks. Explicit checks remain available in every policy. A newer release offers its GitHub page; automatic download/install is unavailable. Opening-window policies are implemented separately from page zoom and applied once for new/restored active documents.
 
 ## Annotation and editing modes
 
@@ -98,7 +98,7 @@ Use Kit's native `Tooltip`, `Tooltip::action`, and `Button::tooltip_with_action`
 `Primary` means Command on macOS and Control on Windows/Linux:
 
 | Command | Shortcut |
-|---|---|
+| --- | --- |
 | Open / Settings | Primary+O / Primary+, |
 | Home | Primary+Shift+H |
 | Close current document tab | Primary+W |

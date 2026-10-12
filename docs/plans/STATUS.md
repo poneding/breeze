@@ -103,21 +103,21 @@ The root Makefile exposes formatting/check/lint/test/verify, debug build/run, op
 
 Document title tabs now use one Kit Button surface with direct icon/text content, no inner text-button background or outer shadow, 8 px left padding, and no extra right padding around Close. Their Small height matches Home. Formatting, workspace tests (67 passed, three ignored), Clippy, isolated application startup, and native macOS inspection passed; component assertions cover equal height/alignment, right-edge close placement, and closing without activation.
 
+A follow-up removes all inter-tab separators and insets an 18.5 px square Close button with independent hover/pressed colors. The requested selected-tab emphasis was subsequently withdrawn: the tab retains its original background with no added border. The tab uses the same group-hover and pressed fill across its entire surface. Workspace tests (67 passed, three ignored), formatting, Clippy, and isolated startup pass. Native interaction/visual validation remains pending: the computer-use API exposed only window controls and rejected interaction with `noWindowsAvailable`, including after rebinding a separate review bundle. This follow-up remains uncommitted until the required native check can be completed.
+
 Native macOS review verified category creation and assignment, two actual side-by-side pages, thumbnail scrolling through the final sample page, continuous scrolling across page boundaries, restored layout/page state, and the synchronized page input. The first category smoke test inadvertently used the default data directory because interactive terminal entry lost the environment variable's initial character; the review-created category was removed under the state lock, without touching real documents. Subsequent review uses direct command execution with a verified isolated `BREEZE_DATA_DIR` under `target/`.
 
 A new Release worker probe measured full-page cold p50/p95 16.92/54.19 ms and thumbnail cold p50/p95 2.61/3.09 ms on the project sample (20 observations each). Cached p95 was 1.09 ms / 0.02 ms respectively. See work package 08 for hardware, cache conditions, dimensions, and explicit timing/memory scope. These are not end-to-end or corpus acceptance results.
 
 The user began actively interacting with the review instance during validation. Its process and newly created category were preserved. The latest scheduler-only refinements and allocation guard were checked automatically and rebuilt, but the in-use review process was not forcibly restarted; a final native recheck of those refinements and an isolated idle-CPU/frame-time measurement remain pending. Do not count the running older process as acceptance of the latest binary.
 
-
-## Status layout and zoom controls
 ## Built-in theme settings refinement
 
 The settings screen now has one native searchable Kit Select for Theme instead of segmented mode buttons and separate light/dark palette rows. The initial implementation mistakenly exposed only Kit's two automatically registered defaults. This has been corrected by embedding all 21 official gallery JSON files from the same source commit as Kit 0.7.0 and explicitly registering their 36 themes. The dropdown contains **39 choices**, grouped by System / Light / Dark: Follow System, 12 light themes, and 26 dark themes. Each appearance group starts with its default, followed by case-insensitive name order. The complete names and group membership match the user-provided list.
 
 [Theme provenance](../../assets/themes/README.md) records the pinned upstream source and license. Original author metadata and JSON bytes are preserved; every file was verified against the upstream Git blob ID. No runtime network access, external theme directory, or theme-directory watcher is required. Kit's selected configuration supplies both component and application-chrome colors without Breeze palette overrides; compact typography/radii and 34/38/32 px chrome heights are retained. PDF colors and page jobs are unchanged.
 
-The titlebar command and Primary+Shift+T cycle the same choices. Follow System continues to use window appearance events; named themes retain their declared mode. The theme name is persisted in the current state schema (version 6). Every legacy version preserves System or migrates Light/Dark to the matching built-in theme, and the retired palette fields are read but omitted from new snapshots without changing library, category, or annotation references.
+The titlebar command and Primary+Shift+T cycle the same choices. Follow System continues to use window appearance events; named themes retain their declared mode. State version 3 persists the theme name. Versions 1–2 preserve System or migrate Light/Dark to the matching built-in theme, dropping the retired palette fields from new snapshots without changing library/annotation references.
 
 Validation for this change:
 
@@ -126,6 +126,8 @@ The shared working tree carries unrelated uncommitted follow-up work, so this ph
 - With the complete gallery registered, `cargo run --locked -p breeze-app` built and launched successfully on macOS from the isolated tree, with a process-verified `BREEZE_DATA_DIR` under `target/theme-commit-review`. The scratch process and terminal pane were stopped after the startup check.
 - Native visual/interaction inspection remains **unverified**: the configured Computer Use entry point failed with `/bin/bash: orca: command not found`. Startup and component tests are not a substitute for visual inspection or native OS appearance-event testing; Windows/Linux native checks also remain pending.
 
+
+## Status layout and zoom controls
 
 The status bar now exposes independent one/two-page and continuous choices in a native Kit menu, separated by a divider. New documents default to continuous single-page reading. All four combinations render real pages, including virtualized continuous spreads with a lone odd final page. Fit Page / Fit Width / Actual Size share a second native menu, with an icon and current mode or percentage on the trigger.
 
@@ -147,6 +149,40 @@ The reader now requests metadata separately and renders visible device-resolutio
 The single-page icon is now `file`. Zoom mode is independent from its numeric status: Fit Page / Fit Width / Actual Size / Custom Ratio remain in one native menu, followed by a separate minus / calculated percentage / plus group. Fit percentages recompute with the viewport; changing the percentage switches to Custom Ratio, including custom 100%. Discrete zoom commands move to the next 25% boundary in their direction (167 → 175 or 150), and smooth trackpad input retains fine-grained zoom. State version 5 distinguishes Actual Size from custom 100% and migrates legacy 100% values to Actual Size.
 
 The complete working checkout passes formatting, workspace tests (81 passed, three existing probes ignored), and Clippy with warnings denied. The isolated commit on top of the PDF display fix also passes formatting, 78 tests, and Clippy. Tests cover the four modes, separate control geometry, fit-scale recalculation, 167% directional grid steps, mode switching on percentage changes, custom 100% restoration, and legacy 100% migration. Native macOS inspection with isolated data confirmed the file icon, four-option menu, separate percentage, keyboard grid steps, and Fit Width at 136% switching to Custom Ratio at 150% after zoom-in; state JSON persisted the chosen mode/percentage. The review window remains available. Windows/Linux native validation remains pending.
+
+## October 1 reader-continuity follow-up — native verification pending
+
+The working tree now prefetches a bounded region around the viewport and adjacent pages, retains previous pixels during scale replacement, uses stable semantic zoom identities, and preserves continuous scroll position when the outline width changes. Fit modes reuse density reserved for a collapsed outline where the budget permits; larger cases keep the previous picture during native-density replacement. See [work package 11](11-reader-continuity.md).
+
+Six new continuity regressions pass, including asynchronous prefetch completion with no additional frame/scroll event. Formatting and Clippy pass. The workspace run excluding one independently failing library observation test passes 99 tests; it is not a full-suite pass. Native verification is blocked by the locked Mac, so this follow-up remains uncommitted and must not be marked visually accepted yet.
+
+## Outline navigation refinement (October 3, 2026)
+
+- Leaf entries omit the chevron; rows are 24 logical pixels high with 4 pixels of top inset.
+- Exactly one resolved outline entry is active: the closest destination at or before the current page, preferring deeper entries and then the first peer on ties. Pages between headings retain the current section.
+- Outline destinations currently contain page numbers only; matching the reader position to separate headings within one page remains unavailable.
+- Regression coverage includes same-page parents/peers, unresolved destinations, gaps between headings, out-of-order destinations, and backward navigation. Formatting and Clippy passed; the app suite passed 60 tests but failed the unrelated `library_empty_component_is_centered_in_both_views` test (missing `home-content` observation), so this phase is not committed. An isolated native macOS run confirmed the bundled sample leaf has no chevron and has the top inset; multiple-heading visual coverage remains pending.
+
+### Parent outline folding follow-up
+
+- Parent chevrons now toggle their descendant rows without changing pages. All titles only navigate and never change branch folding. Unresolved titles are disabled while their parent chevrons remain usable. Leaf titles have no chevron.
+- Expanded parents use a downward chevron, collapsed parents use a rightward chevron. Nested fold choices survive collapsing/reopening an ancestor and page navigation; changing the loaded source or fingerprint resets these transient choices.
+- The virtual list uses visible outline indices while preserving original entry identities. When the active entry is hidden, only its visible collapsed ancestor is highlighted. Title buttons fill the remaining row width.
+- Logic and real-component click regressions pass, covering nested folds, unresolved parents, same-page active ancestors, full-width title targets, and leaf navigation. Formatting and Clippy pass. The app suite passes 62 tests and still fails the pre-existing `library_empty_component_is_centered_in_both_views` observation test; other workspace crate tests pass. This follow-up remains uncommitted under the repository verification rule.
+- An isolated native macOS run with a three-level synthetic outline confirmed downward chevrons, leaf omission, branch collapse, and promotion of the single highlight to the collapsed parent. Native automation intermittently returned `noWindowsAvailable` or delayed actions; reopening and the final row-width refinement are covered by component tests, with native rechecking pending.
+
+- Title/arrow separation was subsequently verified in a native macOS run: clicking a parent title navigated from page 3 to page 1 while preserving both expanded and collapsed states; only its chevron changed child visibility. The full-width title presentation was also visually checked. The updated component regression passes; the full app suite remains at 62 passes and the same unrelated library observation failure.
+
+
+## October 3 titlebar tab styling
+
+Document tabs now use the theme accent hover color, with the same 50% opacity in dark mode as ordinary Kit ghost buttons, instead of the list-active fill. The selected tab keeps the theme background and uses `shadow_xs`, matching the settled segmented Tab shadow; no accent border is added. Hover/pressed fills remain separate from the selected background so the selected tab can also respond to hover. Existing separator removal and inset Close-button behavior are retained.
+
+Formatting, the tab-close component test, Clippy, and the debug build pass. The initial workspace run failed in the existing `library_empty_component_is_centered_in_both_views` test because `home-content` was not registered for test lookup; unrelated staged library changes were preserved. An isolated native review opened the project sample and exposed an overly heavy first shadow, which was reduced to `shadow_xs`. The Mac then locked, blocking the final visual recheck. These changes remain uncommitted pending verification.
+
+On October 8, the selected-tab background was corrected to apply the complete `colors.background` token directly. Kit's Custom button variant had mixed the supplied base color with transparency, so passing the theme color through that variant did not preserve its value. Direct background styling preserves the theme's color/gradient while retaining the existing hover, close-button behavior, and `shadow_xs`. Formatting, workspace tests (108 passed, three ignored), Clippy, and isolated native startup pass. Visual inspection is still pending because the configured native GUI tool is unavailable (`orca: command not found`); this follow-up remains uncommitted.
+
+On October 9, the selected-tab shadow was increased from `shadow_xs` to `shadow_sm` at the user's request. This uses Kit's stronger two-layer shadow without changing the exact background token, hover behavior, or control geometry. Formatting, the complete workspace suite (116 passed, three existing probes ignored), Clippy, and isolated native startup pass. The native review used two project-sample copies under `target/tab-shadow-strength/`; the captured window remained on its initial frame and the macOS session reported itself locked. Final visual inspection is therefore unverified and this shadow adjustment remains uncommitted.
 
 ## October 9 adaptive navigation sidebar
 
@@ -235,7 +271,6 @@ Text annotations use Lucide `type` in the toolbar and annotation list. Line widt
 
 Formatting, workspace tests (123 passed, three existing probes ignored), and Clippy with warnings denied pass. Component checks cover typed/stepped widths, slider pointer updates, persisted gesture values, invalid numeric values, and stale tool events. An isolated native macOS run confirmed the Type icon, decimal NumberInput, and continuous opacity Slider in the tool hover card. Screenshots and state are excluded under `target/annotation-edit-review/`; the review window that received user interaction is preserved. Windows/Linux native checks remain unperformed. Text placement and page selection are implemented in the second phase of [work package 15](15-direct-annotation-editing.md).
 
-
 ## October 10 direct sidecar annotation editing
 
 Text annotations now start at the clicked page position with an empty native input. Enter commits one sidecar item and Escape cancels; IME marked composition never commits partial text. Existing sidecar items can be selected on the page, moved within page bounds, edited, styled, or deleted. Selection controls use the annotation color, width, and opacity; text overlays remain page-local and preserve their foreground color and opacity. Numeric, slider, text, and completed-move edits each form one undoable history transaction. Source identity, sidecar fingerprint, transient history revision, item index, and expected value reject stale edits. Existing PDF content remains read-only, and sidecar saves preserve the source PDF bytes.
@@ -249,7 +284,6 @@ The document sidebar now sits beside the complete reader content below the title
 Document text search now opens the right sidebar automatically. Its input, confirm button, and close button occupy the right sidebar toolbar in place of Information and Annotations; results remain below that toolbar. The left Outline/Thumbnails navigation remains unchanged while search is active. Opening search records whether the right sidebar was already open: closing with X, Search, or Escape restores the prior open/closed state. The sidebar toggle cancels active search before closing the panel.
 
 Formatting, the complete workspace suite (96 passed, three existing PDF probes ignored), and Clippy with warnings denied pass. Focused component tests cover uniform icon spacing, top alignment, narrow-window bounds, icon-button switching, toolbar search controls, automatic right-sidebar search, search-result placement, Escape dismissal, and restoration from both sidebar states. Native macOS capture under `target/right-sidebar-review/` confirms the aligned right panel and evenly spaced Information/Annotations buttons; search-toolbar interaction remains covered by component tests. Windows/Linux native checks and the existing production fidelity/release gates remain open.
-
 ## October 11 interface languages
 
 The language preview is now a native Kit Select offering English, Simplified Chinese,

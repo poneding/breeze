@@ -230,7 +230,7 @@ impl Breeze {
             .min_w_0()
             .min_h_0()
             .flex_shrink_0()
-            .bg(p.panel)
+            .bg(p.sidebar)
             .child(
                 row()
                     .id("navigation-header")

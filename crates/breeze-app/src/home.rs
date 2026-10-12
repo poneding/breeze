@@ -42,7 +42,7 @@ impl Breeze {
                     .py_2()
                     .px_2()
                     .gap_1()
-                    .bg(p.panel)
+                    .bg(p.sidebar)
                     .border_r_1()
                     .border_color(p.line)
                     .children(

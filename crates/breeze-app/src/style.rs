@@ -5,6 +5,7 @@ use std::rc::Rc;
 pub struct Palette {
     pub bg: Hsla,
     pub panel: Hsla,
+    pub sidebar: Hsla,
     pub canvas: Hsla,
     pub text: Hsla,
     pub muted: Hsla,
@@ -18,6 +19,7 @@ impl Palette {
         Self {
             bg: theme.background,
             panel: theme.title_bar,
+            sidebar: theme.sidebar,
             canvas: theme.muted,
             text: theme.foreground,
             muted: theme.muted_foreground,

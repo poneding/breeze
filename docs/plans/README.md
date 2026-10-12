@@ -37,6 +37,8 @@ These work-package documents were written before the corresponding code changes.
 
 6. [10 — Library presentation and categories](10-library-presentation.md): seven separately committed improvements to navigation, rows, covers, Open controls, and category memberships/colors.
 
+7. [11 — Reader continuity](11-reader-continuity.md): bounded lookahead, retained pixels during replacement, stable sidebar/zoom caches, and scroll-anchor preservation; native verification is pending.
+
 8. [14 — Reader tools and document details](14-reader-tools-and-details.md): filled favorites, an optional information/annotation sidebar, and interactive tool settings with a shared eight-color vocabulary.
 
 9. [15 — Direct annotation editing](15-direct-annotation-editing.md): native numeric controls, text input at the clicked page position, and selection/editing/deletion of sidecar annotations.

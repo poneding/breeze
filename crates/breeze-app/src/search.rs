@@ -116,7 +116,7 @@ impl Breeze {
         column()
             .flex_1()
             .min_h_0()
-            .bg(p.panel)
+            .bg(p.sidebar)
             .p_2()
             .gap_2()
             .when(!self.search_notice.is_empty(), |results| {
