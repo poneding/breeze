@@ -205,7 +205,8 @@ fn update_controls_and_notifications_follow_language_and_state(cx: &mut TestAppC
     cx.simulate_window_resize(handle, size(px(900.), px(650.)));
     cx.update_window(handle, |_, window, cx| {
         view.update(cx, |view, cx| {
-            view.screen = Screen::Settings;
+            view.screen = Screen::Home;
+            view.home_page = HomePage::Info;
             view.language = 1;
             view.refresh_language(window, cx);
             assert!(view.updates.begin(false, 0));
@@ -240,7 +241,7 @@ fn update_controls_and_notifications_follow_language_and_state(cx: &mut TestAppC
             Some("View release")
         );
         view.update(cx, |view, cx| {
-            view.screen = Screen::Home;
+            view.home_page = HomePage::Library;
             view.language = 2;
             view.refresh_language(window, cx);
         });

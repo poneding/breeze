@@ -4,6 +4,8 @@ use semver::Version;
 use serde::Deserialize;
 use std::time::Duration;
 
+/// User-visible project address, shared with the About page.
+pub(super) const REPOSITORY: &str = "https://github.com/poneding/breeze";
 const ENDPOINT: &str = "https://api.github.com/repos/poneding/breeze/releases/latest";
 const RELEASES: &str = "https://github.com/poneding/breeze/releases";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -56,6 +58,11 @@ impl Updates {
         self.banner_dismissed = false;
         self.status = CheckStatus::Checking;
         true
+    }
+
+    /// Current check state for the About page, in the active language.
+    pub(super) fn message(&self) -> String {
+        self.status.message()
     }
 
     fn finish(&mut self, automatic: bool, policy: usize, result: CheckStatus) {
@@ -215,37 +222,7 @@ impl Breeze {
             .on_click(cx.listener(|this, _, _, cx| this.check_updates(false, cx)))
     }
 
-    pub(super) fn update_details(&self, cx: &Context<Self>) -> Div {
-        let p = self.p(cx);
-        column()
-            .gap_1()
-            .py_2()
-            .text_size(px(11.))
-            .text_color(p.muted)
-            .child(tf!("当前版本 {} · 发布源 poneding/breeze", CURRENT_VERSION))
-            .child(
-                row()
-                    .gap_2()
-                    .child(
-                        div()
-                            .id("update-status")
-                            .test_support()
-                            .flex_1()
-                            .min_w_0()
-                            .child(self.updates.status.message()),
-                    )
-                    .when_some(self.update_release_url(), |row, url| {
-                        row.child(
-                            Button::new("open-update-release")
-                                .small()
-                                .label(tr!("查看发布版本"))
-                                .on_click(move |_, _, cx| cx.open_url(&url)),
-                        )
-                    }),
-            )
-    }
-
-    fn update_release_url(&self) -> Option<String> {
+    pub(super) fn update_release_url(&self) -> Option<String> {
         match &self.updates.status {
             CheckStatus::Available { url, .. } => Some(url.clone()),
             _ => None,
@@ -253,7 +230,10 @@ impl Breeze {
     }
 
     pub(super) fn update_banner(&self, cx: &mut Context<Self>) -> Option<Div> {
-        if self.screen == Screen::Settings || self.updates.banner_dismissed {
+        // An explicit Home page already shows the update state in place.
+        if (self.screen == Screen::Home && self.home_page != HomePage::Library)
+            || self.updates.banner_dismissed
+        {
             return None;
         }
         let url = self.update_release_url()?;

@@ -129,8 +129,9 @@ impl Breeze {
             )
             .child(
                 left_button("unassigned-category", IconName::Tag, tr!("未分类"))
-                    .selected(self.library_filter == 3)
+                    .selected(self.home_page == HomePage::Library && self.library_filter == 3)
                     .on_click(cx.listener(|this, _, _, cx| {
+                        this.home_page = HomePage::Library;
                         this.library_filter = 3;
                         cx.notify();
                     })),
@@ -149,11 +150,16 @@ impl Breeze {
                             .w_full()
                             .px_2()
                             .selected(self.library_filter == id + 3)
-                            .when(self.library_filter == id + 3, |d| d.bg(p.tint))
+                            .when(
+                                self.home_page == HomePage::Library
+                                    && self.library_filter == id + 3,
+                                |d| d.bg(p.tint),
+                            )
                             .group_hover("category-row", move |s| s.bg(p.tint))
                             .accessibility_label(category.name.clone())
                             .tooltip(category.name.clone())
                             .on_click(cx.listener(move |this, _, _, cx| {
+                                this.home_page = HomePage::Library;
                                 this.library_filter = id + 3;
                                 cx.notify();
                             }))

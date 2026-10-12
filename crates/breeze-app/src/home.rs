@@ -10,7 +10,128 @@ const POSITION_WIDTH: f32 = 100.;
 const ACTIONS_WIDTH: f32 = 80.;
 
 impl Breeze {
-    pub(super) fn home(&self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn home(&self, window: &Window, cx: &mut Context<Self>) -> Div {
+        row()
+            .flex_1()
+            .min_h_0()
+            .items_stretch()
+            .child(self.library_sidebar(cx))
+            .child(self.home_content(window, cx))
+    }
+
+    /// Library entries stay scrollable; global pages sit at the bottom edge.
+    fn library_sidebar(&self, cx: &mut Context<Self>) -> Div {
+        let p = self.p(cx);
+        column()
+            .w(px(168.))
+            .flex_shrink_0()
+            .bg(p.sidebar)
+            .border_r_1()
+            .border_color(p.line)
+            .child(
+                column()
+                    .id("library-sidebar")
+                    .test_support()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .py_2()
+                    .px_2()
+                    .gap_1()
+                    .children(
+                        [
+                            (IconName::LibraryBig, tr!("全部文档"), 2),
+                            (IconName::Clock3, tr!("最近阅读"), 0),
+                            (IconName::Bookmark, tr!("收藏"), 1),
+                        ]
+                        .into_iter()
+                        .map(|(icon, label, index)| {
+                            categories::left_button(("library-nav", index), icon, label)
+                                .selected(
+                                    self.home_page == HomePage::Library
+                                        && self.library_filter == index,
+                                )
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.home_page = HomePage::Library;
+                                    this.library_filter = index;
+                                    cx.notify()
+                                }))
+                        }),
+                    )
+                    .child(self.category_sidebar(cx)),
+            )
+            .child(
+                row()
+                    .id("home-footer")
+                    .test_support()
+                    .gap_1()
+                    .px_2()
+                    .py_2()
+                    .border_t_1()
+                    .border_color(p.line)
+                    .child(self.home_page_button(
+                        "home-info",
+                        IconName::Info,
+                        tr!("关于"),
+                        HomePage::Info,
+                        cx,
+                    ))
+                    .child(self.home_page_button(
+                        "home-shortcuts",
+                        IconName::Keyboard,
+                        tr!("快捷键"),
+                        HomePage::Shortcuts,
+                        cx,
+                    ))
+                    .child(self.home_page_button(
+                        "home-settings",
+                        IconName::Settings,
+                        tr!("设置"),
+                        HomePage::Settings,
+                        cx,
+                    )),
+            )
+    }
+
+    fn home_page_button(
+        &self,
+        id: &'static str,
+        icon: IconName,
+        label: &'static str,
+        page: HomePage,
+        cx: &mut Context<Self>,
+    ) -> Button {
+        Button::new(id)
+            .ghost()
+            .small()
+            .icon(icon)
+            .selected(self.home_page == page)
+            .accessibility_label(label)
+            .tooltip(label)
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.show_home_page(page, cx);
+            }))
+    }
+
+    fn home_content(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        column()
+            .id("home-content")
+            .test_support()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .px_5()
+            .py_3()
+            .gap_3()
+            .child(match self.home_page {
+                HomePage::Library => self.library_page(cx).into_any_element(),
+                HomePage::Info => self.about_page(cx).into_any_element(),
+                HomePage::Shortcuts => self.shortcuts_page(window, cx).into_any_element(),
+                HomePage::Settings => self.settings_page(cx).into_any_element(),
+            })
+    }
+
+    fn library_page(&self, cx: &mut Context<Self>) -> Div {
         let p = self.p(cx);
         let mut filtered: Vec<_> = self
             .books
@@ -29,156 +150,102 @@ impl Breeze {
             })
             .collect();
         filtered.sort_by_key(|(_, b)| std::cmp::Reverse(b.last_opened));
-        row()
+        column()
             .flex_1()
             .min_h_0()
-            .items_stretch()
+            .gap_3()
             .child(
-                column()
-                    .w(px(168.))
-                    .flex_shrink_0()
-                    .id("library-sidebar")
-                    .overflow_y_scroll()
-                    .py_2()
-                    .px_2()
-                    .gap_1()
-                    .bg(p.sidebar)
-                    .border_r_1()
-                    .border_color(p.line)
+                row()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_size(px(16.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(match self.library_filter {
+                                1 => tr!("收藏").to_owned(),
+                                2 => tr!("全部文档").to_owned(),
+                                n if n >= 3 => self.category_name(n - 3),
+                                _ => tr!("最近阅读").to_owned(),
+                            }),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(p.muted)
+                            .child(tf!("{} 份", filtered.len())),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .w(px(240.))
+                            .child(Input::new(&self.library_input).small()),
+                    )
                     .children(
                         [
-                            (IconName::LibraryBig, tr!("全部文档"), 2),
-                            (IconName::Clock3, tr!("最近阅读"), 0),
-                            (IconName::Bookmark, tr!("收藏"), 1),
+                            (false, IconName::List, tr!("列表视图")),
+                            (true, IconName::LayoutGrid, tr!("网格视图")),
                         ]
                         .into_iter()
-                        .map(|(icon, label, index)| {
-                            categories::left_button(("library-nav", index), icon, label)
-                                .selected(self.library_filter == index)
+                        .map(|(grid, icon, label)| {
+                            Button::new(if grid { "library-grid" } else { "library-list" })
+                                .ghost()
+                                .small()
+                                .icon(icon)
+                                .selected(self.library_grid == grid)
+                                .accessibility_label(label)
+                                .tooltip(label)
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.library_filter = index;
-                                    cx.notify()
+                                    this.library_grid = grid;
+                                    this.covers.cancel();
+                                    cx.notify();
                                 }))
                         }),
                     )
-                    .child(self.category_sidebar(cx)),
-            )
-            .child(
-                column()
-                    .id("home-content")
-                    .test_support()
-                    .flex_1()
-                    .min_w_0()
-                    .min_h_0()
-                    .px_5()
-                    .py_3()
-                    .gap_3()
-                    .child(
-                        row()
-                            .gap_2()
-                            .child(
-                                div()
-                                    .text_size(px(16.))
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child(match self.library_filter {
-                                        1 => tr!("收藏").to_owned(),
-                                        2 => tr!("全部文档").to_owned(),
-                                        n if n >= 3 => self.category_name(n - 3),
-                                        _ => tr!("最近阅读").to_owned(),
-                                    }),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(12.))
-                                    .text_color(p.muted)
-                                    .child(tf!("{} 份", filtered.len())),
-                            )
-                            .child(div().flex_1())
-                            .child(
-                                div()
-                                    .w(px(240.))
-                                    .child(Input::new(&self.library_input).small()),
-                            )
-                            .children(
-                                [
-                                    (false, IconName::List, tr!("列表视图")),
-                                    (true, IconName::LayoutGrid, tr!("网格视图")),
-                                ]
-                                .into_iter()
-                                .map(|(grid, icon, label)| {
-                                    Button::new(if grid { "library-grid" } else { "library-list" })
-                                        .ghost()
-                                        .small()
-                                        .icon(icon)
-                                        .selected(self.library_grid == grid)
-                                        .accessibility_label(label)
-                                        .tooltip(label)
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.library_grid = grid;
-                                            this.covers.cancel();
-                                            cx.notify();
-                                        }))
-                                }),
-                            )
-                            .when(self.library_filter == 2, |d| {
-                                d.child(self.command(
-                                    "home-open",
-                                    IconName::FilePlusCorner,
-                                    tr!("打开文档"),
-                                    &Open,
-                                    cx,
-                                ))
-                            }),
-                    )
-                    .when(!self.library_grid && !filtered.is_empty(), |d| {
-                        d.child(
-                            row()
-                                .h(px(24.))
-                                .px_2()
-                                .border_b_1()
-                                .border_color(p.line)
-                                .text_size(px(11.))
-                                .text_color(p.muted)
-                                .gap_2()
-                                .child(div().flex_1().min_w_0().child(tr!("文档")))
-                                .child(
-                                    div()
-                                        .id("category-heading")
-                                        .test_support()
-                                        .w(px(CATEGORY_WIDTH))
-                                        .flex_shrink_0()
-                                        .px_2()
-                                        .child(tr!("分类")),
-                                )
-                                .child(
-                                    div()
-                                        .id("position-heading")
-                                        .test_support()
-                                        .w(px(POSITION_WIDTH))
-                                        .flex_shrink_0()
-                                        .child(tr!("位置")),
-                                )
-                                .child(div().w(px(ACTIONS_WIDTH)).flex_shrink_0()),
-                        )
-                    })
-                    .child(
-                        self.library_documents(
-                            filtered.iter().map(|(index, _)| *index).collect(),
+                    .when(self.library_filter == 2, |d| {
+                        d.child(self.command(
+                            "home-open",
+                            IconName::FilePlusCorner,
+                            tr!("打开文档"),
+                            &Open,
                             cx,
-                        ),
-                    )
-                    .when(!self.message.is_empty(), |d| {
-                        d.child(div().text_color(rgb(0xba6544)).child(self.message.clone()))
-                    })
-                    .when(!filtered.is_empty(), |d| {
-                        d.child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(p.muted)
-                                .child(tr!("收藏、分类、外观与阅读状态自动保存在本机。")),
-                        )
+                        ))
                     }),
             )
+            .when(!self.library_grid && !filtered.is_empty(), |d| {
+                d.child(
+                    row()
+                        .h(px(24.))
+                        .px_2()
+                        .border_b_1()
+                        .border_color(p.line)
+                        .text_size(px(11.))
+                        .text_color(p.muted)
+                        .gap_2()
+                        .child(div().flex_1().min_w_0().child(tr!("文档")))
+                        .child(
+                            div()
+                                .id("category-heading")
+                                .test_support()
+                                .w(px(CATEGORY_WIDTH))
+                                .flex_shrink_0()
+                                .px_2()
+                                .child(tr!("分类")),
+                        )
+                        .child(
+                            div()
+                                .id("position-heading")
+                                .test_support()
+                                .w(px(POSITION_WIDTH))
+                                .flex_shrink_0()
+                                .child(tr!("位置")),
+                        )
+                        .child(div().w(px(ACTIONS_WIDTH)).flex_shrink_0()),
+                )
+            })
+            .child(self.library_documents(filtered.iter().map(|(index, _)| *index).collect(), cx))
+            .when(!self.message.is_empty(), |d| {
+                d.child(div().text_color(rgb(0xba6544)).child(self.message.clone()))
+            })
     }
 
     fn library_row(&self, index: usize, cx: &mut Context<Self>) -> Button {

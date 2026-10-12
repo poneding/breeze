@@ -5,6 +5,7 @@ mod updates;
 #[cfg(test)]
 use core::prelude::v1::test;
 use gpui_kit::prelude::FluentBuilder;
+mod about;
 mod annotation_editing;
 mod annotations;
 mod appearance;
@@ -25,6 +26,7 @@ mod raster;
 mod reader;
 mod reading;
 mod settings;
+mod shortcuts;
 mod style;
 mod tool_settings;
 mod view_controls;
@@ -90,10 +92,17 @@ actions!(
         ToggleFullScreen
     ]
 );
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Screen {
     Home,
     Reader,
+}
+/// Home content selection. Home is the only navigation surface for global pages.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HomePage {
+    Library,
+    Info,
+    Shortcuts,
     Settings,
 }
 struct Book {
@@ -152,6 +161,8 @@ struct Breeze {
     books: Vec<Book>,
     active: usize,
     screen: Screen,
+    home_page: HomePage,
+    brand_logo: Option<Arc<RenderImage>>,
     system_appearance: WindowAppearance,
     theme_preference: ThemePreference,
     theme_select: Entity<SelectState<appearance::ThemeChoices>>,
@@ -320,6 +331,8 @@ impl Breeze {
             books: Vec::new(),
             active: 0,
             screen: Screen::Home,
+            home_page: HomePage::Library,
+            brand_logo: about::brand_logo(),
             system_appearance: window.appearance(),
             theme_preference: ThemePreference::System,
             theme_select,
@@ -363,12 +376,26 @@ impl Breeze {
     fn p(&self, cx: &App) -> Palette {
         Palette::from_theme(cx)
     }
+    /// Whether the library list, and therefore its cover previews, is visible.
+    fn browsing_library(&self) -> bool {
+        self.screen == Screen::Home && self.home_page == HomePage::Library
+    }
     fn show_home(&mut self, cx: &mut Context<Self>) {
+        if self.show_home_page(HomePage::Library, cx) {
+            self.covers.clear(cx);
+        }
+    }
+    /// Home owns the global pages; selecting one leaves any open gesture behind.
+    /// Returns false when a pending text annotation blocks the navigation.
+    fn show_home_page(&mut self, page: HomePage, cx: &mut Context<Self>) -> bool {
         if !self.annotation_navigation_allowed(cx) {
-            return;
+            return false;
+        }
+        if page != HomePage::Library {
+            // Leaving the library stops in-flight preview work; returning re-requests it.
+            self.covers.cancel();
         }
         self.tool_settings.dismiss();
-        self.covers.clear(cx);
         self.page_task = None;
         self.reading.cancel();
         self.raster.cancel();
@@ -378,9 +405,11 @@ impl Breeze {
         self.search_open = false;
         self.search_restore_document_panel_open = None;
         self.screen = Screen::Home;
+        self.home_page = page;
         self.generation += 1;
         self.loading = false;
         cx.notify();
+        true
     }
     fn open_book(&mut self, index: usize, cx: &mut Context<Self>) {
         if !self.annotation_navigation_allowed(cx) {
@@ -694,9 +723,8 @@ impl Render for Breeze {
                 .into_any_element()
         } else {
             match self.screen {
-                Screen::Home => self.home(cx).into_any_element(),
+                Screen::Home => self.home(window, cx).into_any_element(),
                 Screen::Reader => self.reader(window, cx).into_any_element(),
-                Screen::Settings => self.settings(cx).into_any_element(),
             }
         };
         column()

@@ -7,6 +7,7 @@ The user accepted the compact prototype's general layout on September 29, 2026. 
 - No application branding block, welcome poster, decorative sidebar footer, or redundant document-information card.
 - Document tabs occupy the native GPUI Kit TitleBar; do not stack a second title bar beneath OS chrome.
 - Home, Open, Settings, theme, and other global commands use icon buttons with accessibility labels and tooltips.
+- Home owns every global page. Library, About, Shortcuts, and Settings share one compact sidebar and one content area.
 - Keep necessary text on document tabs, navigation tabs, and Reading/Annotate/Edit mode tabs.
 - Use restrained separators, small radii, a 4-pixel spacing system, and no decorative glass/gradient effects.
 
@@ -49,6 +50,29 @@ Title search opens a separate 34 px row below the unchanged 38 px header. It sha
 The page itself retains the document's font and colors. UI density changes do not edit PDF content.
 
 ## Home and reader behavior
+
+Home is the single global navigation surface. Its fixed-width sidebar keeps the
+library filters and categories in a scrollable region and puts three compact icon
+buttons at the bottom edge: About (`info`), Shortcuts (`keyboard`), and Settings
+(`settings`). Exactly one of the four Home pages is visible at a time, and the
+active entry is highlighted. Selecting a library filter or category returns to the
+library page, so filters stay usable from any page. The titlebar Home button selects
+the library page; the titlebar Settings button selects the Settings page. Nothing
+outside Home duplicates these pages.
+
+About shows the bundled Breeze logo, the application name, the installed version,
+the update check with its localized status, the author, and the public repository
+address. The brand tile is decoded once from `assets/brand/breeze-icon.png` into a
+bounded BGRA texture; it is never fetched over the network. An available release
+still offers its GitHub page, and the window-level update banner is suppressed while
+a non-library Home page already shows that state.
+
+Shortcuts lists the registered bindings through `Kbd::binding_for_action` and
+`Kbd::global_binding_for_action`, so the page cannot invent or drift from a real
+binding. Rows whose action has no registered binding are omitted, and one muted line
+states that custom shortcuts are not supported yet. Settings keeps a title and one
+control per row; explanatory subtitles are not added for their own sake. The update
+*policy* stays in Settings while the *check* action and its result live in About.
 
 Home provides compact list and cover-grid views with recent/favorite/category filters. Library entries refer to original files; do not silently import copies. New libraries are empty. Legacy sample entries remain ordinary removable entries to preserve reading state and annotations. Both views use real first-page thumbnails, loaded only for visible entries, and share the same document actions. Grid metadata is centered and action icons appear only on card hover. Empty results use a minimal Kit Empty with an icon and “No documents”, without descriptions or extra actions.
 

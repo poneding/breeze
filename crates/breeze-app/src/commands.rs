@@ -97,13 +97,8 @@ impl Breeze {
         } else if action.as_any().is::<Home>() {
             self.show_home(cx);
         } else if action.as_any().is::<Preferences>() {
-            if !self.annotation_navigation_allowed(cx) {
-                return;
-            }
-            self.tool_settings.dismiss();
-            self.covers.cancel();
-            self.screen = Screen::Settings;
-            cx.notify();
+            // Settings is a Home page; the sidebar keeps global navigation visible.
+            self.show_home_page(HomePage::Settings, cx);
         } else if action.as_any().is::<CycleTheme>() {
             self.set_appearance(self.theme_preference.next(cx), window, cx);
         } else if action.as_any().is::<ToggleFullScreen>() {
@@ -427,7 +422,9 @@ impl Breeze {
                     .pr_2()
                     .child(
                         self.command("home-tab", IconName::House, tr!("主页"), &Home, cx)
-                            .selected(self.screen == Screen::Home),
+                            .selected(
+                                self.screen == Screen::Home && self.home_page == HomePage::Library,
+                            ),
                     )
                     .child(
                         row()
@@ -511,7 +508,10 @@ impl Breeze {
                                     &Preferences,
                                     cx,
                                 )
-                                .selected(self.screen == Screen::Settings),
+                                .selected(
+                                    self.screen == Screen::Home
+                                        && self.home_page == HomePage::Settings,
+                                ),
                             ),
                     ),
             )

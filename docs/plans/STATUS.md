@@ -13,6 +13,32 @@ Library presentation refinements are tracked item by item in [work package 10](1
 
 Phase 2 implements annotation recovery and gesture ownership. Transient I/O failures can be retried, source and sidecar conflicts remain distinct, validated annotations from a stale-fingerprint sidecar are retained but hidden, and recovery copies preserve that original fingerprint. Explicit reassociation requires confirmation, checks page bounds and rechecks the source fingerprint during publication; explicit discard restores only the in-memory saved snapshot. Close attempts route users to the affected document's annotation panel. Mode and navigation changes clear active gestures. Regression tests cover these conflict, persistence, stale-dialog, close and gesture paths. Formatting, the workspace suite (116 app tests, 11 core, 19 PDF, 3 PDF integration and 7 storage tests passed; three existing PDF probes ignored), Clippy with warnings denied, and isolated app startup pass. The upstream `block 0.1.6` future-incompatibility notice remains. A native macOS capture confirmed the retained annotation, hidden stale coordinates, conflict message and recovery actions with the PDF page still rendered. Reassociation entered its confirmation flow; component tests cover confirmation/cancellation and file-picker behavior. Windows/Linux runtime checks are pending. See [work package 13](13-review-remediation.md). Rendering diagnostics and later product/release gates remain pending.
 
+Phase 3 rendering-integrity changes are implemented and awaiting native acceptance. Audited failed image/inline-image/ImageMask, Form, mask and shading operations no longer produce successful incomplete rasters. Full-page, thumbnail and device-tile requests carry page-numbered errors; the UI exposes a bounded page error and persistent status message, and navigation to good pages recovers. Reading preflight explicitly rejects non-default or invalid leaf-page UserUnit; default units keep the original annotation-coordinate model and align with export's supported boundary. Both the working checkout and isolated candidate pass formatting, 172 workspace tests (three existing probes ignored) and all-target Clippy; isolated startup also passes. Independent Poppler checks confirm unchanged source/export backgrounds and CropBox/rotation dimensions. Native error-panel inspection is blocked by a locked macOS session (`CGSSessionScreenIsLocked=true`), so this phase remains uncommitted; startup and component tests do not replace native acceptance. See [work package 13](13-review-remediation.md) for evidence and remaining fidelity/platform gates.
+
+## Home navigation, About, and Shortcuts — October 12, 2026
+
+[Work package 18](18-home-navigation.md) consolidates global pages into Home.
+`Screen::Settings` is gone; `HomePage` selects the library, About, Shortcuts, or
+Settings page inside the Home content area. The sidebar keeps library filters and
+categories scrollable and adds About (`info`), Shortcuts (`keyboard`), and Settings
+(`settings`) icon buttons along its bottom edge. The titlebar Settings button and
+Primary+, select the Settings page; the titlebar Home button and Primary+Shift+H
+select the library page.
+
+About shows the bundled logo, application name, installed version, update check and
+localized status, author, and repository address. Shortcuts lists real bindings
+resolved from `Kbd::binding_for_action` / `Kbd::global_binding_for_action` and omits
+actions without a registered binding; custom shortcut editing remains unavailable.
+Settings was reduced to title-plus-control rows: the appearance/data-directory/GPUI
+Kit subtitles, the inline shortcut note, and the inline version line were removed.
+
+Validation: `cargo fmt --all -- --check`, the workspace suite (123 app tests plus
+core, PDF, storage and packaging tests; three existing PDF probes ignored), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. Native macOS
+inspection confirmed the library, About, Shortcuts, and Settings pages, sidebar
+selection, and titlebar Settings activation. The upstream `block 0.1.6`
+future-incompatibility notice remains. Windows/Linux runtime checks are pending.
+
 ## Current implementation
 
 | Area | Delivered behavior |

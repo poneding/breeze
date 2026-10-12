@@ -97,7 +97,7 @@ fn commands_and_input_keys_work(cx: &mut TestAppContext) {
         window.press("secondary-=", cx);
         assert_eq!(view.read(cx).books[0].state.zoom, Zoom::Percent(125));
         window.press("secondary-,", cx);
-        assert!(view.read(cx).screen == Screen::Settings);
+        assert!(view.read(cx).home_page == HomePage::Settings);
         window.press("secondary-shift-h", cx);
         assert!(view.read(cx).screen == Screen::Home);
     })
@@ -141,7 +141,8 @@ fn titlebar_and_theme_dropdown_stay_in_sync(cx: &mut TestAppContext) {
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
         window.click("settings", cx);
-        assert!(view.read(cx).screen == Screen::Settings);
+        let view_state = view.read(cx);
+        assert!(view_state.screen == Screen::Home && view_state.home_page == HomePage::Settings);
         window.render_frame(cx);
         window.click("theme-select", cx);
         window.press("down", cx);
@@ -201,6 +202,55 @@ fn titlebar_and_theme_dropdown_stay_in_sync(cx: &mut TestAppContext) {
         );
         window.click("home-tab", cx);
         assert!(view.read(cx).screen == Screen::Home);
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| view.show_home(cx));
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).home_page, HomePage::Library);
+        assert!(window.find("library-sidebar").visible());
+        assert!(window.find("home-footer").visible());
+        assert!(window.find(("library-open", 0usize)).visible());
+
+        window.click("home-info", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).home_page, HomePage::Info);
+        assert!(window.find("about-body").visible());
+        assert!(window.find("brand-tile").visible());
+        assert!(window.find("check-updates").visible());
+        assert!(window.find("open-repository").visible());
+        // The library stays reachable while a global page is open.
+        assert!(window.find("library-sidebar").visible());
+
+        window.click("home-shortcuts", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).home_page, HomePage::Shortcuts);
+        assert!(window.find("shortcuts-body").visible());
+
+        window.click("home-settings", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).home_page, HomePage::Settings);
+        assert!(window.find("theme-select").visible());
+        assert!(window.find("remember-files").visible());
+        // Row-by-row explanations are gone; the update status lives in Info.
+        assert!(window.try_find("update-status").is_none());
+
+        window.click(("library-nav", 0usize), cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).home_page, HomePage::Library);
+        assert!(window.find(("library-open", 0usize)).visible());
+
+        // The titlebar command activates the same Settings entry.
+        window.click("settings", cx);
+        window.render_frame(cx);
+        let state = view.read(cx);
+        assert_eq!(state.screen, Screen::Home);
+        assert_eq!(state.home_page, HomePage::Settings);
     })
     .unwrap();
 }
@@ -1162,7 +1212,8 @@ fn document_tabs_compress_without_covering_titlebar_actions(cx: &mut TestAppCont
                 }
                 previous_width = Some(first.size.width);
                 window.click("settings", cx);
-                assert!(view.read(cx).screen == Screen::Settings);
+                let state = view.read(cx);
+                assert!(state.screen == Screen::Home && state.home_page == HomePage::Settings);
             })
             .unwrap();
         }

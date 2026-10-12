@@ -119,7 +119,9 @@ mod tests {
     fn every_literal_call_has_a_catalog_entry() {
         let files = [
             include_str!("main.rs"),
+            include_str!("about.rs"),
             include_str!("settings.rs"),
+            include_str!("shortcuts.rs"),
             include_str!("reader.rs"),
             include_str!("home.rs"),
             include_str!("commands.rs"),

@@ -58,7 +58,7 @@ impl LibraryCovers {
 }
 impl Breeze {
     pub(super) fn defer_covers(&mut self, sources: Vec<Source>, cx: &mut Context<Self>) {
-        if self.screen != Screen::Home {
+        if !self.browsing_library() {
             return;
         }
         // One thumbnail is bounded to 120,000 BGRA pixels in the PDF worker.
@@ -77,7 +77,7 @@ impl Breeze {
         let view = cx.entity();
         cx.defer(move |cx| {
             view.update(cx, |this, cx| {
-                if this.screen == Screen::Home
+                if this.browsing_library()
                     && this.covers.epoch == epoch
                     && let Some(sources) = this.covers.pending.take()
                 {
@@ -89,7 +89,7 @@ impl Breeze {
         });
     }
     fn pump_covers(&mut self, cx: &mut Context<Self>) {
-        if self.screen != Screen::Home || self.covers.busy {
+        if !self.browsing_library() || self.covers.busy {
             return;
         }
         let Some(source) = self
@@ -125,7 +125,7 @@ impl Breeze {
         self.covers.task = Some(cx.spawn(async move |this, cx| {
             let result = request.await;
             let _ = this.update(cx, |this, cx| {
-                if this.screen != Screen::Home || this.covers.epoch != epoch {
+                if !this.browsing_library() || this.covers.epoch != epoch {
                     return;
                 }
                 this.covers.busy = false;
@@ -229,7 +229,7 @@ mod tests {
                 assert!(view.library_grid);
                 view.defer_covers(vec![Source::File("never-read.pdf".into())], cx);
                 view.covers.cancel();
-                view.screen = Screen::Settings;
+                view.home_page = HomePage::Info;
             });
         })
         .unwrap();
