@@ -419,3 +419,10 @@ The isolated phase on the current committed base passes formatting, 168 workspac
 Document tabs now use equal 0.5 rem side padding (7.5 logical pixels at the current 15 px rem), including when a short filename sets the preferred width. Width measurement includes both sides; the 40–228 px bounds, hover shadows, divider clearance, and Close fade remain in place. Close is inset by that same padding without reserving a layout slot.
 
 Formatting, the working-checkout workspace suite (173 passed, three existing PDF probes ignored), and all-target Clippy with warnings denied pass. Existing component regressions now check equal content insets on short Latin/Chinese and maximum-width titles, plus Close alignment. Isolated-data `cargo run --locked -p breeze-app` startup and a native macOS capture confirmed the balanced short-title spacing. Review data/screenshots are under `target/tab-balanced-padding/` and excluded from version control; native Windows/Linux checks remain unperformed.
+
+
+## October 12 independent title and Close insets
+
+The title retains a 0.5 rem right inset matching the left icon inset, while the hover Close overlay again sits 2 logical pixels from the tab's right edge. The title's extra padding is applied inside its row so the existing content clip still contains Close. Preferred tab widths, the gradient fade, and hover shadows are unchanged.
+
+Formatting, the workspace suite (173 passed, three existing PDF probes ignored), and all-target Clippy with warnings denied pass. Component regressions check the title inset separately from Close's 2 px alignment. Isolated-data native macOS startup and captures confirmed both the normal short-title spacing and the restored Close-hover position. Review files remain under `target/tab-close-inset/` and are excluded from version control; native Windows/Linux checks remain unperformed.

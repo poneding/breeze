@@ -1082,7 +1082,7 @@ fn tab_close_is_hover_only_and_does_not_activate_its_document(cx: &mut TestAppCo
         assert_eq!(before.size.height, home.size.height);
         assert_eq!(before.origin.y, home.origin.y);
         assert!(close.right() <= before.right());
-        assert_eq!(before.right() - close.right(), window.rem_size() * 0.5);
+        assert_eq!(before.right() - close.right(), px(2.));
         assert_eq!(close.size.width, close.size.height);
         assert!(close.size.height < before.size.height);
         assert!(close.origin.y > before.origin.y);
@@ -1213,9 +1213,10 @@ fn short_document_titles_use_content_width_and_leave_room_for_shadow(cx: &mut Te
         let long = window.find(("document", 2usize)).bounds();
         for (index, tab) in [(0usize, short), (1, unicode), (2, long)] {
             let content = window.find(("document-tab-content", index)).bounds();
+            let title = window.find(("document-tab-title", index)).bounds();
             let padding = window.rem_size() * 0.5;
             assert!((content.left() - tab.left() - padding).abs() < px(0.5));
-            assert!((tab.right() - content.right() - padding).abs() < px(0.5));
+            assert!((tab.right() - title.right() - padding).abs() < px(0.5));
         }
         assert!(short.size.width >= px(40.) && short.size.width < px(128.));
         assert!(unicode.size.width >= px(40.) && unicode.size.width < px(128.));

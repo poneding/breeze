@@ -352,7 +352,8 @@ impl Breeze {
             .w(width)
             .min_w(px(40.))
             .max_w(px(228.))
-            .px_2()
+            .pl_2()
+            .pr(px(2.))
             .accessibility_label(book.title.clone())
             .tooltip(book.title.clone())
             // Custom variants tint their base color; keep this token exact.
@@ -371,6 +372,8 @@ impl Breeze {
                     .size_full()
                     .min_w_0()
                     .gap_1()
+                    // Inset the title while keeping the absolute Close overlay near the edge.
+                    .pr(theme.font_size * 0.5 - px(2.))
                     .child(document_icons::file_icon(&book.source, cx).flex_shrink_0())
                     .child(
                         div()
