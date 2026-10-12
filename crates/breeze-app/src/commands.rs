@@ -358,6 +358,11 @@ impl Breeze {
 
     pub(super) fn header(&self, cx: &mut Context<Self>) -> TitleBar {
         let p = self.p(cx);
+        let open_count = self.books.iter().filter(|book| book.opened).count();
+        // Prefer full tab widths, then shrink only this strip when space runs out.
+        let tab_strip_width = px(4.)
+            + px(228.) * open_count as f32
+            + Theme::global(cx).font_size * 0.25 * open_count.saturating_sub(1) as f32;
         TitleBar::new()
             .on_close_window(cx.listener(|this, _, window, cx| {
                 if this.request_close(window, cx) {
@@ -384,22 +389,57 @@ impl Breeze {
                     )
                     .child(
                         row()
-                            .id("document-tabs")
-                            .test_support()
+                            .id("document-tab-group")
                             .h_full()
                             .w_0()
                             .flex_1()
                             .min_w_0()
-                            .overflow_x_scroll()
-                            // Keep the first tab's shadow inside the scroll clip.
-                            .pl(px(4.))
                             .gap_1()
-                            .children(
-                                self.books
-                                    .iter()
-                                    .enumerate()
-                                    .filter(|(_, book)| book.opened)
-                                    .map(|(index, _)| self.document_tab(index, cx)),
+                            .child(
+                                row()
+                                    .id("document-tabs")
+                                    .test_support()
+                                    .h_full()
+                                    .w_0()
+                                    .flex_1()
+                                    .max_w(tab_strip_width)
+                                    .min_w_0()
+                                    .overflow_x_scroll()
+                                    // Keep the first tab's shadow inside the scroll clip.
+                                    .pl(px(4.))
+                                    .gap_1()
+                                    .children(
+                                        self.books
+                                            .iter()
+                                            .enumerate()
+                                            .filter(|(_, book)| book.opened)
+                                            .map(|(index, _)| self.document_tab(index, cx)),
+                                    ),
+                            )
+                            .child(
+                                row()
+                                    .id("document-tab-add")
+                                    .test_support()
+                                    .flex_shrink_0()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .id("document-tab-divider")
+                                            .test_support()
+                                            .w(px(1.))
+                                            .h(px(14.))
+                                            .bg(p.line),
+                                    )
+                                    .child(
+                                        self.command(
+                                            "add-document",
+                                            IconName::Plus,
+                                            tr!("打开文档"),
+                                            &Open,
+                                            cx,
+                                        )
+                                        .text_color(p.muted),
+                                    ),
                             ),
                     )
                     .child(
@@ -408,13 +448,6 @@ impl Breeze {
                             .test_support()
                             .flex_shrink_0()
                             .gap_1()
-                            .child(self.command(
-                                "open",
-                                IconName::FilePlusCorner,
-                                tr!("打开文档"),
-                                &Open,
-                                cx,
-                            ))
                             .child(self.command(
                                 "theme",
                                 if self.theme_preference == ThemePreference::System {

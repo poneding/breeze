@@ -13,7 +13,7 @@ The user accepted the compact prototype's general layout on September 29, 2026. 
 ## Layout and density
 
 ```text
-Native title bar: window controls | Home | document tabs | Open | theme | Settings
+Native title bar: window controls | Home | document tabs | divider | Plus | theme | Settings
 +---------------------------+---------------------------------------------------+
 | Outline / Thumbnails tabs | Reading / Annotate / Edit + contextual tools       |
 |                           +---------------------------------------------------+
@@ -124,7 +124,7 @@ In addition to component tests, inspect titlebar dragging/double-click/window co
 
 Use Kit Small controls instead of XSmall: the default 15 px rem gives global icon buttons a 22.5 px hit box. Keep the title bar, toolbar, navigation header, and status bar heights unchanged. Left alignment must be applied to a full-width child row inside Kit Button; outer `justify_start` alone does not override the component's centered content container.
 
-Document tabs have one four-corner rounded surface, a theme-background active fill with a small shadow, and no inter-tab separators. Home and the right-side Open/theme/Settings group retain their control widths; Kit's Windows/Linux window controls occupy their own sibling region. Tabs divide the remaining width equally, up to 228 logical pixels each, and compress as more documents open or the window narrows. At the 40 px minimum, excess tabs scroll within that bounded region. Preserve 4 px of leading space for the first tab's shadow.
+Document tabs have one four-corner rounded surface, a theme-background active fill with a small shadow, and no inter-tab separators. Home, the tab group's trailing divider/Plus control, and the right-side theme/Settings group retain their control widths; Kit's Windows/Linux window controls occupy their own sibling region. Tabs divide the remaining width equally, up to 228 logical pixels each, and compress as more documents open or the window narrows. At the 40 px minimum, excess tabs scroll within that bounded region. Preserve 4 px of leading space for the first tab's shadow. A single 1 × 14 px divider and Plus button follow the visible tab region, including when it is empty. Plus opens the document picker, uses muted foreground at rest and ordinary button foreground/background on hover, and is never part of the scrolling content. The old right-side Open button is removed.
 
 Close is an inset, hover-only overlay rather than a reserved layout slot. Text uses the full available width and does not reflow on hover; a 12 px transparent-to-surface gradient fades it into the solid area around the 18.5 px Close button. Close retains independent feedback and never activates its document. The parent tab keeps its hover surface over the overlay. Primary+W remains available without hovering.
 

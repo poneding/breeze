@@ -20,6 +20,7 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 |---|---|---|
 | Home | `house` | `House` |
 | Open file | `file-plus-corner` | `FilePlusCorner` |
+| Add document after titlebar tabs | `plus` | `Plus` |
 | Document tab | `file-text` | `FileText` |
 | Close tab | `x` | `X` |
 | Settings | `settings` | `Settings` |

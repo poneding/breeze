@@ -1044,7 +1044,7 @@ fn tab_close_is_hover_only_and_does_not_activate_its_document(cx: &mut TestAppCo
 #[gpui_kit::test]
 fn document_tabs_compress_without_covering_titlebar_actions(cx: &mut TestAppContext) {
     let (handle, view) = app(cx);
-    for count in [3usize, 16, 60] {
+    for count in [1usize, 3, 16, 60] {
         cx.update_window(handle, |_, _, cx| {
             view.update(cx, |view, _| {
                 view.books.truncate(1);
@@ -1071,11 +1071,21 @@ fn document_tabs_compress_without_covering_titlebar_actions(cx: &mut TestAppCont
                 let content = window.find("titlebar-content").bounds();
                 let tabs = window.find("document-tabs").bounds();
                 let actions = window.find("titlebar-actions").bounds();
+                let add = window.find("document-tab-add").bounds();
+                let plus = window.find("add-document");
+                let divider = window.find("document-tab-divider").bounds();
                 let first = window.find(("document", 0usize)).bounds();
                 assert!(content.right() <= px(width), "{count} tabs at {width}px");
                 assert!(tabs.right() <= actions.left());
                 assert!(actions.right() <= content.right());
-                for id in ["open", "theme", "settings"] {
+                assert!(tabs.right() <= add.left());
+                assert!(add.left() - tabs.right() <= px(4.));
+                assert!(add.right() <= actions.left());
+                assert!(plus.visible());
+                assert!(divider.right() <= plus.bounds().left());
+                assert!(plus.bounds().right() <= add.right());
+                assert!(window.try_find("open").is_none());
+                for id in ["theme", "settings"] {
                     let button = window.find(id);
                     assert!(button.visible());
                     assert!(button.bounds().left() >= actions.left());
@@ -1097,6 +1107,20 @@ fn document_tabs_compress_without_covering_titlebar_actions(cx: &mut TestAppCont
             .unwrap();
         }
     }
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            for book in &mut view.books {
+                book.opened = false;
+            }
+        });
+        window.render_frame(cx);
+        assert!(window.find("add-document").visible());
+        assert!(window.find("document-tabs").bounds().size.width <= px(4.));
+        window.click("add-document", cx);
+    })
+    .unwrap();
+    assert!(cx.did_prompt_for_paths());
+    cx.simulate_path_prompt_response(|_| None);
 }
 
 #[gpui_kit::test]
