@@ -32,12 +32,24 @@ actions without a registered binding; custom shortcut editing remains unavailabl
 Settings was reduced to title-plus-control rows: the appearance/data-directory/GPUI
 Kit subtitles, the inline shortcut note, and the inline version line were removed.
 
-Validation: `cargo fmt --all -- --check`, the workspace suite (123 app tests plus
+A follow-up pass stacked the sidebar entries full-width in the order Shortcuts
+(Primary+K), About (Primary+I), and Settings (Primary+,), with shortcut tooltips
+resolved from the real bindings. The three global pages share a bounded, centered
+column that leaves clearance before the scroll clip; About is centered on both axes
+and shows `Pone Ding<poneding@gmail.com>`. Settings dropped the "Never" update
+policy, and state version 8 keeps older snapshots valid by mapping the retired value
+to Manual.
+
+Validation: `cargo fmt --all -- --check`, the workspace suite (126 app tests plus
 core, PDF, storage and packaging tests; three existing PDF probes ignored), and
 `cargo clippy --workspace --all-targets --locked -- -D warnings` pass. Native macOS
-inspection confirmed the library, About, Shortcuts, and Settings pages, sidebar
-selection, and titlebar Settings activation. The upstream `block 0.1.6`
-future-incompatibility notice remains. Windows/Linux runtime checks are pending.
+inspection before the screen locked confirmed the library and the first-pass About,
+Shortcuts, and Settings pages with sidebar selection and titlebar Settings
+activation. Visual inspection of the refined stacked layout was **not** performed:
+the macOS session locked at 23:49 on October 12, and captures after that point
+returned a stale frame. The layout claims rest on component tests until the screen
+is unlocked. The upstream `block 0.1.6` future-incompatibility notice remains.
+Windows/Linux runtime checks are pending.
 
 ## Current implementation
 

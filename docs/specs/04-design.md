@@ -52,13 +52,22 @@ The page itself retains the document's font and colors. UI density changes do no
 ## Home and reader behavior
 
 Home is the single global navigation surface. Its fixed-width sidebar keeps the
-library filters and categories in a scrollable region and puts three compact icon
-buttons at the bottom edge: About (`info`), Shortcuts (`keyboard`), and Settings
-(`settings`). Exactly one of the four Home pages is visible at a time, and the
+library filters and categories in a scrollable region and stacks three full-width
+entries at the bottom edge in this order: Shortcuts (`keyboard`, Primary+K), About
+(`info`, Primary+I), and Settings (`settings`, Primary+,). Each entry is a real
+command, so its tooltip shows the bound shortcut, with Control replacing Command on
+Windows and Linux. Exactly one of the four Home pages is visible at a time and the
 active entry is highlighted. Selecting a library filter or category returns to the
 library page, so filters stay usable from any page. The titlebar Home button selects
 the library page; the titlebar Settings button selects the Settings page. Nothing
 outside Home duplicates these pages.
+
+Shortcuts, About, and Settings share one bounded reading column: at most 720 logical
+pixels wide, centered once the window is wider, with a small inset before the scroll
+clip so an active control border is not cut off. About is vertically centered as
+well. Its logo, name, version, update row, and credits are center-aligned rather than
+left-aligned; each credit stacks its muted label above its value so the two share a
+center line. The author is shown as `Pone Ding<poneding@gmail.com>`.
 
 About shows the bundled Breeze logo, the application name, the installed version,
 the update check with its localized status, the author, and the public repository
@@ -72,7 +81,9 @@ Shortcuts lists the registered bindings through `Kbd::binding_for_action` and
 binding. Rows whose action has no registered binding are omitted, and one muted line
 states that custom shortcuts are not supported yet. Settings keeps a title and one
 control per row; explanatory subtitles are not added for their own sake. The update
-*policy* stays in Settings while the *check* action and its result live in About.
+*policy* stays in Settings, now limited to Manual and Automatic, while the *check*
+action and its result live in About. Version-8 state maps the retired "Never" policy
+to Manual on read; older snapshots carrying it still validate.
 
 Home provides compact list and cover-grid views with recent/favorite/category filters. Library entries refer to original files; do not silently import copies. New libraries are empty. Legacy sample entries remain ordinary removable entries to preserve reading state and annotations. Both views use real first-page thumbnails, loaded only for visible entries, and share the same document actions. Grid metadata is centered and action icons appear only on card hover. Empty results use a minimal Kit Empty with an icon and “No documents”, without descriptions or extra actions.
 

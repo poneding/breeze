@@ -206,7 +206,7 @@ fn update_controls_and_notifications_follow_language_and_state(cx: &mut TestAppC
     cx.update_window(handle, |_, window, cx| {
         view.update(cx, |view, cx| {
             view.screen = Screen::Home;
-            view.home_page = HomePage::Info;
+            view.home_page = HomePage::About;
             view.language = 1;
             view.refresh_language(window, cx);
             assert!(view.updates.begin(false, 0));

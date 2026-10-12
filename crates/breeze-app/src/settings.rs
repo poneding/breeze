@@ -29,8 +29,7 @@ impl Breeze {
                 cx.notify();
             }))
             .child(Tab::new().label(tr!("手动")))
-            .child(Tab::new().label(tr!("自动检查")))
-            .child(Tab::new().label(tr!("从不")));
+            .child(Tab::new().label(tr!("自动检查")));
         let window_policy = TabBar::new("window-policy")
             .segmented()
             .small()
@@ -42,70 +41,69 @@ impl Breeze {
             .child(Tab::new().label(tr!("默认")))
             .child(Tab::new().label(tr!("最大化")))
             .child(Tab::new().label(tr!("适合文档")));
-        column()
-            .id("settings-body")
-            .test_support()
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .gap_1()
-            .child(
-                div()
-                    .text_size(px(16.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .mb_2()
-                    .child(tr!("设置")),
-            )
-            .when(
-                self.storage_error.is_some() && self.storage.is_some(),
-                |d| {
-                    d.child(
-                        Button::new("retry-state-save")
-                            .small()
-                            .label(tr!("重试保存本地状态"))
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.storage_ready = true;
-                                this.last_snapshot = None;
-                                this.persist_if_changed(cx);
-                                cx.notify();
-                            })),
-                    )
-                },
-            )
-            .child(Self::setting_row(tr!("主题"), theme, p))
-            .child(Self::setting_row(tr!("界面语言"), language, p))
-            .child(Self::setting_row(tr!("检查更新"), updates, p))
-            .child(Self::setting_row(tr!("打开文件时的窗口"), window_policy, p))
-            .child(Self::setting_row(
-                tr!("记住上次打开的文件"),
-                Switch::new("remember-files")
-                    .small()
-                    .checked(self.remember_files)
-                    .on_change(cx.listener(|this, value, _, cx| {
-                        this.remember_files = *value;
-                        cx.notify();
-                    })),
-                p,
-            ))
-            .child(Self::setting_row(
-                tr!("记住阅读位置"),
-                Switch::new("remember-position")
-                    .small()
-                    .checked(self.remember_position)
-                    .on_change(cx.listener(|this, value, _, cx| {
-                        this.remember_position = *value;
-                        cx.notify();
-                    })),
-                p,
-            ))
-            .child(Self::setting_row(
-                tr!("默认打开工具"),
-                Button::new("file-association")
-                    .small()
-                    .label(tr!("系统关联 · 待接入"))
-                    .disabled(true),
-                p,
-            ))
+        Breeze::page_frame(
+            "settings-body",
+            column()
+                .w_full()
+                .gap_1()
+                .child(
+                    div()
+                        .text_size(px(16.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .mb_2()
+                        .child(tr!("设置")),
+                )
+                .when(
+                    self.storage_error.is_some() && self.storage.is_some(),
+                    |d| {
+                        d.child(
+                            Button::new("retry-state-save")
+                                .small()
+                                .label(tr!("重试保存本地状态"))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.storage_ready = true;
+                                    this.last_snapshot = None;
+                                    this.persist_if_changed(cx);
+                                    cx.notify();
+                                })),
+                        )
+                    },
+                )
+                .child(Self::setting_row(tr!("主题"), theme, p))
+                .child(Self::setting_row(tr!("界面语言"), language, p))
+                .child(Self::setting_row(tr!("检查更新"), updates, p))
+                .child(Self::setting_row(tr!("打开文件时的窗口"), window_policy, p))
+                .child(Self::setting_row(
+                    tr!("记住上次打开的文件"),
+                    Switch::new("remember-files")
+                        .small()
+                        .checked(self.remember_files)
+                        .on_change(cx.listener(|this, value, _, cx| {
+                            this.remember_files = *value;
+                            cx.notify();
+                        })),
+                    p,
+                ))
+                .child(Self::setting_row(
+                    tr!("记住阅读位置"),
+                    Switch::new("remember-position")
+                        .small()
+                        .checked(self.remember_position)
+                        .on_change(cx.listener(|this, value, _, cx| {
+                            this.remember_position = *value;
+                            cx.notify();
+                        })),
+                    p,
+                ))
+                .child(Self::setting_row(
+                    tr!("默认打开工具"),
+                    Button::new("file-association")
+                        .small()
+                        .label(tr!("系统关联 · 待接入"))
+                        .disabled(true),
+                    p,
+                )),
+        )
     }
 
     fn setting_row(title: &str, control: impl IntoElement, p: Palette) -> Div {

@@ -229,7 +229,7 @@ mod tests {
                 assert!(view.library_grid);
                 view.defer_covers(vec![Source::File("never-read.pdf".into())], cx);
                 view.covers.cancel();
-                view.home_page = HomePage::Info;
+                view.home_page = HomePage::About;
             });
         })
         .unwrap();

@@ -89,7 +89,9 @@ actions!(
         CycleLayout,
         RotateLeft,
         RotateRight,
-        ToggleFullScreen
+        ToggleFullScreen,
+        ShowAbout,
+        ShowShortcuts
     ]
 );
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,7 +103,7 @@ enum Screen {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HomePage {
     Library,
-    Info,
+    About,
     Shortcuts,
     Settings,
 }
@@ -738,6 +740,14 @@ impl Render for Breeze {
                 cx.listener(|this, action: &Open, window, cx| this.execute(action, window, cx)),
             )
             .on_action(cx.listener(|this, action: &Preferences, window, cx| {
+                this.execute(action, window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, action: &ShowAbout, window, cx| {
+                    this.execute(action, window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, action: &ShowShortcuts, window, cx| {
                 this.execute(action, window, cx)
             }))
             .on_action(

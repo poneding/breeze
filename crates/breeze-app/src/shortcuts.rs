@@ -57,6 +57,8 @@ pub(super) fn groups() -> Vec<(&'static str, Vec<Shortcut>)> {
             vec![
                 row(tr!("主页"), vec![&Home]),
                 row(tr!("设置"), vec![&Preferences]),
+                row(tr!("关于"), vec![&ShowAbout]),
+                row(tr!("快捷键"), vec![&ShowShortcuts]),
                 row(tr!("展开 / 收起导航"), vec![&ToggleSidebar]),
                 row(tr!("展开 / 收起文档侧栏"), vec![&ToggleDocumentPanel]),
                 row(tr!("收藏 / 取消收藏"), vec![&Favorite]),
@@ -80,39 +82,38 @@ fn key_chips(window: &Window, actions: &[&dyn Action]) -> Vec<Kbd> {
 impl Breeze {
     pub(super) fn shortcuts_page(&self, window: &Window, cx: &Context<Self>) -> impl IntoElement {
         let p = self.p(cx);
-        column()
-            .id("shortcuts-body")
-            .test_support()
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
-            .gap_4()
-            .child(
-                div()
-                    .text_size(px(16.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .child(tr!("快捷键")),
-            )
-            .children(groups().into_iter().filter_map(|(title, rows)| {
-                // Actions without a registered binding are omitted, never invented.
-                let rows: Vec<_> = rows
-                    .into_iter()
-                    .map(|shortcut| (shortcut.label, key_chips(window, &shortcut.actions)))
-                    .filter(|(_, chips)| !chips.is_empty())
-                    .collect();
-                (!rows.is_empty()).then(|| {
-                    column().gap_1().child(style::eyebrow(title, p)).children(
-                        rows.into_iter()
-                            .map(|(label, chips)| shortcut_row(label, chips)),
-                    )
-                })
-            }))
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(p.muted)
-                    .child(tr!("暂不支持自定义快捷键。")),
-            )
+        Breeze::page_frame(
+            "shortcuts-body",
+            column()
+                .w_full()
+                .gap_4()
+                .child(
+                    div()
+                        .text_size(px(16.))
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .child(tr!("快捷键")),
+                )
+                .children(groups().into_iter().filter_map(|(title, rows)| {
+                    // Actions without a registered binding are omitted, never invented.
+                    let rows: Vec<_> = rows
+                        .into_iter()
+                        .map(|shortcut| (shortcut.label, key_chips(window, &shortcut.actions)))
+                        .filter(|(_, chips)| !chips.is_empty())
+                        .collect();
+                    (!rows.is_empty()).then(|| {
+                        column().gap_1().child(style::eyebrow(title, p)).children(
+                            rows.into_iter()
+                                .map(|(label, chips)| shortcut_row(label, chips)),
+                        )
+                    })
+                }))
+                .child(
+                    div()
+                        .text_size(px(11.))
+                        .text_color(p.muted)
+                        .child(tr!("暂不支持自定义快捷键。")),
+                ),
+        )
     }
 }
 

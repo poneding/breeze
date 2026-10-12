@@ -18,6 +18,8 @@ pub fn bind(cx: &mut App) {
         KeyBinding::new("escape", CancelAnnotationEdit, Some("AnnotationText")),
         KeyBinding::new("secondary-shift-l", CycleLayout, Some("Breeze && !Input")),
         KeyBinding::new("secondary-,", Preferences, Some("Breeze")),
+        KeyBinding::new("secondary-i", ShowAbout, Some("Breeze")),
+        KeyBinding::new("secondary-k", ShowShortcuts, Some("Breeze")),
         KeyBinding::new("secondary-shift-h", Home, Some("Breeze")),
         KeyBinding::new("secondary-w", CloseTab, Some("Breeze")),
         KeyBinding::new("ctrl-tab", NextTab, Some("Breeze")),
@@ -99,6 +101,10 @@ impl Breeze {
         } else if action.as_any().is::<Preferences>() {
             // Settings is a Home page; the sidebar keeps global navigation visible.
             self.show_home_page(HomePage::Settings, cx);
+        } else if action.as_any().is::<ShowAbout>() {
+            self.show_home_page(HomePage::About, cx);
+        } else if action.as_any().is::<ShowShortcuts>() {
+            self.show_home_page(HomePage::Shortcuts, cx);
         } else if action.as_any().is::<CycleTheme>() {
             self.set_appearance(self.theme_preference.next(cx), window, cx);
         } else if action.as_any().is::<ToggleFullScreen>() {
@@ -539,6 +545,8 @@ fn action_label(action: &dyn Action) -> &'static str {
     name!(Open, tr!("打开文档"));
     name!(Home, tr!("主页"));
     name!(Preferences, tr!("设置"));
+    name!(ShowAbout, tr!("关于"));
+    name!(ShowShortcuts, tr!("快捷键"));
     name!(CloseTab, tr!("关闭当前标签"));
     name!(CycleTheme, tr!("切换主题：跟随系统与内置主题"));
     name!(ToggleSidebar, tr!("展开 / 收起导航"));

@@ -239,7 +239,6 @@ catalog! {
     "搜索主题" => ("Search themes", "搜尋主題"),
     "手动" => ("Manual", "手動"),
     "自动检查" => ("Automatic", "自動檢查"),
-    "从不" => ("Never", "從不"),
     "默认" => ("Default", "預設"),
     "最大化" => ("Maximized", "最大化"),
     "适合文档" => ("Fit document", "適合文件"),

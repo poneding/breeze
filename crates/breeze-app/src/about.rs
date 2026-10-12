@@ -2,8 +2,8 @@
 use crate::*;
 use gpui_kit::component::Icon;
 
-const AUTHOR: &str = "poneding";
-/// The tile is displayed at 56 logical pixels; decode once at a bounded size.
+const AUTHOR: &str = "Pone Ding<poneding@gmail.com>";
+/// The tile is displayed at 64 logical pixels; decode once at a bounded size.
 const LOGO_MAX_PIXELS: u32 = 160;
 const LOGO_BYTES: &[u8] = include_bytes!("../../../assets/brand/breeze-icon.png");
 
@@ -30,33 +30,32 @@ pub(super) fn brand_logo() -> Option<Arc<RenderImage>> {
 }
 
 impl Breeze {
+    /// About is a single centered column: identity, update state, then credits.
     pub(super) fn about_page(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.p(cx);
         let version = env!("CARGO_PKG_VERSION");
-        column()
-            .id("about-body")
-            .test_support()
-            .flex_1()
-            .min_h_0()
-            .overflow_y_scroll()
+        let content = column()
+            .w_full()
+            .max_w(px(home::PAGE_MAX_WIDTH))
             .gap_5()
+            .items_center()
+            .child(self.brand_tile(p))
             .child(
-                row().gap_4().child(self.brand_tile(p)).child(
-                    column()
-                        .gap_1()
-                        .child(
-                            div()
-                                .text_size(px(18.))
-                                .font_weight(FontWeight::SEMIBOLD)
-                                .child("Breeze"),
-                        )
-                        .child(
-                            div()
-                                .text_size(px(12.))
-                                .text_color(p.muted)
-                                .child(tf!("版本 {}", version)),
-                        ),
-                ),
+                column()
+                    .gap_1()
+                    .items_center()
+                    .child(
+                        div()
+                            .text_size(px(20.))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child("Breeze"),
+                    )
+                    .child(
+                        div()
+                            .text_size(px(12.))
+                            .text_color(p.muted)
+                            .child(tf!("版本 {}", version)),
+                    ),
             )
             .child(
                 row()
@@ -66,8 +65,7 @@ impl Breeze {
                         div()
                             .id("update-status")
                             .test_support()
-                            .flex_1()
-                            .min_w_0()
+                            .max_w(px(360.))
                             .text_size(px(12.))
                             .text_color(p.muted)
                             .child(self.updates.message()),
@@ -83,33 +81,43 @@ impl Breeze {
             )
             .child(
                 column()
-                    .gap_2()
-                    .child(
-                        row()
-                            .gap_4()
-                            .child(about_label(tr!("作者"), p))
-                            .child(div().text_size(px(12.)).child(AUTHOR)),
-                    )
-                    .child(
-                        row().gap_4().child(about_label(tr!("开源地址"), p)).child(
-                            Button::new("open-repository")
-                                .ghost()
-                                .small()
-                                .icon(IconName::ExternalLink)
-                                .label(updates::REPOSITORY.trim_start_matches("https://"))
-                                .accessibility_label(tr!("打开 GitHub 仓库"))
-                                .tooltip(tr!("打开 GitHub 仓库"))
-                                .on_click(|_, _, cx| cx.open_url(updates::REPOSITORY)),
-                        ),
-                    ),
-            )
+                    .gap_3()
+                    .items_center()
+                    .child(about_credit(
+                        tr!("作者"),
+                        div().text_size(px(12.)).child(AUTHOR.to_string()),
+                        p,
+                    ))
+                    .child(about_credit(
+                        tr!("开源地址"),
+                        Button::new("open-repository")
+                            .ghost()
+                            .small()
+                            .icon(IconName::ExternalLink)
+                            .label(updates::REPOSITORY.trim_start_matches("https://"))
+                            .accessibility_label(tr!("打开 GitHub 仓库"))
+                            .tooltip(tr!("打开 GitHub 仓库"))
+                            .on_click(|_, _, cx| cx.open_url(updates::REPOSITORY)),
+                        p,
+                    )),
+            );
+        column()
+            .id("about-body")
+            .test_support()
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .items_center()
+            .justify_center()
+            .child(content)
     }
+
     fn brand_tile(&self, p: Palette) -> impl IntoElement {
         div()
             .id("brand-tile")
             .test_support()
-            .w(px(56.))
-            .h(px(56.))
+            .w(px(64.))
+            .h(px(64.))
             .flex_shrink_0()
             .flex()
             .items_center()
@@ -117,23 +125,28 @@ impl Breeze {
             .map(|tile| match self.brand_logo.as_ref() {
                 Some(logo) => tile.child(
                     img(logo.clone())
-                        .size(px(56.))
+                        .size(px(64.))
                         .object_fit(ObjectFit::Contain),
                 ),
                 None => tile.child(
                     Icon::new(IconName::BookOpen)
-                        .size(px(28.))
+                        .size(px(32.))
                         .text_color(p.muted),
                 ),
             })
     }
 }
 
-fn about_label(label: &str, p: Palette) -> Div {
-    div()
-        .w(px(64.))
-        .flex_shrink_0()
-        .text_size(px(12.))
-        .text_color(p.muted)
-        .child(label.to_string())
+/// One credit block, stacked so the label and value share the same center line.
+fn about_credit(label: &str, value: impl IntoElement, p: Palette) -> Div {
+    column()
+        .gap_1()
+        .items_center()
+        .child(
+            div()
+                .text_size(px(11.))
+                .text_color(p.muted)
+                .child(label.to_string()),
+        )
+        .child(value)
 }

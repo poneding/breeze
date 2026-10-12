@@ -217,9 +217,9 @@ fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext)
         assert!(window.find("home-footer").visible());
         assert!(window.find(("library-open", 0usize)).visible());
 
-        window.click("home-info", cx);
+        window.click("home-about", cx);
         window.render_frame(cx);
-        assert_eq!(view.read(cx).home_page, HomePage::Info);
+        assert_eq!(view.read(cx).home_page, HomePage::About);
         assert!(window.find("about-body").visible());
         assert!(window.find("brand-tile").visible());
         assert!(window.find("check-updates").visible());
@@ -237,8 +237,14 @@ fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext)
         assert_eq!(view.read(cx).home_page, HomePage::Settings);
         assert!(window.find("theme-select").visible());
         assert!(window.find("remember-files").visible());
-        // Row-by-row explanations are gone; the update status lives in Info.
+        // Row-by-row explanations are gone; the update status lives in About.
         assert!(window.try_find("update-status").is_none());
+        assert!(
+            window
+                .within("settings-body")
+                .try_find("check-updates")
+                .is_none()
+        );
 
         window.click(("library-nav", 0usize), cx);
         window.render_frame(cx);
@@ -251,6 +257,83 @@ fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext)
         let state = view.read(cx);
         assert_eq!(state.screen, Screen::Home);
         assert_eq!(state.home_page, HomePage::Settings);
+
+        // Each sidebar entry is a real command with a bound shortcut.
+        for (id, action) in [
+            ("home-about", &ShowAbout as &dyn Action),
+            ("home-shortcuts", &ShowShortcuts),
+            ("home-settings", &Preferences),
+        ] {
+            assert!(window.find(id).visible());
+            assert!(window.find(id).bounds().size.width >= px(120.));
+            assert!(
+                gpui_kit::component::kbd::Kbd::binding_for_action(action, Some("Breeze"), window)
+                    .is_some(),
+                "{id} must advertise its binding"
+            );
+        }
+        // The three entries stack vertically in the requested order.
+        let shortcuts = window.find("home-shortcuts").bounds();
+        let about = window.find("home-about").bounds();
+        let settings = window.find("home-settings").bounds();
+        assert!(shortcuts.bottom() <= about.top());
+        assert!(about.bottom() <= settings.top());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn home_shortcut_commands_select_their_pages(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.press("secondary-k", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).home_page, HomePage::Shortcuts);
+        window.press("secondary-i", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).home_page, HomePage::About);
+        window.press("secondary-,", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).home_page, HomePage::Settings);
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn global_pages_are_bounded_and_centered(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.simulate_window_resize(handle, size(px(1600.), px(900.)));
+    cx.update_window(handle, |_, window, cx| {
+        for page in [HomePage::Shortcuts, HomePage::Settings] {
+            view.update(cx, |view, cx| view.show_home_page(page, cx));
+            window.render_frame(cx);
+            let content = window.find("home-content").bounds();
+            assert!(content.size.width > px(home::PAGE_MAX_WIDTH));
+            let page_bounds = if page == HomePage::Shortcuts {
+                window.find("shortcuts-body").bounds()
+            } else {
+                window.find("settings-body").bounds()
+            };
+            assert!(page_bounds.size.width <= px(home::PAGE_MAX_WIDTH) + px(1.));
+            let left_gap = page_bounds.left() - content.left();
+            let right_gap = content.right() - page_bounds.right();
+            assert!(
+                (left_gap - right_gap).abs() < px(2.),
+                "{page:?} must be centered: {left_gap:?} vs {right_gap:?}"
+            );
+            // Controls keep clear of the clip edge so active borders stay visible.
+            assert!(content.right() - page_bounds.right() >= px(1.));
+        }
+        view.update(cx, |view, cx| view.show_home_page(HomePage::About, cx));
+        window.render_frame(cx);
+        let body = window.find("about-body").bounds();
+        let tile = window.find("brand-tile").bounds();
+        let repo = window.find("open-repository").bounds();
+        assert!((tile.center().x - body.center().x).abs() < px(2.));
+        assert!((repo.center().x - body.center().x).abs() < px(2.));
+        assert!(tile.center().y - body.top() > px(80.));
+        assert!(body.bottom() - repo.bottom() > px(80.));
     })
     .unwrap();
 }
@@ -745,7 +828,7 @@ fn categories_are_user_owned_and_layout_roundtrips(cx: &mut TestAppContext) {
             assert_eq!(view.categories.len(), 1);
             assert_eq!(view.categories[0].id, 2);
             assert_eq!(view.books[0].categories, vec![2]);
-            assert_eq!(view.snapshot().version, 7);
+            assert_eq!(view.snapshot().version, 8);
         });
     })
     .unwrap();

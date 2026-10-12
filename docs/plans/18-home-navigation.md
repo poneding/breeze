@@ -51,6 +51,21 @@ muted line states that custom shortcuts are not supported yet.
   downscaled once, and never loaded from the network.
 - Cross-platform shortcut labels come from Kit's platform-aware `Kbd` formatting.
 
+## Refinements after the first review, October 13, 2026
+
+- The three global entries are stacked full-width at the bottom of the sidebar in
+  the order Shortcuts, About, Settings, each with a tooltip that shows its real
+  binding: Primary+K, Primary+I, and Primary+, (Control on Windows/Linux).
+- Shortcuts, About, and Settings render in one capped, centered column (720 logical
+  pixels) with a small inset before the scroll clip, so an active Select or
+  segmented control is not clipped at the right edge.
+- About is centered on both axes, and its credits are center-aligned with the muted
+  label stacked above the value. The author reads
+  `Pone Ding<poneding@gmail.com>`.
+- Settings no longer offers the "Never" update policy. State version 8 accepts only
+  Manual and Automatic and maps the retired value to Manual on read; older snapshots
+  that still carry it continue to validate.
+
 ## Verification
 
 - Formatting, workspace tests, all-target Clippy, and isolated startup.
@@ -59,3 +74,5 @@ muted line states that custom shortcuts are not supported yet.
   the shortcuts page renders real bindings for a representative action; the Info
   page shows the version and the update check.
 - Native visual inspection of the three pages in a controlled data directory.
+- Component tests cover the stacked order, the three bound tooltips, the shortcut
+  commands, the capped and centered columns, and About's two-axis centering.

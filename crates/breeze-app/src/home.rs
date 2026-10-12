@@ -8,6 +8,8 @@ use std::ops::Range;
 const CATEGORY_WIDTH: f32 = 144.;
 const POSITION_WIDTH: f32 = 100.;
 const ACTIONS_WIDTH: f32 = 80.;
+/// Global Home pages stay readable instead of stretching across a wide window.
+pub(super) const PAGE_MAX_WIDTH: f32 = 720.;
 
 impl Breeze {
     pub(super) fn home(&self, window: &Window, cx: &mut Context<Self>) -> Div {
@@ -61,7 +63,7 @@ impl Breeze {
                     .child(self.category_sidebar(cx)),
             )
             .child(
-                row()
+                column()
                     .id("home-footer")
                     .test_support()
                     .gap_1()
@@ -70,17 +72,19 @@ impl Breeze {
                     .border_t_1()
                     .border_color(p.line)
                     .child(self.home_page_button(
-                        "home-info",
-                        IconName::Info,
-                        tr!("关于"),
-                        HomePage::Info,
-                        cx,
-                    ))
-                    .child(self.home_page_button(
                         "home-shortcuts",
                         IconName::Keyboard,
                         tr!("快捷键"),
                         HomePage::Shortcuts,
+                        &ShowShortcuts,
+                        cx,
+                    ))
+                    .child(self.home_page_button(
+                        "home-about",
+                        IconName::Info,
+                        tr!("关于"),
+                        HomePage::About,
+                        &ShowAbout,
                         cx,
                     ))
                     .child(self.home_page_button(
@@ -88,29 +92,44 @@ impl Breeze {
                         IconName::Settings,
                         tr!("设置"),
                         HomePage::Settings,
+                        &Preferences,
                         cx,
                     )),
             )
     }
 
+    /// A sidebar entry for one global page. The tooltip shows the real binding.
     fn home_page_button(
         &self,
         id: &'static str,
         icon: IconName,
         label: &'static str,
         page: HomePage,
+        action: &dyn Action,
         cx: &mut Context<Self>,
     ) -> Button {
+        let action = action.boxed_clone();
+        let click_action = action.boxed_clone();
         Button::new(id)
             .ghost()
             .small()
-            .icon(icon)
+            .w_full()
             .selected(self.home_page == page)
             .accessibility_label(label)
-            .tooltip(label)
-            .on_click(cx.listener(move |this, _, _, cx| {
-                this.show_home_page(page, cx);
+            .tooltip_with_action(label, action.as_ref(), Some("Breeze"))
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.execute(click_action.as_ref(), window, cx);
             }))
+            .child(
+                row().w_full().gap_2().child(Icon::new(icon).small()).child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .text_ellipsis()
+                        .text_left()
+                        .child(label),
+                ),
+            )
     }
 
     fn home_content(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -125,10 +144,27 @@ impl Breeze {
             .gap_3()
             .child(match self.home_page {
                 HomePage::Library => self.library_page(cx).into_any_element(),
-                HomePage::Info => self.about_page(cx).into_any_element(),
+                HomePage::About => self.about_page(cx).into_any_element(),
                 HomePage::Shortcuts => self.shortcuts_page(window, cx).into_any_element(),
                 HomePage::Settings => self.settings_page(cx).into_any_element(),
             })
+    }
+
+    /// A global page: full height, capped width, and centered when the window is wider.
+    pub(super) fn page_frame(id: &'static str, content: impl IntoElement) -> impl IntoElement {
+        column().flex_1().min_h_0().w_full().items_center().child(
+            column()
+                .id(id)
+                .test_support()
+                .w_full()
+                .max_w(px(PAGE_MAX_WIDTH))
+                .flex_1()
+                .min_h_0()
+                // Keep a little room so an active control border is never clipped.
+                .pr_1()
+                .overflow_y_scroll()
+                .child(content),
+        )
     }
 
     fn library_page(&self, cx: &mut Context<Self>) -> Div {

@@ -60,7 +60,7 @@ fn first_category_id() -> usize {
 impl Default for SavedState {
     fn default() -> Self {
         Self {
-            version: 7,
+            version: 8,
             books: Vec::new(),
             active: 0,
             categories: Vec::new(),
@@ -82,15 +82,24 @@ impl Default for SavedState {
     }
 }
 impl SavedState {
+    /// Maps the retired "Never" policy to Manual, which never checks on its own.
+    fn migrate_update_policy(&mut self) {
+        if self.version < 8 && self.updates >= 2 {
+            self.updates = 0;
+        }
+    }
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(matches!(self.version, 1..=7), "Unsupported state version");
+        anyhow::ensure!(matches!(self.version, 1..=8), "Unsupported state version");
         anyhow::ensure!(self.books.len() <= 4096, "Too many library entries");
         anyhow::ensure!(
             self.width.is_finite() && (168.0..=360.0).contains(&self.width),
             "Invalid sidebar width"
         );
+        // Version 8 retired the third update policy. Older snapshots may still
+        // carry it until `restore` migrates the value.
+        let update_policy_is_valid = self.updates < 2 || (self.version < 8 && self.updates < 3);
         anyhow::ensure!(
-            self.language < 3 && self.updates < 3 && self.window < 3,
+            self.language < 3 && update_policy_is_valid && self.window < 3,
             "Invalid preferences"
         );
         anyhow::ensure!(
@@ -152,7 +161,7 @@ impl SavedState {
 impl Breeze {
     pub(super) fn snapshot(&self) -> SavedState {
         SavedState {
-            version: 7,
+            version: 8,
             books: self
                 .books
                 .iter()
@@ -261,6 +270,7 @@ impl Breeze {
         .detach();
     }
     pub(super) fn restore(&mut self, mut state: SavedState, cx: &mut Context<Self>) {
+        state.migrate_update_policy();
         if state.version < 5 {
             // Earlier snapshots treated every 100% value as Actual Size.
             if state.reading_preferences.zoom == Zoom::Percent(100) {
@@ -533,7 +543,7 @@ mod tests {
     #[test]
     fn view_rotation_roundtrips_and_absent_snapshots_stay_upright() {
         let mut state = SavedState {
-            version: 7,
+            version: 8,
             ..Default::default()
         };
         state.books.push(SavedBook {
@@ -628,6 +638,30 @@ mod tests {
         }
         state.reading_preferences.zoom = Zoom::Percent(0);
         assert!(state.validate().is_err());
+    }
+    #[test]
+    fn retired_never_update_policy_restores_as_manual() {
+        let legacy = SavedState {
+            version: 7,
+            updates: 2,
+            ..Default::default()
+        };
+        // An old snapshot carrying the retired choice must still load.
+        assert!(legacy.validate().is_ok());
+        let bytes = serde_json::to_vec(&legacy).unwrap();
+        let mut restored: SavedState = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(restored.updates, 2);
+        restored.migrate_update_policy();
+        restored.validate().unwrap();
+        assert_eq!(restored.updates, 0);
+
+        // Version 8 accepts only the two remaining policies.
+        let current = SavedState {
+            version: 8,
+            updates: 2,
+            ..Default::default()
+        };
+        assert!(current.validate().is_err());
     }
     #[test]
     fn legacy_palettes_are_read_but_no_longer_written() {
