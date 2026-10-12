@@ -63,6 +63,14 @@ fn navigation_handle_appearance(p: Palette) -> ResizeHandleRenderer {
 
 impl Breeze {
     pub(super) fn reader(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        // Immersive reading shows the document alone: no toolbar, no panels, no status bar.
+        if self.full_screen {
+            return column()
+                .size_full()
+                .min_w_0()
+                .min_h_0()
+                .child(self.pages_view(window, cx));
+        }
         let p = self.p(cx);
         let mode = self.books[self.active].state.mode;
         let main = column()
@@ -397,6 +405,8 @@ impl Breeze {
                         },
                     ),
             )
+            .child(self.rotate_button(false, cx))
+            .child(self.rotate_button(true, cx))
             .child(self.layout_button(cx))
             .child(self.zoom_button(cx))
             .child(self.command("zoom-out", IconName::Minus, tr!("缩小"), &ZoomOut, cx))
@@ -410,6 +420,7 @@ impl Breeze {
                     .child(format!("{:.0}%", self.display_zoom(window))),
             )
             .child(self.command("zoom-in", IconName::Plus, tr!("放大"), &ZoomIn, cx))
+            .child(self.fullscreen_button(cx))
             .into_any_element()
     }
     pub(super) fn submit_page(&mut self, cx: &mut Context<Self>) {

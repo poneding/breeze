@@ -1,3 +1,4 @@
+use breeze_core::Rotation;
 use breeze_pdf::{DeviceTile, PdfWorker, Source};
 use pdf_oxide::{
     PdfDocument,
@@ -97,10 +98,13 @@ fn metadata_has_no_raster_and_zoom_requests_do_not_reuse_low_resolution() {
     assert!(!metadata.glyphs.is_empty());
     for scale in [2., 4., 8.] {
         let key = DeviceTile::new(scale, 256, 256, 512, 512).unwrap();
-        let page =
-            futures::executor::block_on(worker.request_tile(Source::Sample, 0, key).unwrap())
-                .unwrap()
-                .unwrap();
+        let page = futures::executor::block_on(
+            worker
+                .request_tile(Source::Sample, 0, key, Rotation::None)
+                .unwrap(),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(page.tile, Some(key));
         assert!(page.glyphs.is_empty());
         assert_eq!(page.fingerprint, metadata.fingerprint);
@@ -112,4 +116,82 @@ fn metadata_has_no_raster_and_zoom_requests_do_not_reuse_low_resolution() {
     }
     assert!(DeviceTile::new(f32::NAN, 0, 0, 512, 512).is_err());
     assert!(DeviceTile::new(2., 0, 0, 100000, 100000).is_err());
+}
+
+/// Rotates a whole page independently of the worker so rotated tiles can be
+/// checked against a picture built outside the region-mapping code.
+fn naive_rotate(source: &[u8], width: u32, height: u32, rotation: Rotation) -> (u32, u32, Vec<u8>) {
+    let (out_w, out_h) = if rotation.swaps_axes() {
+        (height, width)
+    } else {
+        (width, height)
+    };
+    let mut out = vec![0u8; source.len()];
+    for y in 0..out_h {
+        for x in 0..out_w {
+            let (sx, sy) = match rotation {
+                Rotation::Right => (y, height - 1 - x),
+                Rotation::Half => (width - 1 - x, height - 1 - y),
+                Rotation::Left => (width - 1 - y, x),
+                Rotation::None => (x, y),
+            };
+            let from = ((sy * width + sx) * 4) as usize;
+            let to = ((y * out_w + x) * 4) as usize;
+            out[to..to + 4].copy_from_slice(&source[from..from + 4]);
+        }
+    }
+    (out_w, out_h, out)
+}
+
+#[test]
+fn rotated_tiles_reassemble_into_the_rotated_page() {
+    let worker = PdfWorker::new().unwrap();
+    let full = futures::executor::block_on(worker.request(Source::Sample, 0).unwrap())
+        .unwrap()
+        .unwrap();
+    let source = full.pixels.unwrap();
+    let (width, height) = (source.width, source.height);
+    for rotation in [Rotation::Right, Rotation::Half, Rotation::Left] {
+        let (view_w, view_h, expected) = naive_rotate(&source.bgra, width, height, rotation);
+        // Cover the rotated page with the same tile grid the reader uses.
+        let mut y = 0;
+        while y < view_h {
+            let h = 512.min(view_h - y);
+            let mut x = 0;
+            while x < view_w {
+                let w = 512.min(view_w - x);
+                let tile = DeviceTile::new(2., x, y, w, h).unwrap();
+                let page = futures::executor::block_on(
+                    worker
+                        .request_tile(Source::Sample, 0, tile, rotation)
+                        .unwrap(),
+                )
+                .unwrap()
+                .unwrap();
+                let pixels = page.pixels.unwrap();
+                assert_eq!((pixels.width, pixels.height), (w, h));
+                // Device-region rasterization differs from a full-page render by
+                // antialiased edge pixels, so the comparison allows a small
+                // fraction of bytes; a misplaced tile would differ almost everywhere.
+                let mut changed = 0;
+                for row in 0..h {
+                    let from = (((y + row) * view_w + x) * 4) as usize;
+                    let want = &expected[from..from + (w * 4) as usize];
+                    let got = &pixels.bgra[(row * w * 4) as usize..((row + 1) * w * 4) as usize];
+                    assert_eq!(got.len(), want.len());
+                    changed += got
+                        .iter()
+                        .zip(want)
+                        .filter(|(a, b)| a.abs_diff(**b) > 2)
+                        .count();
+                }
+                assert!(
+                    changed * 200 < pixels.bgra.len(),
+                    "rotation {rotation:?} tile {x},{y}: {changed} differing bytes"
+                );
+                x += w;
+            }
+            y += h;
+        }
+    }
 }

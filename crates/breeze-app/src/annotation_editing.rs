@@ -1,4 +1,5 @@
 use crate::*;
+use breeze_core::annotations::ViewGeometry;
 use breeze_core::annotations::{Annotation, Kind, PageGeometry, Point as DocPoint};
 use gpui_kit::component::{
     Theme,
@@ -103,6 +104,12 @@ impl Breeze {
     }
 
     pub(super) fn cancel_annotation_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // A pending text annotation keeps the first Escape; the next one leaves
+        // immersive reading, which has no visible chrome left to click.
+        if self.full_screen && !self.annotation_editing.pending_text() {
+            self.set_full_screen(false, window, cx);
+            return;
+        }
         if self.search_open {
             self.close_search(cx);
             window.focus(&self.focus, cx);
@@ -422,12 +429,13 @@ impl Breeze {
         if !editable(&self.books[self.active]) {
             return false;
         }
-        let tolerance = self
-            .surface_bounds
-            .zip(self.preview.as_ref())
-            .map_or(5., |(bounds, preview)| {
-                5. * preview.points.0 / f32::from(bounds.size.width).max(1.)
-            });
+        let tolerance =
+            self.surface_bounds
+                .zip(self.preview.as_ref())
+                .map_or(5., |(bounds, preview)| {
+                    5. * self.view_geometry(preview.geometry).size().0
+                        / f32::from(bounds.size.width).max(1.)
+                });
         let page = self.books[self.active].state.navigation.page();
         let target = self.books[self.active]
             .annotations
@@ -536,7 +544,7 @@ impl Breeze {
     pub(super) fn annotation_edit_layers(
         &self,
         page: usize,
-        geometry: PageGeometry,
+        geometry: ViewGeometry,
         width: f32,
         height: f32,
         cx: &mut Context<Self>,

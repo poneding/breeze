@@ -2,7 +2,10 @@
 pub mod export;
 mod raster;
 use anyhow::{Context, Result, bail};
-use breeze_core::annotations::{PageGeometry, Rect};
+use breeze_core::{
+    Rotation,
+    annotations::{PageGeometry, Rect},
+};
 use futures::channel::oneshot;
 use pdf_oxide::{
     PdfDocument,
@@ -10,6 +13,7 @@ use pdf_oxide::{
     rendering::{PageRenderer, RenderOptions},
 };
 pub use raster::DeviceTile;
+use raster::{rotate_region, tile_source_region};
 use std::{
     collections::VecDeque,
     path::PathBuf,
@@ -58,6 +62,8 @@ struct Job {
     thumbnail: bool,
     metadata_only: bool,
     tile: Option<DeviceTile>,
+    /// View rotation applied to the rendered pixels after rasterization.
+    rotation: Rotation,
     reply: oneshot::Sender<Result<Page>>,
 }
 #[derive(Default)]
@@ -78,7 +84,8 @@ impl PdfWorker {
             .spawn(move || {
                 let trace = std::env::var_os("BREEZE_TRACE_RENDER").is_some();
                 let mut loaded: Option<Loaded> = None;
-                let mut cache: VecDeque<Page> = VecDeque::new();
+                // Cached entries are rotation-specific, so the view rotation is part of the key.
+                let mut cache: VecDeque<(Rotation, Page)> = VecDeque::new();
                 let mut options = RenderOptions::with_dpi(144).as_raw();
                 options.max_output_pixels = 4_000_000;
                 let mut renderer = PageRenderer::new(options);
@@ -125,29 +132,31 @@ impl PdfWorker {
         Ok(Self { queue })
     }
     pub fn request(&self, source: Source, page: usize) -> Result<oneshot::Receiver<Result<Page>>> {
-        self.request_kind(source, page, false, false, None)
+        self.request_kind(source, page, false, false, None, Rotation::None)
     }
     pub fn request_thumbnail(
         &self,
         source: Source,
         page: usize,
+        rotation: Rotation,
     ) -> Result<oneshot::Receiver<Result<Page>>> {
-        self.request_kind(source, page, true, false, None)
+        self.request_kind(source, page, true, false, None, rotation)
     }
     pub fn request_metadata(
         &self,
         source: Source,
         page: usize,
     ) -> Result<oneshot::Receiver<Result<Page>>> {
-        self.request_kind(source, page, false, true, None)
+        self.request_kind(source, page, false, true, None, Rotation::None)
     }
     pub fn request_tile(
         &self,
         source: Source,
         page: usize,
         tile: DeviceTile,
+        rotation: Rotation,
     ) -> Result<oneshot::Receiver<Result<Page>>> {
-        self.request_kind(source, page, false, false, Some(tile))
+        self.request_kind(source, page, false, false, Some(tile), rotation)
     }
     fn request_kind(
         &self,
@@ -156,6 +165,7 @@ impl PdfWorker {
         thumbnail: bool,
         metadata_only: bool,
         tile: Option<DeviceTile>,
+        rotation: Rotation,
     ) -> Result<oneshot::Receiver<Result<Page>>> {
         let (reply, receive) = oneshot::channel();
         let mut pending = self
@@ -170,6 +180,7 @@ impl PdfWorker {
             thumbnail,
             metadata_only,
             tile,
+            rotation,
             reply,
         });
         self.queue.1.notify_one();
@@ -227,7 +238,7 @@ fn render(
     loaded: &mut Option<Loaded>,
     renderer: &mut PageRenderer,
     thumb: &mut PageRenderer,
-    cache: &mut VecDeque<Page>,
+    cache: &mut VecDeque<(Rotation, Page)>,
 ) -> Result<Page> {
     let time = Instant::now();
     let stamp = match &job.source {
@@ -275,15 +286,16 @@ fn render(
         bail!("文档没有可阅读的页面");
     }
     let page = job.page.min(total - 1);
-    if let Some(index) = cache.iter().position(|p| {
+    if let Some(index) = cache.iter().position(|(rotation, p)| {
         job.tile.is_none()
+            && *rotation == job.rotation
             && p.page == page
             && p.thumbnail == job.thumbnail
             && p.pixels.is_none() == job.metadata_only
     }) {
-        let mut hit = cache.remove(index).context("Missing cache entry")?;
+        let (_, mut hit) = cache.remove(index).context("Missing cache entry")?;
         hit.elapsed_ms = time.elapsed().as_secs_f64() * 1000.;
-        cache.push_back(hit.clone());
+        cache.push_back((job.rotation, hit.clone()));
         return Ok(hit);
     }
     let geometry = loaded.geometries[page];
@@ -291,18 +303,19 @@ fn render(
     let pixels = if job.metadata_only {
         None
     } else if let Some(tile) = job.tile {
-        Some(convert(renderer.render_device_region(
-            doc,
-            page,
-            tile.scale(),
-            tile.region(),
-        )?))
+        // A quarter turn maps the device grid onto itself, so the requested
+        // view tile is rendered from its axis-aligned source region and then
+        // rotated back into the tile's own coordinates.
+        let region = tile_source_region(tile, job.rotation, points)?;
+        let rendered = renderer.render_device_region(doc, page, tile.scale(), region)?;
+        Some(rotate_region(convert(rendered), job.rotation))
     } else {
-        Some(convert(if job.thumbnail {
+        let rendered = if job.thumbnail {
             thumb.render_page(doc, page)?
         } else {
             renderer.render_page(doc, page)?
-        }))
+        };
+        Some(rotate_region(convert(rendered), job.rotation))
     };
     let outline = if job.thumbnail || job.tile.is_some() {
         Arc::new(Vec::new())
@@ -357,13 +370,19 @@ fn render(
         return Ok(result);
     }
     let cost = page_bytes(&result);
-    while cache.iter().map(page_bytes).sum::<usize>() + cost > 32 * 1024 * 1024 {
+    while cache
+        .iter()
+        .map(|(_, page)| page_bytes(page))
+        .sum::<usize>()
+        + cost
+        > 32 * 1024 * 1024
+    {
         if cache.pop_front().is_none() {
             break;
         }
     }
     if cost <= 32 * 1024 * 1024 {
-        cache.push_back(result.clone());
+        cache.push_back((job.rotation, result.clone()));
     }
     Ok(result)
 }
@@ -468,6 +487,7 @@ fn convert(image: pdf_oxide::rendering::RenderedImage) -> Pixels {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
     fn real_sample_renders_off_thread() {
         let worker = PdfWorker::new().unwrap();
@@ -508,6 +528,7 @@ mod scheduling_tests {
                 thumbnail: false,
                 metadata_only: false,
                 tile: None,
+                rotation: Rotation::None,
                 reply: first,
             }),
             stop: false,
@@ -518,6 +539,7 @@ mod scheduling_tests {
             thumbnail: false,
             metadata_only: false,
             tile: None,
+            rotation: Rotation::None,
             reply: second,
         });
         assert!(old.try_recv().is_err());
@@ -628,10 +650,13 @@ mod visible_request_tests {
     #[test]
     fn thumbnails_reach_last_page_without_full_page_or_glyph_work() {
         let worker = PdfWorker::new().unwrap();
-        let thumbnail =
-            futures::executor::block_on(worker.request_thumbnail(Source::Sample, 7).unwrap())
-                .unwrap()
-                .unwrap();
+        let thumbnail = futures::executor::block_on(
+            worker
+                .request_thumbnail(Source::Sample, 7, Rotation::None)
+                .unwrap(),
+        )
+        .unwrap()
+        .unwrap();
         assert_eq!(thumbnail.page, 7);
         assert!(thumbnail.thumbnail);
         assert!(thumbnail.glyphs.is_empty());
@@ -663,7 +688,7 @@ mod visible_request_tests {
                 for samples in [&mut cold, &mut warm] {
                     let start = Instant::now();
                     let receiver = if thumbnail {
-                        worker.request_thumbnail(Source::Sample, sample % 8)
+                        worker.request_thumbnail(Source::Sample, sample % 8, Rotation::None)
                     } else {
                         worker.request(Source::Sample, sample % 8)
                     }

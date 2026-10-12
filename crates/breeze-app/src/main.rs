@@ -84,7 +84,10 @@ actions!(
         RedoAnnotation,
         SearchDocument,
         CopySelection,
-        CycleLayout
+        CycleLayout,
+        RotateLeft,
+        RotateRight,
+        ToggleFullScreen
     ]
 );
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -143,6 +146,7 @@ struct Breeze {
     search_hits: Vec<breeze_pdf::SearchHit>,
     search_notice: String,
     search_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    full_screen: bool,
     library_input: Entity<InputState>,
     _subscriptions: Vec<Subscription>,
     books: Vec<Book>,
@@ -299,6 +303,7 @@ impl Breeze {
             search_hits: Vec::new(),
             search_notice: String::new(),
             search_cancel: None,
+            full_screen: false,
             library_input,
             _subscriptions: vec![
                 edit_subscription,
@@ -603,6 +608,29 @@ impl Breeze {
             Err(error) => self.storage_error = Some(format!("{error:#}")),
         }
     }
+    /// Toggles immersive reading. Native fullscreen removes the OS chrome and
+    /// the immersive layout removes every application row, leaving the pages.
+    pub(crate) fn set_full_screen(
+        &mut self,
+        on: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.full_screen == on {
+            return;
+        }
+        self.full_screen = on;
+        if window.is_fullscreen() != on {
+            window.toggle_fullscreen();
+        }
+        if on {
+            // The controls that used to hold focus are gone; keep keys on the reader.
+            window.focus(&self.focus, cx);
+        }
+        // The pages own the whole window, so presentation geometry changes.
+        self.reading.invalidate_metrics();
+        cx.notify();
+    }
     fn set_appearance(
         &mut self,
         preference: ThemePreference,
@@ -631,6 +659,26 @@ impl Render for Breeze {
             if self.page_input.read(cx).value().as_ref() != value {
                 self.page_input
                     .update(cx, |input, cx| input.set_value(value, window, cx));
+            }
+        }
+        // Immersive reading keeps the document only: no title bar, no banners.
+        let immersive = self.full_screen && self.screen == Screen::Reader;
+        let mut chrome: Vec<AnyElement> = Vec::new();
+        if !immersive {
+            chrome.push(self.header(cx).into_any_element());
+            if let Some(error) = self.storage_error.clone() {
+                chrome.push(
+                    div()
+                        .px_3()
+                        .py_1()
+                        .text_size(px(12.))
+                        .text_color(rgb(0xb56b3c))
+                        .child(error)
+                        .into_any_element(),
+                );
+            }
+            if let Some(banner) = self.update_banner(cx) {
+                chrome.push(banner.into_any_element());
             }
         }
         let body = if self.restoring || self.closing {
@@ -769,23 +817,23 @@ impl Render for Breeze {
             .on_action(cx.listener(|this, action: &CycleLayout, window, cx| {
                 this.execute(action, window, cx)
             }))
+            .on_action(
+                cx.listener(|this, action: &RotateLeft, window, cx| {
+                    this.execute(action, window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, action: &RotateRight, window, cx| {
+                this.execute(action, window, cx)
+            }))
+            .on_action(cx.listener(|this, action: &ToggleFullScreen, window, cx| {
+                this.execute(action, window, cx)
+            }))
             .on_action(cx.listener(|this, _: &Quit, window, cx| {
                 if this.request_close(window, cx) {
                     window.remove_window();
                 }
             }))
-            .child(self.header(cx))
-            .when_some(self.storage_error.clone(), |d, e| {
-                d.child(
-                    div()
-                        .px_3()
-                        .py_1()
-                        .text_size(px(12.))
-                        .text_color(rgb(0xb56b3c))
-                        .child(e),
-                )
-            })
-            .when_some(self.update_banner(cx), |view, banner| view.child(banner))
+            .children(chrome)
             .child(body)
     }
 }

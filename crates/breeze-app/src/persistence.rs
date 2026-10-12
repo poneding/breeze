@@ -1,5 +1,6 @@
 //! Session persistence is independent from document-sidecar persistence.
 use crate::*;
+use breeze_core::Rotation;
 use breeze_storage::StateStore;
 use serde::{Deserialize, Serialize};
 
@@ -17,6 +18,9 @@ pub(super) struct SavedBook {
     pub zoom: Zoom,
     #[serde(default)]
     pub layout: ReadingLayout,
+    /// View-only too; old snapshots simply load unrotated.
+    #[serde(default)]
+    pub rotation: Rotation,
     pub opened: bool,
     pub last_opened: u64,
     pub annotation_path: Option<PathBuf>,
@@ -56,7 +60,7 @@ fn first_category_id() -> usize {
 impl Default for SavedState {
     fn default() -> Self {
         Self {
-            version: 6,
+            version: 7,
             books: Vec::new(),
             active: 0,
             categories: Vec::new(),
@@ -79,7 +83,7 @@ impl Default for SavedState {
 }
 impl SavedState {
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(matches!(self.version, 1..=6), "Unsupported state version");
+        anyhow::ensure!(matches!(self.version, 1..=7), "Unsupported state version");
         anyhow::ensure!(self.books.len() <= 4096, "Too many library entries");
         anyhow::ensure!(
             self.width.is_finite() && (168.0..=360.0).contains(&self.width),
@@ -148,7 +152,7 @@ impl SavedState {
 impl Breeze {
     pub(super) fn snapshot(&self) -> SavedState {
         SavedState {
-            version: 6,
+            version: 7,
             books: self
                 .books
                 .iter()
@@ -164,6 +168,7 @@ impl Breeze {
                     page: self.remember_position.then_some(b.state.navigation.page()),
                     zoom: b.state.zoom,
                     layout: b.state.layout,
+                    rotation: b.state.rotation,
                     opened: self.remember_files && b.opened,
                     last_opened: b.last_opened,
                     annotation_path: b.annotations.path.clone(),
@@ -309,6 +314,7 @@ impl Breeze {
                 let mut reader = ReaderState {
                     zoom: b.zoom,
                     layout: b.layout,
+                    rotation: b.rotation,
                     ..Default::default()
                 };
                 let page = if state.remember_position {
@@ -498,6 +504,7 @@ mod tests {
             page: Some(2),
             zoom: Zoom::FitPage,
             layout: ReadingLayout::Continuous,
+            rotation: Rotation::Left,
             opened: false,
             last_opened: 1,
             annotation_path: None,
@@ -522,6 +529,40 @@ mod tests {
         let legacy: SavedState = serde_json::from_value(json).unwrap();
         legacy.validate().unwrap();
         assert_eq!(legacy.books[0].category, 1);
+    }
+    #[test]
+    fn view_rotation_roundtrips_and_absent_snapshots_stay_upright() {
+        let mut state = SavedState {
+            version: 7,
+            ..Default::default()
+        };
+        state.books.push(SavedBook {
+            path: None,
+            title: "Document".into(),
+            favorite: false,
+            category: 0,
+            categories: Vec::new(),
+            page: Some(1),
+            zoom: Zoom::FitPage,
+            layout: ReadingLayout::Single,
+            rotation: Rotation::Right,
+            opened: true,
+            last_opened: 3,
+            annotation_path: None,
+        });
+        state.validate().unwrap();
+        let bytes = serde_json::to_vec(&state).unwrap();
+        assert_eq!(serde_json::from_slice::<SavedState>(&bytes).unwrap(), state);
+        // Version 6 snapshots predate the view rotation and must keep loading.
+        let mut legacy = serde_json::to_value(&state).unwrap();
+        legacy["version"] = 6.into();
+        legacy["books"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("rotation");
+        let restored: SavedState = serde_json::from_value(legacy).unwrap();
+        restored.validate().unwrap();
+        assert_eq!(restored.books[0].rotation, Rotation::None);
     }
     #[test]
     fn invalid_state_rejected() {

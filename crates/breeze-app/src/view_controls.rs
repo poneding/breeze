@@ -6,6 +6,45 @@ use gpui_kit::component::{
 };
 
 impl Breeze {
+    /// One quarter turn per click; the reader's rotation is view-only state.
+    pub(super) fn rotate_button(&self, clockwise: bool, cx: &mut Context<Self>) -> Button {
+        let label = if clockwise {
+            tr!("向右旋转 90 度")
+        } else {
+            tr!("向左旋转 90 度")
+        };
+        Button::new(if clockwise {
+            "rotate-right"
+        } else {
+            "rotate-left"
+        })
+        .ghost()
+        .small()
+        .icon(if clockwise {
+            IconName::RotateCw
+        } else {
+            IconName::RotateCcw
+        })
+        .accessibility_label(label)
+        .tooltip(label)
+        .on_click(cx.listener(move |this, _, _, cx| this.rotate(clockwise, cx)))
+    }
+
+    pub(super) fn fullscreen_button(&self, cx: &mut Context<Self>) -> Button {
+        let immersive = self.full_screen;
+        self.command(
+            "fullscreen",
+            if immersive {
+                IconName::Shrink
+            } else {
+                IconName::Fullscreen
+            },
+            tr!("全屏阅读"),
+            &ToggleFullScreen,
+            cx,
+        )
+    }
+
     pub(super) fn layout_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let view = cx.entity();
         let selected = self.books[self.active].state.layout;

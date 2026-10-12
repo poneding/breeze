@@ -1,4 +1,5 @@
 use super::*;
+use breeze_core::Rotation;
 use gpui_kit::InputEvent as _;
 use gpui_kit::test::TestWindowExt;
 
@@ -307,6 +308,18 @@ fn rendered_sample() -> breeze_pdf::Page {
     futures::executor::block_on(worker.request(Source::Sample, 0).unwrap())
         .unwrap()
         .unwrap()
+}
+/// Seeds one ready page the way a completed load leaves the reader.
+fn seed_rendered_page(view: &mut Breeze, page: breeze_pdf::Page) {
+    view.reading.source = Some(Source::Sample);
+    view.reading.fingerprint = page.fingerprint.clone();
+    view.reading.sizes = page.page_sizes.clone();
+    let preview = Preview::from_page(page).unwrap();
+    view.reading.insert(0, preview.clone());
+    view.preview = Some(preview);
+    view.books[0].state.layout = ReadingLayout::Single;
+    view.books[0].state.zoom = Zoom::Percent(100);
+    view.loading = true;
 }
 #[gpui_kit::test]
 fn annotation_gestures_history_and_close_guard(cx: &mut TestAppContext) {
@@ -682,7 +695,7 @@ fn categories_are_user_owned_and_layout_roundtrips(cx: &mut TestAppContext) {
             assert_eq!(view.categories.len(), 1);
             assert_eq!(view.categories[0].id, 2);
             assert_eq!(view.books[0].categories, vec![2]);
-            assert_eq!(view.snapshot().version, 6);
+            assert_eq!(view.snapshot().version, 7);
         });
     })
     .unwrap();
@@ -1255,6 +1268,122 @@ fn status_panels_keep_layout_axes_independent_and_restore_view_memory(cx: &mut T
             assert_eq!(view.books[1].state.layout, ReadingLayout::Spread);
             assert_eq!(view.books[1].state.zoom, Zoom::Percent(125));
         });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn rotation_controls_turn_the_page_a_quarter_turn_per_click(cx: &mut TestAppContext) {
+    let page = rendered_sample();
+    let (handle, view) = app(cx);
+    let mut upright = size(px(0.), px(0.));
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| seed_rendered_page(view, page));
+        window.render_frame(cx);
+        upright = window.find("page-surface").bounds().size;
+        window.click("rotate-right", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        assert_eq!(view.read(cx).books[0].state.rotation, Rotation::Right);
+        window.render_frame(cx);
+        // One quarter turn exchanges the displayed width and height.
+        let turned = window.find("page-surface").bounds().size;
+        assert!((f32::from(turned.width) - f32::from(upright.height)).abs() < 1.);
+        assert!((f32::from(turned.height) - f32::from(upright.width)).abs() < 1.);
+        window.click("rotate-left", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        assert_eq!(view.read(cx).books[0].state.rotation, Rotation::None);
+        window.render_frame(cx);
+        let restored = window.find("page-surface").bounds().size;
+        assert!((f32::from(restored.width) - f32::from(upright.width)).abs() < 1.);
+        assert!((f32::from(restored.height) - f32::from(upright.height)).abs() < 1.);
+        // Three left turns equal one right turn, and the rotation is per document.
+        for _ in 0..3 {
+            window.click("rotate-left", cx);
+        }
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        assert_eq!(view.read(cx).books[0].state.rotation, Rotation::Right);
+        view.update(cx, |view, cx| {
+            view.remember_position = false;
+            let saved: SavedState =
+                serde_json::from_slice(&serde_json::to_vec(&view.snapshot()).unwrap()).unwrap();
+            assert_eq!(saved.books[0].rotation, Rotation::Right);
+            view.books[0].state = ReaderState::default();
+            view.restore(saved, cx);
+            assert_eq!(view.books[0].state.rotation, Rotation::Right);
+        });
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).books[0].state.rotation, Rotation::Right);
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn fullscreen_shows_only_the_document_and_leaves_on_escape_or_f11(cx: &mut TestAppContext) {
+    let page = rendered_sample();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| seed_rendered_page(view, page));
+        window.render_frame(cx);
+        window.click("rotate-right", cx);
+    })
+    .unwrap();
+    let mut turned = size(px(0.), px(0.));
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        turned = window.find("page-surface").bounds().size;
+        window.click("fullscreen", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        assert!(view.read(cx).full_screen);
+        assert!(window.is_fullscreen());
+        window.render_frame(cx);
+        // Immersive reading hides the title bar, both panels, the toolbar and the status bar.
+        for id in [
+            "titlebar-content",
+            "reader-toolbar",
+            "navigation-header",
+            "document-tabs",
+            "status-scroll",
+        ] {
+            assert!(window.try_find(id).is_none(), "{id} must be hidden");
+        }
+        // The turned document keeps its orientation without any status control.
+        let surface = window.find("page-surface").bounds().size;
+        assert!((f32::from(surface.width) - f32::from(turned.width)).abs() < 1.);
+        assert!((f32::from(surface.height) - f32::from(turned.height)).abs() < 1.);
+        assert!(window.try_find("rotate-right").is_none());
+        window.press("f11", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        assert!(!view.read(cx).full_screen);
+        assert!(!window.is_fullscreen());
+        window.render_frame(cx);
+        assert!(window.find("status-scroll").visible());
+        assert!(window.find("titlebar-content").visible());
+        assert_eq!(view.read(cx).books[0].state.rotation, Rotation::Right);
+        window.click("fullscreen", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        assert!(view.read(cx).full_screen);
+        window.render_frame(cx);
+        assert!(window.try_find("status-scroll").is_none());
+        // Escape leaves immersive reading when no text annotation is being edited.
+        window.press("escape", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        assert!(!view.read(cx).full_screen);
+        window.render_frame(cx);
+        assert!(window.find("status-scroll").visible());
     })
     .unwrap();
 }

@@ -1,4 +1,5 @@
 use super::*;
+use breeze_core::Rotation;
 use gpui_kit::test::TestAppContextExt;
 use gpui_kit::test::TestWindowExt;
 
@@ -293,7 +294,7 @@ fn hit_testing_follows_shapes_and_rotated_crop_coordinates() {
         };
         let p = DocPoint::new(70., 30.);
         assert!(geometry::hit(&a, page.document(page.display(p)), 3.));
-        let bounds = geometry::display_bounds(&a, page);
+        let bounds = geometry::display_bounds(&a, page.view(Rotation::None));
         assert!(bounds.valid());
     }
 }

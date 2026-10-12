@@ -66,7 +66,8 @@ impl Breeze {
         };
         let request = PendingFit {
             generation: self.generation,
-            page: preview.points,
+            // Window fitting uses the page as the reader shows it.
+            page: self.rotation().apply(preview.points),
         };
         let policy = self.window_policy;
         let handle = self.window_handle;

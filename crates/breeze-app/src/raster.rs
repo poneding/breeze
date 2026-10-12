@@ -1,6 +1,7 @@
 //! Visible-first page scheduling with bounded lookahead and retained presentation.
 use crate::*;
-use breeze_core::annotations::PageGeometry;
+use breeze_core::Rotation;
+use breeze_core::annotations::ViewGeometry;
 use breeze_pdf::DeviceTile;
 use std::collections::{HashMap, VecDeque};
 
@@ -13,6 +14,8 @@ const PREFETCH_BUDGET: usize = 16 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct Key {
     page: usize,
+    // Part of the identity: the same tile of a turned page holds other pixels.
+    rotation: Rotation,
     tile: DeviceTile,
 }
 impl Key {
@@ -43,6 +46,7 @@ fn intersection(a: [f32; 4], b: [f32; 4]) -> Option<[f32; 4]> {
 #[derive(Clone, Copy)]
 struct Viewport {
     page: usize,
+    rotation: Rotation,
     points: (f32, f32),
     scale: f32,
     rect: [f32; 4],
@@ -113,7 +117,10 @@ impl RasterView {
     }
     fn fallback_needed(&self, key: Key, incoming: Option<Key>) -> bool {
         self.views.iter().any(|view| {
-            if key.page != view.page || key.tile.scale() == view.scale {
+            if key.page != view.page
+                || key.rotation != view.rotation
+                || key.tile.scale() == view.scale
+            {
                 return false;
             }
             let Some(area) = intersection(key.rect(), view.rect) else {
@@ -132,10 +139,10 @@ impl RasterView {
             .cache
             .iter()
             .filter_map(|(key, _, _)| {
-                let obsolete = self
-                    .views
-                    .iter()
-                    .any(|v| v.page == key.page && v.scale != key.tile.scale());
+                let obsolete = self.views.iter().any(|v| {
+                    v.page == key.page
+                        && (v.rotation != key.rotation || v.scale != key.tile.scale())
+                });
                 (obsolete && !self.fallback_needed(*key, incoming)).then_some(*key)
             })
             .collect();
@@ -263,6 +270,7 @@ impl RasterView {
                     .iter()
                     .filter(|(key, _, _)| {
                         key.page == view.page
+                            && key.rotation == view.rotation
                             && (key.tile.scale() == view.scale) == exact
                             && !self.errors.contains_key(key)
                             && intersection(key.rect(), view.rect).is_some()
@@ -277,6 +285,7 @@ impl RasterView {
 fn keys(view: Viewport) -> Result<Vec<Key>> {
     let Viewport {
         page,
+        rotation,
         points,
         scale,
         rect: [left, top, right, bottom],
@@ -308,6 +317,7 @@ fn keys(view: Viewport) -> Result<Vec<Key>> {
             let bottom = ((row + 1) * EDGE + GUTTER).min(h);
             result.push(Key {
                 page,
+                rotation,
                 tile: DeviceTile::new(scale, x, y, right - x, bottom - y)?,
             });
         }
@@ -331,6 +341,7 @@ fn tiles(
     let display = width / points.0;
     keys(Viewport {
         page,
+        rotation: Rotation::None,
         points,
         scale: display * dpr,
         rect: visible.map(|v| v / display),
@@ -366,7 +377,9 @@ impl Breeze {
                 }
             });
         let sizes = &self.reading.sizes;
-        let layout = self.books[self.active].state.layout;
+        let state = &self.books[self.active].state;
+        let layout = state.layout;
+        let rotation = state.rotation;
         let row = layout.row(view.page);
         for (neighbor, at_end) in [
             (
@@ -387,7 +400,7 @@ impl Breeze {
                 continue;
             }
             for page in layout.pages(first, sizes.len()) {
-                let points = sizes[page];
+                let points = rotation.apply(sizes[page]);
                 let height = f32::from(window.viewport_size().height)
                     / self.page_display_scale(page, window);
                 let top = if at_end {
@@ -397,6 +410,7 @@ impl Breeze {
                 };
                 result.extend(keys(Viewport {
                     page,
+                    rotation,
                     points,
                     scale: self.page_raster_scale(page, points, window),
                     rect: [0., top, points.0, (top + height).min(points.1)],
@@ -410,7 +424,7 @@ impl Breeze {
                     ((view.points.1 - view.rect[3]).max(0.) + r[1])
                         * if direction > 0. { 1. } else { 2. }
                 } else if key.page < view.page {
-                    (view.rect[1] + (sizes[key.page].1 - r[3]).max(0.))
+                    (view.rect[1] + (rotation.apply(sizes[key.page]).1 - r[3]).max(0.))
                         * if direction < 0. { 1. } else { 2. }
                 } else if r[1] >= view.rect[3] {
                     (r[1] - view.rect[3]) * if direction > 0. { 1. } else { 2. }
@@ -427,7 +441,7 @@ impl Breeze {
     pub(super) fn raster_surface(
         &self,
         page: usize,
-        geometry: PageGeometry,
+        geometry: ViewGeometry,
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let view = cx.entity();
@@ -447,6 +461,7 @@ impl Breeze {
                 canvas(
                     move |bounds, window, cx| {
                         let clip = bounds.intersect(&window.content_mask().bounds);
+                        // View-space points: the page surface already carries the view rotation.
                         let points = geometry.size();
                         let display = f32::from(bounds.size.width) / points.0;
                         if clip.size.width <= px(0.) || clip.size.height <= px(0.) || display <= 0.
@@ -465,6 +480,7 @@ impl Breeze {
                             }
                             let viewport = Viewport {
                                 page,
+                                rotation: geometry.rotation,
                                 points,
                                 scale: this.page_raster_scale(page, points, window),
                                 rect,
@@ -573,6 +589,7 @@ impl Breeze {
             self.books[self.active].source.clone(),
             key.page,
             key.tile,
+            key.rotation,
         ) {
             Ok(receiver) => receiver,
             Err(error) => {
@@ -910,6 +927,7 @@ mod continuity_tests {
                     let scale = old_scale * ratio;
                     let old = Viewport {
                         page: 0,
+                        rotation: Rotation::None,
                         points: (1000., 1400.),
                         scale: old_scale,
                         rect: [0., 100., 4200. / old_scale, 100. + 2100. / old_scale],

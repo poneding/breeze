@@ -161,6 +161,78 @@ impl ReadingLayout {
         }
     }
 }
+/// View-only page rotation layered on top of each page's own `/Rotate`.
+///
+/// It belongs to the reading state, is stored per document, and is never
+/// written back into the source file or into annotation geometry.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Rotation {
+    #[default]
+    None,
+    /// One clockwise quarter turn.
+    Right,
+    Half,
+    /// One counterclockwise quarter turn, stored as 270 degrees clockwise.
+    Left,
+}
+impl Rotation {
+    pub fn degrees(self) -> i32 {
+        match self {
+            Self::None => 0,
+            Self::Right => 90,
+            Self::Half => 180,
+            Self::Left => 270,
+        }
+    }
+    pub fn clockwise(self) -> Self {
+        match self {
+            Self::None => Self::Right,
+            Self::Right => Self::Half,
+            Self::Half => Self::Left,
+            Self::Left => Self::None,
+        }
+    }
+    pub fn counterclockwise(self) -> Self {
+        match self {
+            Self::None => Self::Left,
+            Self::Left => Self::Half,
+            Self::Half => Self::Right,
+            Self::Right => Self::None,
+        }
+    }
+    /// Quarter turns exchange the page's width and height.
+    pub fn swaps_axes(self) -> bool {
+        matches!(self, Self::Right | Self::Left)
+    }
+    /// Size after rotating a top-left-origin display size.
+    pub fn apply(self, size: (f32, f32)) -> (f32, f32) {
+        if self.swaps_axes() {
+            (size.1, size.0)
+        } else {
+            size
+        }
+    }
+    /// Rotates a top-left-origin display point into the rotated view.
+    pub fn map(self, size: (f32, f32), p: annotations::Point) -> annotations::Point {
+        use annotations::Point;
+        match self {
+            Self::None => p,
+            Self::Right => Point::new(size.1 - p.y, p.x),
+            Self::Half => Point::new(size.0 - p.x, size.1 - p.y),
+            Self::Left => Point::new(p.y, size.0 - p.x),
+        }
+    }
+    /// Inverse of [`Rotation::map`] for the unrotated display size.
+    pub fn unmap(self, size: (f32, f32), p: annotations::Point) -> annotations::Point {
+        use annotations::Point;
+        match self {
+            Self::None => p,
+            Self::Right => Point::new(p.y, size.1 - p.x),
+            Self::Half => Point::new(size.0 - p.x, size.1 - p.y),
+            Self::Left => Point::new(size.0 - p.y, p.x),
+        }
+    }
+}
 /// Last chosen view settings seed newly opened documents.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -182,6 +254,8 @@ pub struct ReaderState {
     pub zoom: Zoom,
     #[serde(default)]
     pub layout: ReadingLayout,
+    #[serde(default)]
+    pub rotation: Rotation,
     pub mode: Mode,
 }
 impl Default for ReaderState {
@@ -190,6 +264,7 @@ impl Default for ReaderState {
             navigation: PageNavigation::default(),
             zoom: Zoom::FitPage,
             layout: ReadingLayout::default(),
+            rotation: Rotation::default(),
             mode: Mode::Read,
         }
     }
@@ -291,6 +366,50 @@ mod tests {
         b.navigation.go_to(5);
         assert_eq!(a.navigation.page(), 0);
         assert_eq!(b.navigation.page(), 5);
+    }
+    #[test]
+    fn rotation_turns_both_ways_and_maps_its_own_points() {
+        use annotations::Point;
+        let mut rotation = Rotation::None;
+        for (turns, degrees) in [(0, 0), (1, 90), (2, 180), (3, 270)] {
+            assert_eq!(rotation.degrees(), degrees);
+            assert_eq!(rotation.swaps_axes(), turns % 2 == 1);
+            assert_eq!(rotation.apply((200., 300.)), {
+                if turns % 2 == 1 {
+                    (300., 200.)
+                } else {
+                    (200., 300.)
+                }
+            });
+            let size = (200., 300.);
+            for p in [
+                Point::new(0., 0.),
+                Point::new(50., 90.),
+                Point::new(200., 300.),
+            ] {
+                let view = rotation.map(size, p);
+                assert_eq!(rotation.unmap(size, view), p);
+                let view_size = rotation.apply(size);
+                assert!((0. ..=view_size.0).contains(&view.x));
+                assert!((0. ..=view_size.1).contains(&view.y));
+            }
+            rotation = rotation.clockwise();
+        }
+        assert_eq!(rotation, Rotation::None);
+        for rotation in [
+            Rotation::None,
+            Rotation::Right,
+            Rotation::Half,
+            Rotation::Left,
+        ] {
+            assert_eq!(rotation.clockwise().counterclockwise(), rotation);
+            assert_eq!(rotation.counterclockwise().clockwise(), rotation);
+        }
+        // A clockwise turn sends the display top-left corner to the view top-right.
+        assert_eq!(
+            Rotation::Right.map((200., 300.), Point::new(0., 0.)),
+            Point::new(300., 0.)
+        );
     }
     #[test]
     fn mode_roundtrip() {

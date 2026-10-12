@@ -1,5 +1,7 @@
 //! Visible-range scheduling. At most one UI request is awaiting the bounded PDF worker.
 use crate::*;
+use breeze_core::Rotation;
+use breeze_core::annotations::{PageGeometry, ViewGeometry};
 use gpui_kit::component::ElementExt;
 use gpui_kit::component::{VirtualListScrollHandle, v_virtual_list};
 use std::{
@@ -113,6 +115,7 @@ struct PageMetrics {
     height: f32,
     zoom: Zoom,
     layout: ReadingLayout,
+    rotation: Rotation,
     items: Rc<Vec<Size<gpui_kit::Pixels>>>,
     widest: usize,
 }
@@ -194,6 +197,10 @@ impl ReadingView {
         self.pending_pages = None;
         self.pending_thumbs = None;
     }
+    /// Presentation geometry must be recomputed after the window chrome changes.
+    pub fn invalidate_metrics(&mut self) {
+        self.metrics = None;
+    }
     pub fn page(&self, page: usize) -> Option<Arc<Preview>> {
         self.pages.get(page)
     }
@@ -236,15 +243,19 @@ fn page_scale(points: (f32, f32), width: f32, height: f32, zoom: Zoom) -> f32 {
     }
     .max(0.01)
 }
+/// Scales one row of pages. `sizes` holds the pages' own sizes; the reader's
+/// view rotation is applied here so nothing downstream sees a stale aspect.
 fn row_geometry(
     sizes: &[(f32, f32)],
     pages: Range<usize>,
     width: f32,
     height: f32,
     zoom: Zoom,
+    rotation: Rotation,
 ) -> (f32, f32, f32) {
-    let row_width = pages.clone().map(|i| sizes[i].0).sum::<f32>();
-    let row_height = pages.clone().map(|i| sizes[i].1).fold(0., f32::max);
+    let view = |index: usize| rotation.apply(sizes[index]);
+    let row_width = pages.clone().map(|i| view(i).0).sum::<f32>();
+    let row_height = pages.clone().map(|i| view(i).1).fold(0., f32::max);
     let gap = if pages.len() == 2 { 12. } else { 0. };
     let scale = page_scale(
         (row_width, row_height),
@@ -505,8 +516,9 @@ impl Breeze {
         };
         let source = self.books[self.active].source.clone();
         let generation = self.generation;
+        let rotation = self.books[self.active].state.rotation;
         let request = if thumbnail {
-            self.worker.request_thumbnail(source, page_index)
+            self.worker.request_thumbnail(source, page_index, rotation)
         } else {
             self.worker.request_metadata(source, page_index)
         };
@@ -592,6 +604,32 @@ impl Breeze {
         self.reading_preferences.layout = layout;
         self.reading.metrics = None;
         self.load(cx);
+    }
+    /// Turns the current document a quarter turn without touching the source.
+    /// Cached rasters and thumbnails belong to the previous orientation, and
+    /// page text stays valid because it never depends on the view rotation.
+    pub(super) fn rotate(&mut self, clockwise: bool, cx: &mut Context<Self>) {
+        if !self.annotation_navigation_allowed(cx) {
+            return;
+        }
+        let rotation = &mut self.books[self.active].state.rotation;
+        *rotation = if clockwise {
+            rotation.clockwise()
+        } else {
+            rotation.counterclockwise()
+        };
+        self.reading.release_images(cx);
+        self.raster.clear(cx);
+        self.reading.metrics = None;
+        // Reloading discards in-flight results for the old orientation.
+        self.load(cx);
+    }
+    pub(super) fn rotation(&self) -> Rotation {
+        self.books[self.active].state.rotation
+    }
+    /// The page's display geometry as the reader currently shows it.
+    pub(super) fn view_geometry(&self, page: PageGeometry) -> ViewGeometry {
+        page.view(self.rotation())
     }
     fn toggle_outline(&mut self, index: usize, cx: &mut Context<Self>) {
         let collapsed = self.reading.outline_folds_mut();
@@ -1004,7 +1042,15 @@ impl Breeze {
         }
     }
     fn reading_viewport_size(&self, window: &Window) -> (f32, f32) {
-        let width = (f32::from(window.viewport_size().width)
+        let viewport = window.viewport_size();
+        // Immersive reading hides every chrome row, so the document owns the window.
+        if self.full_screen {
+            return (
+                f32::from(viewport.width).max(100.),
+                f32::from(viewport.height).max(100.),
+            );
+        }
+        let width = (f32::from(viewport.width)
             - if self.sidebar {
                 self.navigation_width
             } else {
@@ -1012,7 +1058,7 @@ impl Breeze {
             }
             - self.document_panel.width())
         .max(100.);
-        let height = (f32::from(window.viewport_size().height) - 34. - 38. - 32.).max(100.);
+        let height = (f32::from(viewport.height) - 34. - 38. - 32.).max(100.);
         (width, height)
     }
     pub(super) fn page_display_scale(&self, page: usize, window: &Window) -> f32 {
@@ -1028,6 +1074,7 @@ impl Breeze {
             width,
             height,
             state.zoom,
+            state.rotation,
         )
         .2
     }
@@ -1041,7 +1088,7 @@ impl Breeze {
         let (mut width, height) = self.reading_viewport_size(window);
         // Reserve the density needed with the navigation panel collapsed. Its
         // resizing changes presentation geometry, not the page's pixel identity.
-        if self.sidebar {
+        if self.sidebar && !self.full_screen {
             width += self.navigation_width;
         }
         let sizes = &self.reading.sizes;
@@ -1054,6 +1101,7 @@ impl Breeze {
                 width,
                 height,
                 state.zoom,
+                state.rotation,
             )
             .2
         };
@@ -1094,7 +1142,7 @@ impl Breeze {
             return 100.;
         }
         let range = state.layout.pages(state.navigation.page(), sizes.len());
-        row_geometry(sizes, range, width, height, state.zoom).2 * 75.
+        row_geometry(sizes, range, width, height, state.zoom, state.rotation).2 * 75.
     }
     pub(super) fn pages_view(&mut self, window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let state = &self.books[self.active].state;
@@ -1157,15 +1205,20 @@ impl Breeze {
         } else {
             self.reading.sizes.clone()
         };
+        let rotation = state.rotation;
         if layout.is_continuous() {
             let metrics = &mut self.reading.metrics;
             if metrics.as_ref().is_none_or(|m| {
-                m.width != width || m.height != height || m.zoom != zoom || m.layout != layout
+                m.width != width
+                    || m.height != height
+                    || m.zoom != zoom
+                    || m.layout != layout
+                    || m.rotation != rotation
             }) {
                 let items: Vec<_> = (0..sizes.len().div_ceil(layout.columns()))
                     .map(|row| {
                         let range = layout.pages(row * layout.columns(), sizes.len());
-                        let (w, h, _) = row_geometry(&sizes, range, width, height, zoom);
+                        let (w, h, _) = row_geometry(&sizes, range, width, height, zoom, rotation);
                         size(px((w + 24.).max(width)), px(h + 24.))
                     })
                     .collect();
@@ -1183,6 +1236,7 @@ impl Breeze {
                     height,
                     zoom,
                     layout,
+                    rotation,
                     items: Rc::new(items),
                     widest,
                 });
@@ -1214,8 +1268,14 @@ impl Breeze {
                             range
                                 .map(|index| {
                                     let pages = layout.pages(index * layout.columns(), sizes.len());
-                                    let (_, _, scale) =
-                                        row_geometry(&sizes, pages.clone(), width, height, zoom);
+                                    let (_, _, scale) = row_geometry(
+                                        &sizes,
+                                        pages.clone(),
+                                        width,
+                                        height,
+                                        zoom,
+                                        rotation,
+                                    );
                                     row()
                                         .id(("continuous-page", index))
                                         .when(index == first_row, |d| {
@@ -1236,10 +1296,11 @@ impl Breeze {
                                         .py_3()
                                         .gap_3()
                                         .children(pages.map(|page| {
+                                            let points = rotation.apply(sizes[page]);
                                             this.page_item(
                                                 page,
-                                                sizes[page].0 * scale,
-                                                sizes[page].1 * scale,
+                                                points.0 * scale,
+                                                points.1 * scale,
                                                 cx,
                                             )
                                         }))
@@ -1256,7 +1317,8 @@ impl Breeze {
         let range = layout.pages(page, sizes.len());
         let wanted = range.clone();
         self.defer_visible(wanted, false, cx);
-        let (row_width, _, scale) = row_geometry(&sizes, range.clone(), width, height, zoom);
+        let (row_width, _, scale) =
+            row_geometry(&sizes, range.clone(), width, height, zoom, rotation);
         viewport
             .overflow_scroll()
             .p_3()
@@ -1267,10 +1329,10 @@ impl Breeze {
                     .gap_3()
                     .items_start()
                     .justify_center()
-                    .children(
-                        range
-                            .map(|i| self.page_item(i, sizes[i].0 * scale, sizes[i].1 * scale, cx)),
-                    ),
+                    .children(range.map(|i| {
+                        let points = rotation.apply(sizes[i]);
+                        self.page_item(i, points.0 * scale, points.1 * scale, cx)
+                    })),
             )
             .into_any_element()
     }

@@ -1,6 +1,7 @@
 //! Native overlays and explicit, conflict-checked sidecar saves; no PDF content writes.
 use crate::*;
-use breeze_core::annotations::{Annotation, History, Kind, PageGeometry, Point as DocPoint, Rect};
+use breeze_core::annotations::ViewGeometry;
+use breeze_core::annotations::{Annotation, History, Kind, Point as DocPoint, Rect};
 use breeze_storage::{AnnotationConflict, AnnotationFile};
 use gpui_kit::component::ElementExt;
 
@@ -388,14 +389,11 @@ impl Breeze {
     fn document_pointer(&self, position: gpui_kit::Point<gpui_kit::Pixels>) -> Option<DocPoint> {
         let bounds = self.surface_bounds?;
         let preview = self.preview.as_ref()?;
-        let (w, h) = preview.points;
+        let geometry = self.view_geometry(preview.geometry);
+        let (w, h) = geometry.size();
         let x = f32::from(position.x - bounds.origin.x) / f32::from(bounds.size.width) * w;
         let y = f32::from(position.y - bounds.origin.y) / f32::from(bounds.size.height) * h;
-        Some(
-            preview
-                .geometry
-                .document(DocPoint::new(x.clamp(0., w), y.clamp(0., h))),
-        )
+        Some(geometry.document(DocPoint::new(x.clamp(0., w), y.clamp(0., h))))
     }
     fn pointer_down(
         &mut self,
@@ -607,7 +605,7 @@ impl Breeze {
         height: f32,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let geometry = preview.geometry;
+        let geometry = self.view_geometry(preview.geometry);
         let mut annotations: Vec<_> = self.books[self.active]
             .annotations
             .history
@@ -777,7 +775,7 @@ fn distance_to_segment(p: DocPoint, a: DocPoint, b: DocPoint) -> f32 {
 }
 fn paint_annotation(
     a: &Annotation,
-    geometry: PageGeometry,
+    geometry: ViewGeometry,
     bounds: Bounds<gpui_kit::Pixels>,
     window: &mut Window,
 ) {

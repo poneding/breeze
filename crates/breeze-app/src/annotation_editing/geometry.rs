@@ -1,4 +1,4 @@
-use breeze_core::annotations::{Annotation, Kind, PageGeometry, Point, Rect};
+use breeze_core::annotations::{Annotation, Kind, PageGeometry, Point, Rect, ViewGeometry};
 
 pub(super) fn segment_distance(p: Point, a: Point, b: Point) -> f32 {
     let dx = b.x - a.x;
@@ -98,7 +98,7 @@ pub(super) fn hit(annotation: &Annotation, p: Point, tolerance: f32) -> bool {
     }
 }
 
-pub(super) fn display_bounds(annotation: &Annotation, geometry: PageGeometry) -> Rect {
+pub(super) fn display_bounds(annotation: &Annotation, geometry: ViewGeometry) -> Rect {
     let points: Vec<_> = if annotation.kind.text_markup() {
         annotation
             .quads

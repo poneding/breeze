@@ -1,4 +1,5 @@
 //! Annotation geometry uses unrotated PDF user-space points, never screen pixels.
+use crate::Rotation;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -44,6 +45,13 @@ pub struct PageGeometry {
     pub rotation: i32,
 }
 impl PageGeometry {
+    /// The page as the reader shows it, with a view rotation on top of `/Rotate`.
+    pub fn view(self, rotation: Rotation) -> ViewGeometry {
+        ViewGeometry {
+            page: self,
+            rotation,
+        }
+    }
     pub fn size(self) -> (f32, f32) {
         if self.rotation.rem_euclid(180) == 90 {
             (self.crop.height, self.crop.width)
@@ -74,6 +82,25 @@ impl PageGeometry {
             _ => Point::new(p.x, h - p.y),
         };
         Point::new(v.x + self.crop.x, v.y + self.crop.y)
+    }
+}
+/// Display geometry of one page as the reader currently shows it: the page's
+/// own `/Rotate` plus the reader's view rotation.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ViewGeometry {
+    pub page: PageGeometry,
+    pub rotation: Rotation,
+}
+impl ViewGeometry {
+    /// Size in points after both rotations, never the raw crop box.
+    pub fn size(self) -> (f32, f32) {
+        self.rotation.apply(self.page.size())
+    }
+    pub fn display(self, p: Point) -> Point {
+        self.rotation.map(self.page.size(), self.page.display(p))
+    }
+    pub fn document(self, p: Point) -> Point {
+        self.page.document(self.rotation.unmap(self.page.size(), p))
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -254,6 +281,61 @@ mod tests {
             rotation: 0,
         };
         assert_eq!(g.display(Point::new(20., 330.)), Point::new(0., 0.));
+    }
+    /// View rotation composes after the page's own rotation.
+    #[test]
+    fn view_geometry_roundtrips_through_both_rotations() {
+        for page_rotation in [0, 90, 180, 270] {
+            let page = PageGeometry {
+                crop: Rect {
+                    x: 10.,
+                    y: 20.,
+                    width: 200.,
+                    height: 300.,
+                },
+                rotation: page_rotation,
+            };
+            for rotation in [
+                Rotation::None,
+                Rotation::Right,
+                Rotation::Half,
+                Rotation::Left,
+            ] {
+                let geometry = ViewGeometry { page, rotation };
+                let expected = rotation.apply(page.size());
+                assert_eq!(geometry.size(), expected);
+                for p in [
+                    Point::new(10., 20.),
+                    Point::new(95., 175.),
+                    Point::new(210., 320.),
+                ] {
+                    let view = geometry.display(p);
+                    assert!((0. ..=expected.0).contains(&view.x));
+                    assert!((0. ..=expected.1).contains(&view.y));
+                    let roundtrip = geometry.document(view);
+                    assert!((roundtrip.x - p.x).abs() < 0.001);
+                    assert!((roundtrip.y - p.y).abs() < 0.001);
+                }
+            }
+        }
+    }
+    #[test]
+    fn view_rotation_turns_the_display_corner_clockwise() {
+        let geometry = ViewGeometry {
+            page: PageGeometry {
+                crop: Rect {
+                    x: 0.,
+                    y: 0.,
+                    width: 100.,
+                    height: 200.,
+                },
+                rotation: 0,
+            },
+            rotation: Rotation::Right,
+        };
+        assert_eq!(geometry.size(), (200., 100.));
+        // The display top-left corner becomes the view top-right corner.
+        assert_eq!(geometry.display(Point::new(0., 200.)), Point::new(200., 0.));
     }
     #[test]
     fn history_roundtrip() {

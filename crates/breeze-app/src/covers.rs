@@ -1,5 +1,6 @@
 //! First-page previews share the bounded PDF worker and never open reader tabs.
 use crate::*;
+use breeze_core::Rotation;
 use std::collections::VecDeque;
 
 const COVER_BUDGET: usize = 16 * 1024 * 1024;
@@ -100,7 +101,11 @@ impl Breeze {
         else {
             return;
         };
-        let request = match self.worker.request_thumbnail(source.clone(), 0) {
+        // Library covers show the document's own orientation, never a reader view rotation.
+        let request = match self
+            .worker
+            .request_thumbnail(source.clone(), 0, Rotation::None)
+        {
             Ok(request) => request,
             Err(error) => {
                 self.covers.insert(
@@ -183,10 +188,13 @@ mod tests {
     #[gpui_kit::test]
     fn library_cover_and_grid_preserve_reader_state(cx: &mut TestAppContext) {
         let worker = PdfWorker::new().unwrap();
-        let page =
-            futures::executor::block_on(worker.request_thumbnail(Source::Sample, 0).unwrap())
-                .unwrap()
-                .unwrap();
+        let page = futures::executor::block_on(
+            worker
+                .request_thumbnail(Source::Sample, 0, Rotation::None)
+                .unwrap(),
+        )
+        .unwrap()
+        .unwrap();
         let pixels = page.pixels.unwrap();
         let bytes = pixels.bgra.len();
         let image = texture(pixels).unwrap();

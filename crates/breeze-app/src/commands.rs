@@ -13,6 +13,8 @@ pub fn bind(cx: &mut App) {
         ),
         KeyBinding::new("delete", DeleteSelectedAnnotation, Some("Breeze && !Input")),
         KeyBinding::new("escape", CancelAnnotationEdit, Some("Breeze")),
+        // Immersive reading is also left with Escape, the same key that cancels edits.
+        KeyBinding::new("f11", ToggleFullScreen, Some("Breeze")),
         KeyBinding::new("escape", CancelAnnotationEdit, Some("AnnotationText")),
         KeyBinding::new("secondary-shift-l", CycleLayout, Some("Breeze && !Input")),
         KeyBinding::new("secondary-,", Preferences, Some("Breeze")),
@@ -104,6 +106,8 @@ impl Breeze {
             cx.notify();
         } else if action.as_any().is::<CycleTheme>() {
             self.set_appearance(self.theme_preference.next(cx), window, cx);
+        } else if action.as_any().is::<ToggleFullScreen>() {
+            self.set_full_screen(!self.full_screen, window, cx);
         } else if action.as_any().is::<NextTab>() || action.as_any().is::<PreviousTab>() {
             let tabs: Vec<_> = self
                 .books
@@ -152,6 +156,8 @@ impl Breeze {
                     ReadingLayout::Spread => ReadingLayout::Single,
                 };
                 self.set_layout(next, cx);
+            } else if action.as_any().is::<RotateLeft>() || action.as_any().is::<RotateRight>() {
+                self.rotate(action.as_any().is::<RotateRight>(), cx);
             } else if action.as_any().is::<CopySelection>() {
                 if !self.selected_text.is_empty() {
                     cx.write_to_clipboard(ClipboardItem::new_string(self.selected_text.clone()));
@@ -490,6 +496,9 @@ fn action_label(action: &dyn Action) -> &'static str {
     name!(RedoAnnotation, tr!("重做批注"));
     name!(SearchDocument, tr!("搜索文档"));
     name!(CycleLayout, tr!("切换阅读布局"));
+    name!(RotateLeft, tr!("向左旋转 90 度"));
+    name!(RotateRight, tr!("向右旋转 90 度"));
+    name!(ToggleFullScreen, tr!("全屏阅读（Esc 退出，F11 切换）"));
     name!(CopySelection, tr!("复制选中文字"));
     name!(Open, tr!("打开文档"));
     name!(Home, tr!("主页"));
