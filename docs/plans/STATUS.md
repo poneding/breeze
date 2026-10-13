@@ -65,7 +65,7 @@ future-incompatibility notice remains. Windows/Linux runtime checks are pending.
 | Reading | Single/Continuous/Spread layouts; per-document view rotation in either direction; immersive fullscreen that keeps the document only; virtualized full outline/thumbnail lists; visible-range scheduling; 32 MiB worker, 64 MiB UI-page, and 8 MiB UI-thumbnail budgets; page navigation and zoom |
 | Text/search | Rectangular horizontal-glyph selection/copy; cancellable background search with up to 300 results and page destinations |
 | Annotations | Text/area highlight, underline, strikeout, ink, ink-only eraser, text note, ellipse, rectangle, line, free wavy line, and arrow |
-| History/sidecars | Bounded undo/redo, per-page removal, source SHA-256, 500 ms debounced autosave, Save/Save As, and conflict refusal |
+| History/sidecars | Bounded undo/redo, per-page removal, source SHA-256, explicit Save/Save As only, and conflict refusal |
 | PDF export | New-file-only standard annotations with vector normal appearances; old content/resources/annotations checked before publication |
 | Export UX | Immutable snapshot, native save dialog, Primary+Shift+E, one in-flight job, close protection, receipt, and disclosed sticky-note semantics |
 | Window policies | Default keeps geometry; Maximized maximizes once; Fit Document sizes once using remaining display space without changing zoom |
@@ -477,3 +477,110 @@ This addresses the reported block-by-block page turn. A region's painted interio
 Release measurements on the bundled sample: one 1195x1546 viewport region renders in 29.07 ms as a single job where the same viewport previously required 12 cell jobs, and pages 1 and 2 are already rendered (15.19 / 14.68 ms) before any turn. `crates/breeze-pdf/examples/region_probe.rs` records the region-versus-cell cost.
 
 Native GUI inspection was **not** performed: the Computer Use path is unavailable in this session (`orca` is not installed), so the visual result rests on the application's own render trace, component tests and probes. Retained page preparation (display list) remains unimplemented, GPU residency is outside the 96 MiB budget, and the 350 MiB RSS target has not been re-measured. Details and open risks are in [work package 16](16-page-turn-presentation.md).
+
+## October 13 automatic language detection and an English-source catalog
+
+[Work package 19](19-language-detection.md) adds automatic detection above a divided
+language list. `LanguagePreference` (Auto, English, 简体中文, 繁體中文) is the stored
+choice and Select item; Auto resolves through `sys-locale` to Simplified Chinese for
+`zh`/`zh-Hans`-style tags, Traditional Chinese for `zh-Hant`/`zh-TW`/`zh-HK`/`zh-MO`,
+and English for everything else. The dropdown is one ungrouped Select:
+`Auto detect`, a non-selectable `Languages` label row, then the three explicit
+languages. The label is a row instead of a section header because a Kit Select
+measures only its first section header and applies that height to every header, so
+a header above detection would also reserve an empty band of the same height. The
+label row is disabled and committing it keeps the current language, so it never
+becomes the selected value. The catalog is now keyed on English per
+AGENTS.md: `text_in` falls back to the English key, four near-synonym Chinese keys
+that shared one English meaning were merged, and every `tr!`/`tf!` call site uses the
+English literal.
+
+State version 9 migrates the version 1–8 numeric language preference so an existing
+choice is preserved (0/1/2 = Simplified Chinese/English/Traditional Chinese map onto
+the new 2/1/3 indices); Auto is the default only for a fresh state. Tests resolve
+detection to Simplified Chinese so their expected chrome does not depend on the
+machine's locale, and the locale matcher is unit-tested directly. Formatting, the
+workspace suite (136 app tests, three existing PDF probes ignored), all-target Clippy
+with warnings denied, and the locked build pass. New tests cover locale matching,
+preference round-tripping, the dropdown's rows and the label veto, the version 8
+to 9 migration, catalog key uniqueness and slot parity, and live Select refresh.
+Native macOS checks on the isolated review bundle under
+`target/lang-detection-review/` confirmed Auto detection in Simplified Chinese on
+this system, English under an `en-US` language preference, and the stored English
+and Traditional Chinese choices (`Breeze · Local reading workspace`,
+`Breeze · 本地閱讀工作台`) with English chrome labels. The session lacks the
+screen-recording permission, so the open dropdown's label row was verified by
+component tests rather than a pixel capture. Windows/Linux native localization
+checks and the existing production fidelity and release gates remain open.
+
+## October 13 chrome refinements: sidebar order, About layout, update label
+
+The Home sidebar footer now stacks About (Primary+I) above Shortcuts (Primary+K),
+with Settings (Primary+,) last. The titlebar Settings button is removed; the
+sidebar entry and Primary+, remain the ways to open Settings, and the titlebar
+keeps Home, the document tabs, Open, and the theme control. The About check action
+is labelled "Check for updates" (`检查更新`), matching the Settings policy row, and
+the retired "Check now" catalog entry is gone.
+
+The About page's update status now wraps inside a bounded 360 px column and stays
+centered below the check button, so a long failure message no longer shares the
+button's line or pushes the release button around. Author and Source code render as
+single rows: the muted label and its value share one line, and a fixed 64 px label
+column left-aligns both values.
+
+Validation: `cargo fmt --all -- --check`, the workspace suite (137 app tests plus
+core, PDF, storage and packaging tests; three existing PDF probes ignored), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. Component
+tests pin the new sidebar order, the removed titlebar entry (the shortcut still
+selects Settings), the wrapped and centered update status, the single-line
+left-aligned credits with a shared value column, and the new check label. Native
+visual inspection of this pass was blocked: the session lacks the macOS Screen
+Recording permission, so `screencapture` returned only the desktop wallpaper and
+menu bar and the per-window capture failed with `could not create image from
+window`. Windows/Linux runtime checks remain open.
+
+## October 13 status text: remove announcements that carry no information
+
+The interface no longer announces that nothing is wrong. About shows an update
+result only after a check produced one, so the untouched "updates have not been
+checked" line is gone along with the in-flight line that repeated the check
+button's own label. The reader status bar and the annotation panel footer stay
+empty while a document is healthy instead of showing "source unchanged" and
+"annotations loaded · automatically saved to sidecar". A cancelled file picker,
+recovery confirmation or discard no longer leaves a receipt, and the annotation
+selection popover lost its "annotation selected" title, which only repeated the
+click. Disclosures, error and blocking reasons, progress states, and the undo
+hint after a deletion remain.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked` (141
+app tests plus the core, PDF, storage and packaging suites; the same pre-existing
+probes stay ignored) and `cargo clippy --workspace --all-targets --locked -- -D
+warnings` pass. New component tests pin the silent update state, the empty
+annotation footer while the sidecar is ready and saved, and the empty status bar
+on a healthy document. Native visual inspection was not performed for this pass;
+Windows/Linux checks remain open.
+
+## October 13 manual annotation saving
+
+Requested by the user on October 13, 2026: annotations must no longer save
+themselves. The 500 ms debounce (`schedule_annotation_save` and
+`DocumentAnnotations::autosave`) and every call site are gone — created, edited,
+recolored, erased and deleted annotations, undo/redo, annotation-list removal,
+and the follow-up write after a completed save. An edit now marks the document
+unsaved, which the reader status area and the annotation panel footer report;
+Save (Primary+S) and Save As are the only paths that write a sidecar, and a
+cancelled Save As no longer starts a follow-up write. Reassociation and recovery
+copies still write at once, because both are explicit actions on a file the user
+chose. Close/quit, tab close and library removal remain refused while
+annotations are unsaved, so pending work is not discarded silently; nothing is
+written before the user saves, so an unexpected termination can cost that
+session's annotations. Details are in [work package 21](21-manual-annotation-save.md).
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked` (142
+app tests plus the core, PDF, storage and packaging suites; the same pre-existing
+probes stay ignored) and `cargo clippy --workspace --all-targets --locked -- -D
+warnings` pass. `annotations::tests::edits_stay_unsaved_until_the_user_saves`
+pins the new behavior: after an edit and an advanced clock the sidecar still
+holds the previous snapshot, the document stays dirty and `allow_close` refuses,
+and only an explicit save writes both annotations. Native visual inspection was
+not performed for this pass; Windows/Linux checks remain open.
