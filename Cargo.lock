@@ -816,7 +816,7 @@ dependencies = [
 
 [[package]]
 name = "breeze-app"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "breeze-core",
@@ -835,14 +835,14 @@ dependencies = [
 
 [[package]]
 name = "breeze-core"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "breeze-pdf"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "breeze-core",
@@ -857,7 +857,7 @@ dependencies = [
 
 [[package]]
 name = "breeze-storage"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "breeze-core",
