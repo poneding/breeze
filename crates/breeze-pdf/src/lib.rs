@@ -12,8 +12,7 @@ use pdf_oxide::{
     outline::{Destination, OutlineItem},
     rendering::{PageRenderer, RenderOptions},
 };
-pub use raster::{DeviceTile, MAX_REGION_PIXELS};
-use raster::{rotate_region, tile_source_region};
+use raster::rotate_region;
 use std::{
     collections::VecDeque,
     path::PathBuf,
@@ -22,6 +21,20 @@ use std::{
     thread,
     time::{Instant, SystemTime},
 };
+
+/// Output budget for the default-density renderer, which serves the fixed
+/// 144 dpi convenience request and the 24 dpi thumbnail path.
+const DEFAULT_DENSITY_MAX_PIXELS: u64 = 4_000_000;
+
+/// Output budget for a page rendered at the reader's requested density.
+///
+/// This is not a quality limit. The engine takes integer DPI and reduces the
+/// scale when a request exceeds its budget, so this has to sit above any page the
+/// reader may ask for, and a reduced result is refused rather than displayed. It
+/// exists only so a pathological page box cannot ask the host for an unbounded
+/// allocation: 268 Mpx is 1 GiB of RGBA, above a large-format sheet at 2x display
+/// scale and far above an ordinary page.
+const MAX_PAGE_PIXELS: u64 = 268_435_456;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Source {
@@ -47,7 +60,11 @@ pub struct Page {
     pub glyphs: Vec<Glyph>,
     pub text_warning: Option<String>,
     pub pixels: Option<Pixels>,
-    pub tile: Option<DeviceTile>,
+    /// Whole-DPI density the raster above was produced at, when one was
+    /// requested. The engine takes an integer DPI, so a caller asks in device
+    /// pixels per point and is answered in the DPI that was actually used; both
+    /// sides compare that integer rather than a derived float.
+    pub rendered_dpi: Option<u32>,
     pub page: usize,
     pub total: usize,
     pub points: (f32, f32),
@@ -61,7 +78,9 @@ struct Job {
     page: usize,
     thumbnail: bool,
     metadata_only: bool,
-    tile: Option<DeviceTile>,
+    /// Device pixels per PDF point to rasterize the whole page at, for a page
+    /// request. `None` means the default-density or thumbnail path.
+    scale: Option<f32>,
     /// View rotation applied to the rendered pixels after rasterization.
     rotation: Rotation,
     reply: oneshot::Sender<Result<Page>>,
@@ -87,9 +106,9 @@ impl PdfWorker {
                 // Cached entries are rotation-specific, so the view rotation is part of the key.
                 let mut cache: VecDeque<(Rotation, Page)> = VecDeque::new();
                 let mut options = RenderOptions::with_dpi(144).as_raw();
-                // Match the region contract: one request may cover a whole
-                // device-resolution viewport, not only a single 508px cell.
-                options.max_output_pixels = MAX_REGION_PIXELS;
+                // Only the default-density path uses this renderer; page requests
+                // build one per request around the requested density.
+                options.max_output_pixels = DEFAULT_DENSITY_MAX_PIXELS;
                 let mut renderer = PageRenderer::new(options);
                 let mut thumbnail_options = RenderOptions::with_dpi(24).as_raw();
                 thumbnail_options.max_output_pixels = 120_000;
@@ -119,10 +138,10 @@ impl PdfWorker {
                     );
                     if trace && let Ok(page) = &result {
                         eprintln!(
-                            "breeze-render page={} metadata={} tile={:?} elapsed_ms={:.2} bytes={}",
+                            "breeze-render page={} metadata={} scale={:?} elapsed_ms={:.2} bytes={}",
                             page.page,
                             job.metadata_only,
-                            job.tile,
+                            job.scale,
                             page.elapsed_ms,
                             page_bytes(page)
                         );
@@ -151,14 +170,21 @@ impl PdfWorker {
     ) -> Result<oneshot::Receiver<Result<Page>>> {
         self.request_kind(source, page, false, true, None, Rotation::None)
     }
-    pub fn request_tile(
+    /// Rasterize the whole page at `scale` device pixels per PDF point, rotated
+    /// for the current view.
+    ///
+    /// The engine exposes an integer DPI only, so the request rounds up: the
+    /// result carries at or slightly above the requested density, never below.
+    /// A result the engine quietly reduced to fit its own budget is refused
+    /// instead of returned, because a caller caches by the density it asked for.
+    pub fn request_page(
         &self,
         source: Source,
         page: usize,
-        tile: DeviceTile,
         rotation: Rotation,
+        scale: f32,
     ) -> Result<oneshot::Receiver<Result<Page>>> {
-        self.request_kind(source, page, false, false, Some(tile), rotation)
+        self.request_kind(source, page, false, false, Some(scale), rotation)
     }
     fn request_kind(
         &self,
@@ -166,7 +192,7 @@ impl PdfWorker {
         page: usize,
         thumbnail: bool,
         metadata_only: bool,
-        tile: Option<DeviceTile>,
+        scale: Option<f32>,
         rotation: Rotation,
     ) -> Result<oneshot::Receiver<Result<Page>>> {
         let (reply, receive) = oneshot::channel();
@@ -181,7 +207,7 @@ impl PdfWorker {
             page,
             thumbnail,
             metadata_only,
-            tile,
+            scale,
             rotation,
             reply,
         });
@@ -289,7 +315,7 @@ fn render(
     }
     let page = job.page.min(total - 1);
     if let Some(index) = cache.iter().position(|(rotation, p)| {
-        job.tile.is_none()
+        job.scale.is_none()
             && *rotation == job.rotation
             && p.page == page
             && p.thumbnail == job.thumbnail
@@ -302,29 +328,67 @@ fn render(
     }
     let geometry = loaded.geometries[page];
     let points = geometry.size();
-    let pixels = if job.metadata_only {
-        None
-    } else if let Some(tile) = job.tile {
-        // A quarter turn maps the device grid onto itself, so the requested
-        // view tile is rendered from its axis-aligned source region and then
-        // rotated back into the tile's own coordinates.
-        let region = tile_source_region(tile, job.rotation, points)?;
-        let rendered = renderer.render_device_region(doc, page, tile.scale(), region)?;
-        Some(rotate_region(convert(rendered), job.rotation))
+    let (pixels, rendered_dpi) = if job.metadata_only {
+        (None, None)
+    } else if let Some(scale) = job.scale {
+        // Whole page at the density the reader's surface actually needs. The
+        // engine exposes an integer DPI, so round up: a raster at or just above
+        // the requested density is sharp, and painting scales it back down by the
+        // same fraction instead of stretching it.
+        let dpi = (f64::from(scale) * 72.).ceil();
+        anyhow::ensure!(
+            dpi.is_finite() && (1. ..=4_608.).contains(&dpi),
+            "不支持的页面缩放"
+        );
+        let mut options = RenderOptions::with_dpi(dpi as u32).as_raw();
+        options.max_output_pixels = MAX_PAGE_PIXELS;
+        let mut page_renderer = PageRenderer::new(options);
+        let rendered = page_renderer
+            .render_page(doc, page)
+            .with_context(|| format!("第 {} 页渲染失败，无法完整显示", page + 1))?;
+        let rendered_scale = dpi as f32 / 72.;
+        let image = convert(rendered);
+        // The engine reduces the scale to fit its own output budget instead of
+        // failing. A reduced raster is indistinguishable from a sharp one until
+        // it is painted, so refuse it here rather than present a blurry page as
+        // the density that was requested.
+        // `points` is the page's own size with its /Rotate applied, which is what
+        // the engine renders; the viewer's rotation is applied to the raster
+        // afterwards. One pixel of slack absorbs the engine's own rounding of a
+        // fractional extent, while a reduced scale moves the extent far more.
+        let expected = (
+            (f64::from(points.0) * f64::from(rendered_scale)).ceil() as u32,
+            (f64::from(points.1) * f64::from(rendered_scale)).ceil() as u32,
+        );
+        anyhow::ensure!(
+            image.width.abs_diff(expected.0) <= 1 && image.height.abs_diff(expected.1) <= 1,
+            "渲染器未按请求的清晰度返回页面（需要 {}x{}，得到 {}x{}）",
+            expected.0,
+            expected.1,
+            image.width,
+            image.height
+        );
+        (Some(rotate_region(image, job.rotation)), Some(dpi as u32))
     } else {
         let rendered = if job.thumbnail {
-            thumb.render_page(doc, page)?
+            thumb.render_page(doc, page)
         } else {
-            renderer.render_page(doc, page)?
-        };
-        Some(rotate_region(convert(rendered), job.rotation))
+            renderer.render_page(doc, page)
+        }
+        .with_context(|| format!("第 {} 页渲染失败，无法完整显示", page + 1))?;
+        let density = if job.thumbnail { 24 } else { 144 };
+        (
+            Some(rotate_region(convert(rendered), job.rotation)),
+            Some(density),
+        )
     };
-    let outline = if job.thumbnail || job.tile.is_some() {
+    let full_page_request = job.thumbnail || job.scale.is_some();
+    let outline = if full_page_request {
         Arc::new(Vec::new())
     } else {
         loaded.outline.clone()
     };
-    let (glyphs, text_warning) = if job.thumbnail || job.tile.is_some() {
+    let (glyphs, text_warning) = if full_page_request {
         (Vec::new(), None)
     } else {
         match doc.extract_chars(page) {
@@ -354,7 +418,7 @@ fn render(
     };
     let result = Page {
         pixels,
-        tile: job.tile,
+        rendered_dpi,
         page,
         total,
         points,
@@ -367,8 +431,10 @@ fn render(
         page_sizes: loaded.sizes.clone(),
         elapsed_ms: time.elapsed().as_secs_f64() * 1000.,
     };
-    // The UI owns tile residency. Avoid a second CPU cache and deep pixel clones.
-    if job.tile.is_some() {
+    // The viewer owns page-raster residency: a whole-page texture is far larger
+    // than this worker cache, and the viewer already keeps the density it needs
+    // for the visible pages.
+    if job.scale.is_some() {
         return Ok(result);
     }
     let cost = page_bytes(&result);
@@ -529,7 +595,7 @@ mod scheduling_tests {
                 page: 0,
                 thumbnail: false,
                 metadata_only: false,
-                tile: None,
+                scale: None,
                 rotation: Rotation::None,
                 reply: first,
             }),
@@ -540,7 +606,7 @@ mod scheduling_tests {
             page: 7,
             thumbnail: false,
             metadata_only: false,
-            tile: None,
+            scale: None,
             rotation: Rotation::None,
             reply: second,
         });

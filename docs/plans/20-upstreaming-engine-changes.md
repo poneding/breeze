@@ -1,5 +1,36 @@
 # Upstreaming the engine changes so `vendor/` can be removed
 
+## Status: the vendored copy is retired, the submissions are not submitted
+
+The user directed the removal of `vendor/pdf_oxide` on October 13, 2026 without
+waiting for upstream, accepting the consequences listed below. What is now
+implemented:
+
+- `[patch.crates-io]` and the workspace `exclude` are gone; `pdf_oxide` 0.3.78
+  resolves from crates.io with the archive checksum `95b1ecc1…3437d`, the same
+  distribution the vendored copy was taken from.
+- The reader renders whole pages at the density its surface asks for
+  (`request_page`, `dpi = ceil(scale x 72)`), refuses a raster the engine reduced
+  to fit its own budget, and keeps the reader's rotation in the adapter.
+- The cell grid, region grouping, seam gutters and the 96 MiB viewport ceiling are
+  gone. One texture per page replaces many 512 px cells; the ceiling now applies
+  only to predicted, non-visible pages, and the visible page is never refused or
+  evicted, so memory grows with zoom instead of the zoom being capped.
+- Measured on the stock engine (Release, M1 Pro, bundled sample, 612 x 792 pt):
+  2x = 1224 x 1584 / 7.4 MiB / 27-42 ms; 4x = 29.6 MiB / 51 ms; 8x = 118.3 MiB /
+  185 ms; 10.667x (400% on a 2x display) = 6537 x 8459 / **210.9 MiB / 325 ms**,
+  with the test process peaking at 781 MB. The engine returned the full requested
+  extent at every scale, so nothing was silently reduced.
+
+**The rendering-integrity propagation is lost.** The engine a stock dependency
+gives us logs a failed image, mask, Form or shading draw and returns a successful
+raster with that content missing. Two tests that assert the opposite are kept in
+the tree marked `#[ignore]` with that reason, rather than deleted:
+`crates/breeze-pdf/tests/render_integrity.rs` and
+`crates/breeze-app/src/raster/integrity_tests.rs`. The patch text that carries the
+behavior is preserved in `docs/specs/07-retired-engine-patch.md` and in
+`target/upstream/02-render-integrity.patch`.
+
 ## Goal
 
 The user requires both of the following, and confirmed them explicitly:

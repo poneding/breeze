@@ -7,7 +7,6 @@ members = [
 ]
 default-members = ["crates/breeze-app"]
 resolver = "3"
-exclude = ["vendor/pdf_oxide"]
 
 [workspace.package]
 version = "0.1.0"
@@ -45,6 +44,3 @@ opt-level = 2
 
 [profile.release]
 debug = 0
-
-[patch.crates-io]
-pdf_oxide = { path = "vendor/pdf_oxide" }
