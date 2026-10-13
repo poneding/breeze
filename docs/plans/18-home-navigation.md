@@ -74,5 +74,8 @@ muted line states that custom shortcuts are not supported yet.
   the shortcuts page renders real bindings for a representative action; the Info
   page shows the version and the update check.
 - Native visual inspection of the three pages in a controlled data directory.
-- Component tests cover the stacked order, the three bound tooltips, the shortcut
-  commands, the capped and centered columns, and About's two-axis centering.
+- Component tests cover the stacked order, the shortcut commands, the capped and
+  centered columns, About's two-axis centering, and the exact tooltip keys
+  (⌘I/⌘K/⌘, on macOS, Ctrl equivalents on Windows/Linux).
+- Native inspection after the screen was unlocked confirmed the stacked sidebar, the
+  bounded and centered Settings column, and the two-axis-centered About page.

@@ -256,18 +256,29 @@ fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext)
         assert_eq!(state.screen, Screen::Home);
         assert_eq!(state.home_page, HomePage::Settings);
 
-        // Each sidebar entry is a real command with a bound shortcut.
-        for (id, action) in [
-            ("home-about", &ShowAbout as &dyn Action),
-            ("home-shortcuts", &ShowShortcuts),
-            ("home-settings", &Preferences),
+        // Each sidebar entry is a real command whose tooltip shows the platform keys.
+        #[cfg(target_os = "macos")]
+        let modifier = "⌘";
+        #[cfg(not(target_os = "macos"))]
+        let modifier = "Ctrl+";
+        for (id, action, key) in [
+            ("home-about", &ShowAbout as &dyn Action, "I"),
+            ("home-shortcuts", &ShowShortcuts, "K"),
+            ("home-settings", &Preferences, ","),
         ] {
             assert!(window.find(id).visible());
             assert!(window.find(id).bounds().size.width >= px(120.));
-            assert!(
-                gpui_kit::component::kbd::Kbd::binding_for_action(action, Some("Breeze"), window)
-                    .is_some(),
-                "{id} must advertise its binding"
+            let binding = window
+                .highest_precedence_binding_for_action_in_context(
+                    action,
+                    gpui_kit::KeyContext::parse("Breeze").unwrap(),
+                )
+                .unwrap_or_else(|| panic!("{id} must advertise its binding"));
+            let stroke = binding.keystrokes()[0].as_keystroke();
+            assert_eq!(
+                gpui_kit::component::kbd::Kbd::format(stroke),
+                format!("{modifier}{key}"),
+                "{id} tooltip must show the requested shortcut"
             );
         }
         // The three entries stack vertically in the requested order.

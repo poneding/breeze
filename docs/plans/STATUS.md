@@ -42,14 +42,18 @@ to Manual.
 
 Validation: `cargo fmt --all -- --check`, the workspace suite (126 app tests plus
 core, PDF, storage and packaging tests; three existing PDF probes ignored), and
-`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. Native macOS
-inspection before the screen locked confirmed the library and the first-pass About,
-Shortcuts, and Settings pages with sidebar selection and titlebar Settings
-activation. Visual inspection of the refined stacked layout was **not** performed:
-the macOS session locked at 23:49 on October 12, and captures after that point
-returned a stale frame. The layout claims rest on component tests until the screen
-is unlocked. The upstream `block 0.1.6` future-incompatibility notice remains.
-Windows/Linux runtime checks are pending.
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass.
+
+Native macOS inspection ran twice. The first pass (before the session locked)
+confirmed the library page, sidebar selection, and titlebar Settings activation. The
+second pass after the screen was unlocked confirmed the refined layout in an
+isolated data directory: the three sidebar entries stack in the requested order, the
+Settings page keeps every control inside a centered 720 px column with clear space
+before the right edge, and About is centered on both axes with `版本 0.1.0`, the
+author line, and the repository link. Component tests pin the exact tooltip keys
+(⌘I/⌘K/⌘, on macOS, Ctrl equivalents elsewhere), the stacked order, the capped and
+centered columns, and About's two-axis centering. The upstream `block 0.1.6`
+future-incompatibility notice remains. Windows/Linux runtime checks are pending.
 
 ## Current implementation
 
