@@ -24,9 +24,9 @@ these assets.
 
 ## Breeze identity
 
-`brand/` contains the project-authored Breeze logo and platform icon assets. These
-are application identity assets, not replacements for the Lucide command icons.
-See [the brand asset guide](brand/README.md) for sources and usage.
+`brand/` contains the Breeze logo and platform icon assets. These are application
+identity assets, not replacements for the Lucide command icons. See
+[the brand asset guide](brand/README.md) for the design notes and usage rules.
 
 ## Pinned PDF renderer patch
 

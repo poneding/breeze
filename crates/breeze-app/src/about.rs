@@ -177,3 +177,42 @@ fn about_credit(
         )
         .child(value)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The bundled raster is the only brand asset loaded at runtime, so a broken
+    /// export would ship unnoticed: a rasterizer that composites onto an opaque
+    /// background turns the icon into a tile on a white square. Check that the
+    /// decoded tile keeps its transparent margin, its charcoal tile, and its
+    /// ivory pages.
+    #[test]
+    fn bundled_logo_keeps_its_transparent_margin_and_colours() {
+        let logo = brand_logo().expect("bundled brand logo decodes");
+        assert_eq!(logo.frame_count(), 1);
+        let size = logo.size(0);
+        assert_eq!(
+            (size.width.0, size.height.0),
+            (LOGO_MAX_PIXELS as i32, LOGO_MAX_PIXELS as i32)
+        );
+        let pixels = logo.as_bytes(0).expect("decoded frame pixels");
+
+        // GPUI frames are BGRA. Sample points are taken on the 1024 px master and
+        // scaled by 160 / 1024: the outer margin, the tile above the pages, the
+        // ivory left page, and the narrow spine between the two pages.
+        let at = |x: usize, y: usize| {
+            let i = (y * LOGO_MAX_PIXELS as usize + x) * 4;
+            [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]]
+        };
+        assert_eq!(at(0, 0), [0, 0, 0, 0], "outer margin stays transparent");
+        assert_eq!(at(80, 34), [44, 44, 44, 255], "tile stays charcoal");
+        assert_eq!(at(58, 80), [232, 241, 245, 255], "page stays ivory");
+        let spine = at(80, 80);
+        assert_eq!(spine[3], 255, "pages are opaque inside the tile");
+        assert!(
+            spine[..3].iter().all(|channel| *channel < 100),
+            "spine stays dark, not page-coloured: {spine:?}"
+        );
+    }
+}

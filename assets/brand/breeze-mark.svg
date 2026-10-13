@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="#82715B">
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="#2C2C2C">
   <title>Breeze mark</title>
-  <desc>A monochrome pair of softly rounded wind-lifted pages; no background.</desc>
-  <g transform="translate(512 500) scale(1.25) translate(-520 -492)">
-  <path d="M320 322 C429 277 535 394 690 310 Q713 297 705 323 L666 437 Q663 447 654 452 C521 524 420 402 320 457 Q306 465 306 449 L306 344 Q306 329 320 322 Z"/>
-  <path d="M320 489 C435 433 552 583 715 477 Q739 461 731 489 L685 629 Q681 642 670 650 C529 748 419 606 321 662 Q306 671 306 653 L306 513 Q306 496 320 489 Z"/>
+  <desc>A monochrome open book on transparency; no tile and no background.</desc>
+  <g transform="translate(512 512) scale(61) translate(-12 -12.065)">
+    <path d="M11.5 17.25C11.5 17.61 11.14 17.85 10.81 17.71C9.6 17.19 8.02 16.71 6.92 16.57L6.73 16.55C6.12 16.47 5.62 15.9 5.62 15.28V7.58C5.62 6.81 6.24 6.24 7 6.3C8.25 6.4 10.1 7 11.26 7.66C11.42 7.75 11.5 7.92 11.5 8.09V17.25Z"/>
+    <path d="M18.38 15.27C18.38 15.89 17.88 16.46 17.27 16.54L17.06 16.56C15.97 16.71 14.4 17.18 13.19 17.69C12.86 17.83 12.5 17.59 12.5 17.23V8.08C12.5 7.9 12.59 7.73 12.75 7.64C13.91 6.99 15.72 6.41 16.95 6.3H16.99C17.76 6.3 18.38 6.92 18.38 7.69V15.27Z"/>
   </g>
 </svg>
