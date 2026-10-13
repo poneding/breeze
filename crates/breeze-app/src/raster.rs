@@ -2,14 +2,17 @@
 use crate::*;
 use breeze_core::Rotation;
 use breeze_core::annotations::ViewGeometry;
-use breeze_pdf::DeviceTile;
+use breeze_pdf::{DeviceTile, MAX_REGION_PIXELS};
 use std::collections::{HashMap, VecDeque};
 
 // Gutters fit inside a 512px atlas cell, avoiding 1024px allocations per tile.
 const EDGE: u32 = 508;
 const GUTTER: u32 = 2;
-const BUDGET: usize = 56 * 1024 * 1024;
-const PREFETCH_BUDGET: usize = 16 * 1024 * 1024;
+// Pixels cached for the visible viewport plus the predicted neighbors.
+const BUDGET: usize = 96 * 1024 * 1024;
+// Ceiling on the prefetch share. Any remainder of the budget stays available
+// to whatever the visible viewport still needs.
+const PREFETCH_BUDGET: usize = 56 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct Key {
@@ -21,6 +24,11 @@ struct Key {
 impl Key {
     fn bytes(self) -> usize {
         self.tile.width as usize * self.tile.height as usize * 4
+    }
+    /// Grid cell this tile occupies. Cell 0 starts at the page origin instead of
+    /// one gutter before it, so the mapping is exact in both directions.
+    fn cell(self) -> (u32, u32) {
+        ((self.tile.x + GUTTER) / EDGE, (self.tile.y + GUTTER) / EDGE)
     }
     fn rect(self) -> [f32; 4] {
         let x = self.tile.x.div_ceil(EDGE) * EDGE;
@@ -50,6 +58,31 @@ struct Viewport {
     points: (f32, f32),
     scale: f32,
     rect: [f32; 4],
+}
+
+/// A device rectangle covering several wanted cells of one page, rotation and
+/// scale.
+///
+/// Requesting one region per viewport replaces the earlier one-job-per-cell
+/// schedule, where a 2x viewport arrived as 20-60 separate results and the page
+/// assembled block by block. Every member cell is a sub-rectangle of the same
+/// page transform, so slicing a region yields exactly the pixels of a separate
+/// per-cell render, and the existing per-cell cache, eviction, coverage and GPU
+/// release paths stay unchanged.
+struct Group {
+    page: usize,
+    rotation: Rotation,
+    keys: Vec<Key>,
+    region: DeviceTile,
+}
+/// Smallest grid-aligned rectangle containing both inputs. Region edges always
+/// sit on the grid, so their union is again a valid tile rectangle.
+fn union(a: DeviceTile, b: DeviceTile) -> Result<DeviceTile> {
+    let x = a.x.min(b.x);
+    let y = a.y.min(b.y);
+    let right = (a.x + a.width).max(b.x + b.width);
+    let bottom = (a.y + a.height).max(b.y + b.height);
+    DeviceTile::new(a.scale(), x, y, right - x, bottom - y)
 }
 
 #[derive(Default)]
@@ -214,6 +247,38 @@ impl RasterView {
         self.cache.push_back((key, image, bytes));
         Ok(())
     }
+    /// Slice a rendered region into its member cells and cache each one.
+    ///
+    /// The region buffer is copied row by row and dropped after the last cell, so
+    /// the transient cost is one region buffer on top of the cache it feeds.
+    fn insert_group(&mut self, group: &Group, pixels: Pixels, cx: &mut App) -> Result<()> {
+        anyhow::ensure!(
+            pixels.width == group.region.width && pixels.height == group.region.height,
+            "region size"
+        );
+        let stride = pixels.width as usize * 4;
+        for key in &group.keys {
+            let left = (key.tile.x - group.region.x) as usize;
+            let top = (key.tile.y - group.region.y) as usize;
+            let width = key.tile.width as usize;
+            let height = key.tile.height as usize;
+            let mut bgra = Vec::with_capacity(width * height * 4);
+            for row in 0..height {
+                let start = (top + row) * stride + left * 4;
+                bgra.extend_from_slice(&pixels.bgra[start..start + width * 4]);
+            }
+            self.insert(
+                *key,
+                Pixels {
+                    width: key.tile.width,
+                    height: key.tile.height,
+                    bgra,
+                },
+                cx,
+            )?;
+        }
+        Ok(())
+    }
     fn next_key(&self, prefetch: bool) -> Option<Key> {
         if prefetch && !self.visible_ready() {
             return None;
@@ -259,6 +324,67 @@ impl RasterView {
             &self.wanted
         };
         candidates.iter().find(|key| missing(key)).copied()
+    }
+    /// Largest missing region of one page, rotation and scale, anchored at
+    /// whichever key the existing priority order selected.
+    fn next_group(&self, prefetch: bool) -> Option<Group> {
+        let anchor = self.next_key(prefetch)?;
+        let keys = if prefetch {
+            &self.prefetch
+        } else {
+            &self.wanted
+        };
+        let mut candidates: Vec<Key> = keys
+            .iter()
+            .copied()
+            .filter(|key| {
+                key.page == anchor.page
+                    && key.rotation == anchor.rotation
+                    && key.tile.scale() == anchor.tile.scale()
+                    && !self.contains(*key)
+                    && !self.errors.contains_key(key)
+            })
+            .collect();
+        let (ax, ay) = anchor.cell();
+        // Nearest cell first, so a region stopped by the pixel ceiling stays a
+        // compact neighborhood of the pixel the viewer is looking at.
+        candidates.sort_by_key(|key| {
+            let (x, y) = key.cell();
+            let dx = x.abs_diff(ax);
+            let dy = y.abs_diff(ay);
+            (dx.max(dy), dy, dx, y, x)
+        });
+        let mut chosen = vec![anchor];
+        let mut region = anchor.tile;
+        for key in candidates {
+            if chosen.contains(&key) {
+                continue;
+            }
+            let Ok(next) = union(region, key.tile) else {
+                continue;
+            };
+            if u64::from(next.width) * u64::from(next.height) > MAX_REGION_PIXELS {
+                continue;
+            }
+            region = next;
+            chosen.push(key);
+        }
+        Some(Group {
+            page: anchor.page,
+            rotation: anchor.rotation,
+            keys: chosen,
+            region,
+        })
+    }
+    /// Record a failed region so the same pixels are not requested again until
+    /// the demand changes. Every cell of the region is unavailable, not only the
+    /// one that happened to be requested first.
+    fn fail(&mut self, group: &Group, message: String) {
+        for key in &group.keys {
+            if !self.contains(*key) {
+                self.errors.insert(*key, message.clone());
+            }
+        }
     }
     fn images(&self, view: Viewport) -> Vec<(Key, Arc<RenderImage>)> {
         let mut images = Vec::new();
@@ -381,40 +507,55 @@ impl Breeze {
         let layout = state.layout;
         let rotation = state.rotation;
         let row = layout.row(view.page);
-        for (neighbor, at_end) in [
-            (
-                row.checked_add(1)
-                    .filter(|_| view.rect[3] + margin >= view.points.1),
-                false,
-            ),
-            (
-                row.checked_sub(1).filter(|_| view.rect[1] - margin <= 0.),
-                true,
-            ),
-        ] {
-            let Some(row) = neighbor else {
-                continue;
-            };
-            let first = row.saturating_mul(layout.columns());
-            if first >= sizes.len() {
-                continue;
-            }
-            for page in layout.pages(first, sizes.len()) {
-                let points = rotation.apply(sizes[page]);
-                let height = f32::from(window.viewport_size().height)
-                    / self.page_display_scale(page, window);
-                let top = if at_end {
-                    (points.1 - height).max(0.)
-                } else {
-                    0.
+        // Predict forward along the reading direction. The chain only starts when
+        // the visible region already reaches the page end, so a stale reading
+        // position cannot keep predicting, and it stops after two pages.
+        if view.rect[3] + margin >= view.points.1 {
+            let mut predicted = 0;
+            for step in 1..=2 {
+                if predicted >= 2 {
+                    break;
+                }
+                let Some(next) = row.checked_add(step) else {
+                    break;
                 };
-                result.extend(keys(Viewport {
-                    page,
-                    rotation,
-                    points,
-                    scale: self.page_raster_scale(page, points, window),
-                    rect: [0., top, points.0, (top + height).min(points.1)],
-                })?);
+                let first = next.saturating_mul(layout.columns());
+                if first >= sizes.len() {
+                    break;
+                }
+                for page in layout.pages(first, sizes.len()) {
+                    let points = rotation.apply(sizes[page]);
+                    let height = f32::from(window.viewport_size().height)
+                        / self.page_display_scale(page, window);
+                    result.extend(keys(Viewport {
+                        page,
+                        rotation,
+                        points,
+                        scale: self.page_raster_scale(page, points, window),
+                        rect: [0., 0., points.0, height.min(points.1)],
+                    })?);
+                    predicted += 1;
+                }
+            }
+        }
+        if view.rect[1] - margin <= 0.
+            && let Some(previous) = row.checked_sub(1)
+        {
+            let first = previous.saturating_mul(layout.columns());
+            if first < sizes.len() {
+                for page in layout.pages(first, sizes.len()) {
+                    let points = rotation.apply(sizes[page]);
+                    let height = f32::from(window.viewport_size().height)
+                        / self.page_display_scale(page, window);
+                    let top = (points.1 - height).max(0.);
+                    result.extend(keys(Viewport {
+                        page,
+                        rotation,
+                        points,
+                        scale: self.page_raster_scale(page, points, window),
+                        rect: [0., top, points.0, (top + height).min(points.1)],
+                    })?);
+                }
             }
         }
         result.sort_by(|a, b| {
@@ -581,19 +722,19 @@ impl Breeze {
         if self.raster.busy {
             return true;
         }
-        let Some(key) = self.raster.next_key(prefetch) else {
+        let Some(group) = self.raster.next_group(prefetch) else {
             return false;
         };
         let generation = self.generation;
         let receiver = match self.worker.request_tile(
             self.books[self.active].source.clone(),
-            key.page,
-            key.tile,
-            key.rotation,
+            group.page,
+            group.region,
+            group.rotation,
         ) {
             Ok(receiver) => receiver,
             Err(error) => {
-                self.raster.errors.insert(key, format!("{error:#}"));
+                self.raster.fail(&group, format!("{error:#}"));
                 cx.notify();
                 return false;
             }
@@ -606,7 +747,7 @@ impl Breeze {
                     return;
                 }
                 this.raster.busy = false;
-                if this.raster.requested(key) {
+                if group.keys.iter().any(|key| this.raster.requested(*key)) {
                     let result = (|| -> Result<()> {
                         let page =
                             result.map_err(|e| anyhow::anyhow!(tf!("页面请求取消：{}", e)))??;
@@ -614,18 +755,19 @@ impl Breeze {
                             page.fingerprint == this.reading.fingerprint,
                             tr!("文档已在外部改变，请重新打开")
                         );
-                        anyhow::ensure!(page.tile == Some(key.tile), tr!("页面分块不匹配"));
+                        anyhow::ensure!(page.tile == Some(group.region), tr!("页面分块不匹配"));
                         let pixels = page
                             .pixels
                             .ok_or_else(|| anyhow::anyhow!(tr!("缺少页面像素")))?;
                         anyhow::ensure!(
-                            pixels.width == key.tile.width && pixels.height == key.tile.height,
+                            pixels.width == group.region.width
+                                && pixels.height == group.region.height,
                             tr!("渲染器未返回所需清晰度")
                         );
-                        this.raster.insert(key, pixels, cx)
+                        this.raster.insert_group(&group, pixels, cx)
                     })();
                     if let Err(error) = result {
-                        this.raster.errors.insert(key, format!("{error:#}"));
+                        this.raster.fail(&group, format!("{error:#}"));
                     }
                 }
                 this.pump_visible(cx);
@@ -671,6 +813,9 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod region_tests;
 
 #[cfg(test)]
 mod atlas_tests {

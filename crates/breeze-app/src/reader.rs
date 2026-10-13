@@ -121,7 +121,7 @@ impl Breeze {
                                 Tooltip::new(tr!("标注模式"))
                                     .action(&AnnotateMode, Some("Breeze"))
                                     .build(window, cx)
-                            }))
+                            })),
                     )
                     .child(div().h(px(18.)).w(px(1.)).bg(p.line))
                     .child(self.tools(mode, cx))

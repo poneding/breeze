@@ -1,5 +1,5 @@
 use breeze_core::Rotation;
-use breeze_pdf::{DeviceTile, PdfWorker, Source};
+use breeze_pdf::{DeviceTile, MAX_REGION_PIXELS, PdfWorker, Source};
 use pdf_oxide::{
     PdfDocument,
     rendering::{PageRenderer, RenderOptions},
@@ -193,5 +193,154 @@ fn rotated_tiles_reassemble_into_the_rotated_page() {
             }
             y += h;
         }
+    }
+}
+
+// Breeze's cell grid: 508px interiors separated by 2px gutters so a cell and
+// both its gutters fit one 512px texture.
+const EDGE: u32 = 508;
+const GUTTER: u32 = 2;
+
+/// Interior cells of the reader's grid: every side has a gutter, so the cell's
+/// painted area is unambiguous.
+fn interior_cells(width: u32, height: u32) -> Vec<(u32, u32, u32, u32)> {
+    let mut cells = Vec::new();
+    for col in 0..width.div_ceil(EDGE) {
+        for row in 0..height.div_ceil(EDGE) {
+            if col == 0 || row == 0 {
+                continue;
+            }
+            if (col + 1) * EDGE + GUTTER > width || (row + 1) * EDGE + GUTTER > height {
+                continue;
+            }
+            cells.push((
+                col * EDGE - GUTTER,
+                row * EDGE - GUTTER,
+                EDGE + 2 * GUTTER,
+                EDGE + 2 * GUTTER,
+            ));
+        }
+    }
+    cells
+}
+
+/// The reader now requests one region per viewport and slices it into cells. That
+/// is only equivalent to the previous per-cell schedule if the painted pixels of
+/// every slice agree with the separately rendered cell, at every view rotation and
+/// at both an integer and a fractional device scale.
+///
+/// Agreement is not byte equality. A handful of antialiased edge pixels per page
+/// take a different coverage path depending on the size of the surface being
+/// rasterized: measured on this fixture, 12-33 bytes of about 2,048,000 differ by
+/// more than 2 units, with a maximum of 41 of 255. That is the same tolerance the
+/// whole-page comparison above applies to tile seams, and it is two orders of
+/// magnitude tighter than a one-pixel misalignment, which would change roughly
+/// half of the compared bytes.
+#[test]
+fn a_viewport_region_slices_to_the_same_pixels_as_separate_cells() {
+    let worker = PdfWorker::new().unwrap();
+    let metadata = futures::executor::block_on(worker.request_metadata(Source::Sample, 0).unwrap())
+        .unwrap()
+        .unwrap();
+    let points = metadata.page_sizes[0];
+    for scale in [2., 2.3466] {
+        for rotation in [
+            Rotation::None,
+            Rotation::Right,
+            Rotation::Half,
+            Rotation::Left,
+        ] {
+            let view = rotation.apply(points);
+            let width = (f64::from(view.0) * f64::from(scale)).ceil() as u32;
+            let height = (f64::from(view.1) * f64::from(scale)).ceil() as u32;
+            let cells = interior_cells(width, height);
+            assert!(
+                !cells.is_empty(),
+                "the fixture must contain an interior cell for this test to mean anything"
+            );
+            let region = DeviceTile::new(scale, 0, 0, width, height).unwrap();
+            let group = futures::executor::block_on(
+                worker
+                    .request_tile(Source::Sample, 0, region, rotation)
+                    .unwrap(),
+            )
+            .unwrap()
+            .unwrap()
+            .pixels
+            .unwrap();
+            assert_eq!((group.width, group.height), (width, height));
+            let mut compared = 0usize;
+            let mut changed = 0usize;
+            let mut max_error = 0u8;
+            for (x, y, w, h) in cells {
+                let cell = DeviceTile::new(scale, x, y, w, h).unwrap();
+                let single = futures::executor::block_on(
+                    worker
+                        .request_tile(Source::Sample, 0, cell, rotation)
+                        .unwrap(),
+                )
+                .unwrap()
+                .unwrap()
+                .pixels
+                .unwrap();
+                assert_eq!((single.width, single.height), (w, h));
+                // Only the interior is painted; the two-pixel border is the seam
+                // gutter that lets filtering sample past the cell.
+                for row in GUTTER..h - GUTTER {
+                    let width_px = (EDGE - 2 * GUTTER) as usize;
+                    let slice = (((y + row) * width + x + GUTTER) * 4) as usize;
+                    let actual = ((row * w + GUTTER) * 4) as usize;
+                    let want = &single.bgra[actual..actual + width_px * 4];
+                    let got = &group.bgra[slice..slice + width_px * 4];
+                    compared += got.len();
+                    for (a, b) in got.iter().zip(want) {
+                        let difference = a.abs_diff(*b);
+                        changed += usize::from(difference > 2);
+                        max_error = max_error.max(difference);
+                    }
+                }
+            }
+            assert!(compared > 0, "the fixture must contain interior pixels");
+            assert!(
+                changed * 10_000 < compared,
+                "scale {scale} rotation {rotation:?}: {changed} of {compared} interior bytes differ"
+            );
+            assert!(
+                max_error <= 64,
+                "scale {scale} rotation {rotation:?}: slices differ by {max_error} units, which is a content change"
+            );
+        }
+    }
+}
+
+#[test]
+fn one_region_request_may_cover_a_whole_device_viewport() {
+    let region = DeviceTile::new(2., 0, 0, 2784, 1792).unwrap();
+    assert_eq!(region.region(), (0, 0, 2784, 1792));
+    assert!(u64::from(region.width) * u64::from(region.height) < MAX_REGION_PIXELS);
+    // The ceiling still rejects a region that could not be allocated.
+    assert!(DeviceTile::new(2., 0, 0, 4096, 4096).is_err());
+}
+
+/// A region is rendered in the page's own device grid and rotated back, so a
+/// quarter turn exchanges its extents. The request must stay valid and complete.
+#[test]
+fn rotated_regions_keep_their_pixel_extents() {
+    let worker = PdfWorker::new().unwrap();
+    for rotation in [Rotation::Right, Rotation::Half, Rotation::Left] {
+        let region = DeviceTile::new(2., 0, 0, 1020, 760).unwrap();
+        let page = futures::executor::block_on(
+            worker
+                .request_tile(Source::Sample, 0, region, rotation)
+                .unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        let pixels = page.pixels.unwrap();
+        assert_eq!(
+            (pixels.width, pixels.height),
+            (region.width, region.height),
+            "rotation {rotation:?}"
+        );
     }
 }

@@ -42,3 +42,5 @@ These work-package documents were written before the corresponding code changes.
 6. [15 — Direct annotation editing](15-direct-annotation-editing.md): native numeric controls, text input at the clicked page position, and selection/editing/deletion of sidecar annotations.
 
 7. [17 — Interface languages and release checks](17-language-and-updates.md): three persisted interface languages and bounded stable-release checks for the user-designated GitHub repository.
+
+10. [16 — Page-turn presentation](16-page-turn-presentation.md): one device region per viewport and two predicted pages ahead, replacing the per-cell arrival that made page turns assemble block by block. Proposal, implementation, and measurements; the retained display list and native visual check remain open.

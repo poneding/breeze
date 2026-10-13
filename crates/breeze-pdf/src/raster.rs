@@ -2,6 +2,15 @@ use crate::Pixels;
 use anyhow::{Result, ensure};
 use breeze_core::Rotation;
 
+/// Largest device region Breeze may request in one call, in pixels.
+///
+/// A whole viewport is rendered as a single region so its pixels arrive in one
+/// result instead of one job per 508px cell. The renderer applies the same bound
+/// to its output allocation, so this is a shared contract, not a caller hint.
+/// The 12 Mpx ceiling is about 48 MiB of RGBA output and exceeds one
+/// 2304-logical-px window's viewport at 2x display scale.
+pub const MAX_REGION_PIXELS: u64 = 12 * 1024 * 1024;
+
 /// A region in the rotated page's physical-pixel coordinate system.
 /// Scale is pixels per PDF point, including the native display scale.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -19,8 +28,8 @@ impl DeviceTile {
             "不支持的页面缩放"
         );
         ensure!(
-            width > 0 && height > 0 && width <= 512 && height <= 512,
-            "分块尺寸超出预算"
+            width > 0 && height > 0 && u64::from(width) * u64::from(height) <= MAX_REGION_PIXELS,
+            "渲染区域超出预算"
         );
         ensure!(
             u64::from(x) + u64::from(width) <= 16_777_216

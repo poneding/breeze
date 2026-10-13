@@ -12,7 +12,7 @@ use pdf_oxide::{
     outline::{Destination, OutlineItem},
     rendering::{PageRenderer, RenderOptions},
 };
-pub use raster::DeviceTile;
+pub use raster::{DeviceTile, MAX_REGION_PIXELS};
 use raster::{rotate_region, tile_source_region};
 use std::{
     collections::VecDeque,
@@ -87,7 +87,9 @@ impl PdfWorker {
                 // Cached entries are rotation-specific, so the view rotation is part of the key.
                 let mut cache: VecDeque<(Rotation, Page)> = VecDeque::new();
                 let mut options = RenderOptions::with_dpi(144).as_raw();
-                options.max_output_pixels = 4_000_000;
+                // Match the region contract: one request may cover a whole
+                // device-resolution viewport, not only a single 508px cell.
+                options.max_output_pixels = MAX_REGION_PIXELS;
                 let mut renderer = PageRenderer::new(options);
                 let mut thumbnail_options = RenderOptions::with_dpi(24).as_raw();
                 thumbnail_options.max_output_pixels = 120_000;
