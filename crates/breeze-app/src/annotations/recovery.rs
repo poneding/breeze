@@ -24,7 +24,7 @@ impl RecoveryTarget {
 impl Breeze {
     fn recovery_target(&mut self, cx: &mut Context<Self>) -> Option<RecoveryTarget> {
         if self.annotation_editing.pending_text() {
-            self.message = tr!("请先完成或取消文本标注，再处理恢复").into();
+            self.message = tr!("Finish or cancel the text annotation before recovery.").into();
             cx.notify();
             return None;
         }
@@ -32,11 +32,12 @@ impl Breeze {
         let book = &mut self.books[self.active];
         let data = &mut book.annotations;
         if !data.ready || data.saving || data.fingerprint.is_empty() {
-            self.message = tr!("批注尚未就绪或正在处理，请稍后重试").into();
+            self.message =
+                tr!("Annotations are not ready or an operation is pending. Try again shortly.")
+                    .into();
             cx.notify();
             return None;
         }
-        data.autosave = None;
         data.saving = true;
         data.recovery_notice = None;
         self.gesture.clear();
@@ -54,10 +55,11 @@ impl Breeze {
             return;
         }
         if self.books[self.active].annotations.source_conflict {
-            self.message = tr!("源文档冲突需要恢复副本或明确重新关联").into();
+            self.message =
+                tr!("A source conflict requires a recovery copy or explicit reassociation.").into();
         } else if self.books[self.active].annotations.ready {
-            // Manual retries recheck both fingerprints. Autosave stays paused
-            // until a retry succeeds; no revision is silently refreshed.
+            // Manual retries recheck both fingerprints; no revision is silently
+            // refreshed.
             self.save_annotations(cx);
         } else if self.reading.source.as_ref() == Some(&self.books[self.active].source)
             && !self.reading.fingerprint.is_empty()
@@ -94,7 +96,7 @@ impl Breeze {
             .any(|a| a.page >= self.reading.sizes.len())
         {
             self.message =
-                tr!("旧批注包含当前 PDF 不存在的页码，不能重新关联；请保留恢复副本").into();
+                tr!("Old annotations refer to pages missing from this PDF. Reassociation is unavailable; keep a recovery copy.").into();
             cx.notify();
             return;
         }
@@ -104,9 +106,9 @@ impl Breeze {
         let fingerprint = self.reading.fingerprint.clone();
         let reply = window.prompt(
             PromptLevel::Warning,
-            tr!("将保留的批注关联到当前 PDF？"),
-            Some(tr!("文档内容已变化，旧批注坐标可能不再对应原文。确认后选择新的批注文件；旧文件保持不变。请先核对页码和位置。")),
-            &[tr!("取消"), tr!("确认重新关联")],
+            tr!("Reassociate the retained annotations with the current PDF?"),
+            Some(tr!("The document changed; old coordinates may no longer match its contents. Choose a new annotation file after confirming. Existing files are preserved. Check page numbers and positions first.")),
+            &[tr!("Cancel"), tr!("Confirm reassociation")],
             cx,
         );
         cx.notify();
@@ -120,7 +122,8 @@ impl Breeze {
                     this.choose_recovery_path(target, Some(fingerprint), cx);
                 } else {
                     this.books[index].annotations.saving = false;
-                    this.message = tr!("已取消恢复操作，批注和文件保持不变").into();
+                    // Cancelling changes nothing, so it says nothing.
+                    this.message.clear();
                     cx.notify();
                 }
             });
@@ -154,7 +157,8 @@ impl Breeze {
                             && this.books[index].annotations.history.items != target.items
                         {
                             this.books[index].annotations.saving = false;
-                            this.message = tr!("恢复期间批注已变化，请重新确认").into();
+                            this.message =
+                                tr!("Annotations changed during recovery; confirm again.").into();
                             cx.notify();
                             return;
                         }
@@ -162,10 +166,15 @@ impl Breeze {
                     }
                     result => {
                         this.books[index].annotations.saving = false;
+                        // Only a real problem earns a message; a declined dialog
+                        // leaves the previous state untouched.
                         this.message = match result {
-                            Ok(Err(e)) => tf!("无法选择批注保存位置：{}", format!("{e:#}")),
-                            Err(e) => tf!("批注文件对话框已中断：{}", e),
-                            _ => tr!("已取消恢复操作，批注和文件保持不变").into(),
+                            Ok(Err(e)) => tf!(
+                                "Cannot choose annotation save location: {}",
+                                format!("{e:#}")
+                            ),
+                            Err(e) => tf!("Annotation file dialog interrupted: {}", e),
+                            _ => String::new(),
                         };
                         cx.notify();
                     }
@@ -217,7 +226,7 @@ impl Breeze {
                         data.recovery_path = Some(path.clone());
                         if let Some(fingerprint) = reassociate {
                             if data.history.items != target.items {
-                                this.message = tr!("恢复期间批注已变化，请重新确认").into();
+                                this.message = tr!("Annotations changed during recovery; confirm again.").into();
                                 cx.notify();
                                 return;
                             }
@@ -226,7 +235,7 @@ impl Breeze {
                                     || this.reading.fingerprint != fingerprint)
                             {
                                 this.message =
-                                    tr!("恢复期间源文档已变化，副本已保留，请重新打开并确认")
+                                    tr!("The source changed during recovery. The copy is retained; reopen and confirm again.")
                                         .into();
                                 data.recovery_notice = Some(this.message.clone());
                                 cx.notify();
@@ -239,21 +248,17 @@ impl Breeze {
                             data.source_conflict = false;
                             data.failure = None;
                             data.error = None;
-                            this.message = tf!("已重新关联并保存批注：{}", path.display());
-                            if data.dirty() {
-                                this.schedule_annotation_save(index, cx);
-                            }
+                            this.message = tf!("Annotations reassociated and saved: {}", path.display());
                         } else {
                             // A recovery copy retains the old fingerprint. It cannot
                             // clear conflicts, change associations or acknowledge saves.
-                            this.message = tf!(
-                                "恢复副本已保存：{}；原关联保持不变，关闭前仍需保存或明确放弃更改",
+                            this.message = tf!("Recovery copy saved: {}. The original association is unchanged; save or explicitly discard changes before closing.",
                                 path.display()
                             );
                         }
                     }
                     Err(error) => {
-                        this.message = tf!("恢复操作失败，保留全部批注：{}", format!("{error:#}"));
+                        this.message = tf!("Recovery failed; all annotations are retained: {}", format!("{error:#}"));
                     }
                 }
                 this.books[index].annotations.recovery_notice = Some(this.message.clone());
@@ -276,9 +281,9 @@ impl Breeze {
         };
         let answer = window.prompt(
             PromptLevel::Warning,
-            tr!("放弃当前文档的未保存批注更改？"),
-            Some(tr!("此操作无法撤销，只恢复内存中的上次保存状态，不修改源 PDF 或已有批注文件。需要保留新批注时，请先保存恢复副本。")),
-            &[tr!("取消"), tr!("放弃更改")],
+            tr!("Discard unsaved annotation changes for this document?"),
+            Some(tr!("This cannot be undone. It restores the last saved state in memory and does not modify the source PDF or existing annotation files. Save a recovery copy first if you need to retain new annotations.")),
+            &[tr!("Cancel"), tr!("Discard changes")],
             cx,
         );
         cx.notify();
@@ -297,10 +302,10 @@ impl Breeze {
                         this.annotation_editing.clear();
                         this.gesture.clear();
                     }
-                    this.message = tr!("已放弃未保存更改；已有文件保持不变").into();
-                } else {
-                    this.message = tr!("已取消恢复操作，批注和文件保持不变").into();
                 }
+                // Discarding and cancelling both leave the files untouched, and the
+                // confirmation dialog already stated that; no receipt follows.
+                this.message.clear();
                 cx.notify();
             });
         })
@@ -319,9 +324,9 @@ impl Breeze {
                             Button::new("retry-annotations")
                                 .small()
                                 .label(if data.ready {
-                                    tr!("重试保存批注")
+                                    tr!("Retry annotation save")
                                 } else {
-                                    tr!("重试载入批注")
+                                    tr!("Retry annotation load")
                                 })
                                 .disabled(data.saving)
                                 .on_click(cx.listener(|this, _, _, cx| this.retry_annotations(cx))),
@@ -331,7 +336,7 @@ impl Breeze {
                         d.child(
                             Button::new("recover-annotations")
                                 .small()
-                                .label(tr!("保存恢复副本"))
+                                .label(tr!("Save recovery copy"))
                                 .disabled(data.saving)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.choose_annotation_recovery(cx)
@@ -342,7 +347,7 @@ impl Breeze {
                         d.child(
                             Button::new("reassociate-annotations")
                                 .small()
-                                .label(tr!("重新关联当前 PDF"))
+                                .label(tr!("Reassociate with current PDF"))
                                 .disabled(data.saving || self.loading)
                                 .on_click(cx.listener(|this, _, window, cx| {
                                     this.confirm_annotation_reassociation(window, cx)
@@ -355,7 +360,7 @@ impl Breeze {
                 d.child(
                     Button::new("discard-annotation-changes")
                         .small()
-                        .label(tr!("放弃未保存更改"))
+                        .label(tr!("Discard unsaved changes"))
                         .disabled(data.saving)
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.confirm_discard_annotations(window, cx)
@@ -367,7 +372,7 @@ impl Breeze {
                     Button::new("reveal-annotation-recovery")
                         .ghost()
                         .small()
-                        .label(tr!("显示恢复副本"))
+                        .label(tr!("Reveal recovery copy"))
                         .on_click(move |_, _, cx| cx.reveal_path(&path)),
                 )
             })

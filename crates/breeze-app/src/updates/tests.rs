@@ -235,14 +235,17 @@ fn update_controls_and_notifications_follow_language_and_state(cx: &mut TestAppC
             cx.notify();
         });
         window.render_frame(cx);
-        assert_eq!(window.find("check-updates").label(), Some("Check now"));
+        assert_eq!(
+            window.find("check-updates").label(),
+            Some("Check for updates")
+        );
         assert_eq!(
             window.find("open-update-release").label(),
             Some("View release")
         );
         view.update(cx, |view, cx| {
             view.home_page = HomePage::Library;
-            view.language = 2;
+            view.language = i18n::LanguagePreference::TraditionalChinese as usize;
             view.refresh_language(window, cx);
         });
         window.render_frame(cx);
@@ -253,9 +256,75 @@ fn update_controls_and_notifications_follow_language_and_state(cx: &mut TestAppC
         window.click("dismiss-update-banner", cx);
         assert!(view.read(cx).updates.banner_dismissed);
         view.update(cx, |view, cx| {
-            view.language = 0;
+            view.language = i18n::LanguagePreference::SimplifiedChinese as usize;
             view.refresh_language(window, cx);
         });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn about_status_wraps_centered_below_the_check_button(cx: &mut TestAppContext) {
+    let (handle, view) = ui_tests::app(cx);
+    cx.simulate_window_resize(handle, size(px(900.), px(650.)));
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| {
+            view.screen = Screen::Home;
+            view.home_page = HomePage::About;
+            view.language = 1;
+            view.refresh_language(window, cx);
+            view.updates.status = CheckStatus::Unpublished;
+        });
+        window.render_frame(cx);
+        let status = window.find("update-status").bounds();
+        let button = window.find("check-updates").bounds();
+        assert!(status.size.width <= px(360.) + px(1.), "{status:?}");
+        assert!((status.center().x - button.center().x).abs() < px(1.));
+        assert!(status.top() >= button.bottom());
+        // The unpublished notice is longer than one 12 px line, so it must wrap.
+        assert!(status.size.height > px(20.), "status must wrap: {status:?}");
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn about_stays_silent_until_a_check_has_a_result(cx: &mut TestAppContext) {
+    let (handle, view) = ui_tests::app(cx);
+    cx.simulate_window_resize(handle, size(px(900.), px(650.)));
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| {
+            view.screen = Screen::Home;
+            view.home_page = HomePage::About;
+            view.language = 1;
+            view.refresh_language(window, cx);
+            assert_eq!(view.updates.status, CheckStatus::Idle);
+        });
+        window.render_frame(cx);
+        // An untouched check is not news, so no placeholder line is shown.
+        assert!(window.try_find("update-status").is_none());
+        view.update(cx, |view, cx| {
+            assert!(view.updates.begin(false, 0));
+            cx.notify();
+        });
+        window.render_frame(cx);
+        // The button already labels the running check; the line stays hidden.
+        assert_eq!(
+            window.find("check-updates").label(),
+            Some("Checking for updates…")
+        );
+        assert!(window.try_find("update-status").is_none());
+        view.update(cx, |view, cx| {
+            view.updates.finish(
+                false,
+                0,
+                CheckStatus::Current {
+                    latest: "9.9.9".into(),
+                },
+            );
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(window.find("update-status").visible());
     })
     .unwrap();
 }

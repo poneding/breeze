@@ -138,7 +138,6 @@ impl Breeze {
                 }
                 self.annotation_editing.clear();
                 self.books[self.active].annotations.history.undo();
-                self.schedule_annotation_save(self.active, cx);
                 cx.notify();
             } else if action.as_any().is::<RedoAnnotation>() {
                 if self.annotation_editing.pending_text() {
@@ -146,7 +145,6 @@ impl Breeze {
                 }
                 self.annotation_editing.clear();
                 self.books[self.active].annotations.history.redo();
-                self.schedule_annotation_save(self.active, cx);
                 cx.notify();
             } else if action.as_any().is::<CycleLayout>() {
                 let next = match self.books[self.active].state.layout {
@@ -246,7 +244,7 @@ impl Breeze {
             return;
         }
         if self.books[index].annotations.dirty() || self.books[index].annotations.saving {
-            self.message = tr!("请先保存当前文档的批注，再关闭标签").into();
+            self.message = tr!("Save this document's annotations before closing its tab").into();
             cx.notify();
             return;
         }
@@ -327,8 +325,8 @@ impl Breeze {
                             .small()
                             .size(px(18.5))
                             .icon(IconName::X)
-                            .accessibility_label(tr!("关闭标签"))
-                            .tooltip_with_action(tr!("关闭标签"), &CloseTab, Some("Breeze"))
+                            .accessibility_label(tr!("Close tab"))
+                            .tooltip_with_action(tr!("Close tab"), &CloseTab, Some("Breeze"))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 cx.stop_propagation();
                                 this.close_book(index, cx);
@@ -421,7 +419,7 @@ impl Breeze {
                     .gap_1()
                     .pr_2()
                     .child(
-                        self.command("home-tab", IconName::House, tr!("主页"), &Home, cx)
+                        self.command("home-tab", IconName::House, tr!("Home"), &Home, cx)
                             .selected(
                                 self.screen == Screen::Home && self.home_page == HomePage::Library,
                             ),
@@ -473,7 +471,7 @@ impl Breeze {
                                         self.command(
                                             "add-document",
                                             IconName::Plus,
-                                            tr!("打开文档"),
+                                            tr!("Open document"),
                                             &Open,
                                             cx,
                                         )
@@ -496,23 +494,10 @@ impl Breeze {
                                 } else {
                                     IconName::Sun
                                 },
-                                tr!("切换主题"),
+                                tr!("Change theme"),
                                 &CycleTheme,
                                 cx,
-                            ))
-                            .child(
-                                self.command(
-                                    "settings",
-                                    IconName::Settings,
-                                    tr!("设置"),
-                                    &Preferences,
-                                    cx,
-                                )
-                                .selected(
-                                    self.screen == Screen::Home
-                                        && self.home_page == HomePage::Settings,
-                                ),
-                            ),
+                            )),
                     ),
             )
     }
@@ -525,38 +510,44 @@ fn action_label(action: &dyn Action) -> &'static str {
             }
         };
     }
-    name!(SaveAnnotations, tr!("保存批注旁置文件"));
-    name!(ExportPdf, tr!("导出批注 PDF · 新文件，不覆盖原件"));
-    name!(SaveAnnotationsAs, tr!("选择新的批注保存位置"));
-    name!(UndoAnnotation, tr!("撤销批注"));
-    name!(RedoAnnotation, tr!("重做批注"));
-    name!(SearchDocument, tr!("搜索文档"));
-    name!(CycleLayout, tr!("切换阅读布局"));
-    name!(RotateLeft, tr!("向左旋转 90 度"));
-    name!(RotateRight, tr!("向右旋转 90 度"));
-    name!(ToggleFullScreen, tr!("全屏阅读（Esc 退出，F11 切换）"));
-    name!(CopySelection, tr!("复制选中文字"));
-    name!(Open, tr!("打开文档"));
-    name!(Home, tr!("主页"));
-    name!(Preferences, tr!("设置"));
-    name!(ShowAbout, tr!("关于"));
-    name!(ShowShortcuts, tr!("快捷键"));
-    name!(CloseTab, tr!("关闭当前标签"));
-    name!(CycleTheme, tr!("切换主题：跟随系统与内置主题"));
-    name!(ToggleSidebar, tr!("展开 / 收起导航"));
-    name!(ToggleDocumentPanel, tr!("展开 / 收起文档侧栏"));
-    name!(NextPage, tr!("下一页"));
-    name!(PreviousPage, tr!("上一页"));
-    name!(FocusPage, tr!("跳转到页"));
-    name!(Favorite, tr!("收藏 / 取消收藏"));
-    name!(ZoomIn, tr!("放大"));
-    name!(ZoomOut, tr!("缩小"));
-    name!(FitPage, tr!("适合页面"));
-    name!(FitWidth, tr!("适合宽度"));
-    name!(ActualSize, tr!("实际大小"));
-    name!(ShowOutline, tr!("目录"));
-    name!(ShowThumbnails, tr!("缩略图"));
-    name!(ReadMode, tr!("阅读模式"));
-    name!(AnnotateMode, tr!("标注模式"));
-    tr!("命令")
+    name!(SaveAnnotations, tr!("Save annotation sidecar"));
+    name!(
+        ExportPdf,
+        tr!("Export annotations to a new PDF; preserve source")
+    );
+    name!(SaveAnnotationsAs, tr!("Choose annotation save location"));
+    name!(UndoAnnotation, tr!("Undo annotation"));
+    name!(RedoAnnotation, tr!("Redo annotation"));
+    name!(SearchDocument, tr!("Search document"));
+    name!(CycleLayout, tr!("Change reading layout"));
+    name!(RotateLeft, tr!("Rotate 90° left"));
+    name!(RotateRight, tr!("Rotate 90° right"));
+    name!(
+        ToggleFullScreen,
+        tr!("Fullscreen reading (Escape exits, F11 toggles)")
+    );
+    name!(CopySelection, tr!("Copy selected text"));
+    name!(Open, tr!("Open document"));
+    name!(Home, tr!("Home"));
+    name!(Preferences, tr!("Settings"));
+    name!(ShowAbout, tr!("About"));
+    name!(ShowShortcuts, tr!("Shortcuts"));
+    name!(CloseTab, tr!("Close current tab"));
+    name!(CycleTheme, tr!("Cycle system and built-in themes"));
+    name!(ToggleSidebar, tr!("Toggle navigation"));
+    name!(ToggleDocumentPanel, tr!("Toggle document sidebar"));
+    name!(NextPage, tr!("Next page"));
+    name!(PreviousPage, tr!("Previous page"));
+    name!(FocusPage, tr!("Go to page"));
+    name!(Favorite, tr!("Toggle favorite"));
+    name!(ZoomIn, tr!("Zoom in"));
+    name!(ZoomOut, tr!("Zoom out"));
+    name!(FitPage, tr!("Fit page"));
+    name!(FitWidth, tr!("Fit width"));
+    name!(ActualSize, tr!("Actual size"));
+    name!(ShowOutline, tr!("Outline"));
+    name!(ShowThumbnails, tr!("Thumbnails"));
+    name!(ReadMode, tr!("Read mode"));
+    name!(AnnotateMode, tr!("Annotate mode"));
+    tr!("Command")
 }

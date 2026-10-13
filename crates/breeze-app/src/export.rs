@@ -30,7 +30,9 @@ impl Breeze {
     pub(super) fn choose_pdf_export(&mut self, cx: &mut Context<Self>) {
         self.commit_selected_annotation(cx);
         let Some(mut request) = self.export_snapshot(PathBuf::new()) else {
-            self.message = tr!("没有可导出的批注，或文档仍在加载/存在冲突").into();
+            self.message =
+                tr!("No annotations to export, or the document is loading or has a conflict")
+                    .into();
             cx.notify();
             return;
         };
@@ -54,7 +56,7 @@ impl Breeze {
         let picker = cx.prompt_for_new_path(&directory, Some(&name));
         self.export_busy = true;
         self.export_notice = Some(
-            tr!("选择新的 PDF 文件名；不会覆盖原件或已有文件。便笺以图标和弹窗内容导出。").into(),
+            tr!("Choose a new PDF filename. Existing files are preserved. Notes export as icons with popup text.").into(),
         );
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -66,17 +68,21 @@ impl Breeze {
                 }
                 Ok(Ok(None)) => {
                     this.export_busy = false;
-                    this.export_notice = Some(tr!("已取消导出").into());
+                    // Cancelling the picker is not an outcome worth a notice.
+                    this.export_notice = None;
                     cx.notify();
                 }
                 Ok(Err(e)) => {
                     this.export_busy = false;
-                    this.export_notice = Some(tf!("无法选择导出位置：{}", format!("{:#}", e)));
+                    this.export_notice = Some(tf!(
+                        "Cannot choose export destination: {}",
+                        format!("{:#}", e)
+                    ));
                     cx.notify();
                 }
                 Err(e) => {
                     this.export_busy = false;
-                    this.export_notice = Some(tf!("文件对话框已中断：{}", e));
+                    this.export_notice = Some(tf!("File dialog interrupted: {}", e));
                     cx.notify();
                 }
             });
@@ -92,7 +98,7 @@ impl Breeze {
                 .map(|n| n.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "PDF".into()),
         };
-        self.export_notice = Some(tf!("正在导出 {} 并验证内容…", label));
+        self.export_notice = Some(tf!("Exporting {} and verifying content…", label));
         let work = cx.background_spawn(async move { export_annotations(request) });
         cx.spawn(async move |this, cx| {
             let result = work.await;
@@ -101,13 +107,13 @@ impl Breeze {
                 match result {
                     Ok(receipt) => {
                         this.export_notice = Some(tf!(
-                            "已导出 {}：{} 条批注，{} 字节。{}{}",
+                            "Exported {}: {} annotations, {} bytes.{}{}",
                             label,
                             receipt.annotations,
                             receipt.bytes,
                             receipt.destination.display(),
                             if receipt.sticky_notes > 0 {
-                                tr!("；便笺内容保留在批注弹窗中")
+                                tr!("; note text is available in annotation popups")
                             } else {
                                 ""
                             }
@@ -116,7 +122,7 @@ impl Breeze {
                     }
                     Err(e) => {
                         this.export_notice = Some(tf!(
-                            "导出失败，未替换原件或已有文件：{}",
+                            "Export failed; source and existing files are unchanged: {}",
                             format!("{:#}", e)
                         ))
                     }
@@ -130,9 +136,9 @@ impl Breeze {
     pub(super) fn export_controls(&self, cx: &mut Context<Self>) -> Div {
         let p = self.p(cx);
         column().gap_2()
-            .child(self.command("export-pdf",IconName::Download,tr!("导出批注 PDF（验证版）"),&ExportPdf,cx).label(if self.export_busy{tr!("正在导出…")}else{tr!("导出 PDF · 验证版")}).disabled(!self.can_export_pdf()))
-            .child(div().text_size(px(11.)).text_color(p.muted).child(tr!("新文件、不覆盖原件。文本便笺导出为图标，全文保留在批注弹窗中。表单、签名、加密文档暂不支持。")))
+            .child(self.command("export-pdf",IconName::Download,tr!("Export annotated PDF (restricted)"),&ExportPdf,cx).label(if self.export_busy{tr!("Exporting…")}else{tr!("Export PDF · Restricted")}).disabled(!self.can_export_pdf()))
+            .child(div().text_size(px(11.)).text_color(p.muted).child(tr!("Creates a new file. Notes export as icons with full text in popups. Forms, signatures and encrypted documents are unsupported.")))
             .when_some(self.export_notice.clone(),|d,message|d.child(div().text_size(px(12.)).child(message)))
-            .when_some(self.last_export.clone(),|d,path|d.child(Button::new("reveal-export").ghost().small().icon(IconName::FolderOpen).label(tr!("显示上次导出文件")).on_click(move|_,_,cx|cx.reveal_path(&path))))
+            .when_some(self.last_export.clone(),|d,path|d.child(Button::new("reveal-export").ghost().small().icon(IconName::FolderOpen).label(tr!("Show last export")).on_click(move|_,_,cx|cx.reveal_path(&path))))
     }
 }

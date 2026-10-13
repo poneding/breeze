@@ -10,13 +10,13 @@ impl Breeze {
         let p = self.p(cx);
         let theme = Select::new(&self.theme_select)
             .id("theme-select")
-            .accessibility_label(tr!("主题"))
-            .search_placeholder(tr!("搜索主题"))
+            .accessibility_label(tr!("Theme"))
+            .search_placeholder(tr!("Search themes"))
             .small()
             .w(px(220.));
         let language = Select::new(&self.language_select)
             .id("language-select")
-            .accessibility_label(tr!("界面语言"))
+            .accessibility_label(tr!("Interface language"))
             .small()
             .w(px(220.));
         let updates = TabBar::new("updates")
@@ -28,8 +28,8 @@ impl Breeze {
                 this.check_updates(true, cx);
                 cx.notify();
             }))
-            .child(Tab::new().label(tr!("手动")))
-            .child(Tab::new().label(tr!("自动检查")));
+            .child(Tab::new().label(tr!("Manual")))
+            .child(Tab::new().label(tr!("Automatic")));
         let window_policy = TabBar::new("window-policy")
             .segmented()
             .small()
@@ -38,9 +38,9 @@ impl Breeze {
                 this.window_policy = *index;
                 cx.notify();
             }))
-            .child(Tab::new().label(tr!("默认")))
-            .child(Tab::new().label(tr!("最大化")))
-            .child(Tab::new().label(tr!("适合文档")));
+            .child(Tab::new().label(tr!("Default")))
+            .child(Tab::new().label(tr!("Maximized")))
+            .child(Tab::new().label(tr!("Fit document")));
         Breeze::page_frame(
             "settings-body",
             column()
@@ -51,7 +51,7 @@ impl Breeze {
                         .text_size(px(16.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .mb_2()
-                        .child(tr!("设置")),
+                        .child(tr!("Settings")),
                 )
                 .when(
                     self.storage_error.is_some() && self.storage.is_some(),
@@ -59,7 +59,7 @@ impl Breeze {
                         d.child(
                             Button::new("retry-state-save")
                                 .small()
-                                .label(tr!("重试保存本地状态"))
+                                .label(tr!("Retry saving local state"))
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.storage_ready = true;
                                     this.last_snapshot = None;
@@ -69,12 +69,16 @@ impl Breeze {
                         )
                     },
                 )
-                .child(Self::setting_row(tr!("主题"), theme, p))
-                .child(Self::setting_row(tr!("界面语言"), language, p))
-                .child(Self::setting_row(tr!("检查更新"), updates, p))
-                .child(Self::setting_row(tr!("打开文件时的窗口"), window_policy, p))
+                .child(Self::setting_row(tr!("Theme"), theme, p))
+                .child(Self::setting_row(tr!("Interface language"), language, p))
+                .child(Self::setting_row(tr!("Check for updates"), updates, p))
                 .child(Self::setting_row(
-                    tr!("记住上次打开的文件"),
+                    tr!("Window when opening files"),
+                    window_policy,
+                    p,
+                ))
+                .child(Self::setting_row(
+                    tr!("Remember open files"),
                     Switch::new("remember-files")
                         .small()
                         .checked(self.remember_files)
@@ -85,7 +89,7 @@ impl Breeze {
                     p,
                 ))
                 .child(Self::setting_row(
-                    tr!("记住阅读位置"),
+                    tr!("Remember reading position"),
                     Switch::new("remember-position")
                         .small()
                         .checked(self.remember_position)
@@ -96,10 +100,10 @@ impl Breeze {
                     p,
                 ))
                 .child(Self::setting_row(
-                    tr!("默认打开工具"),
+                    tr!("Default PDF app"),
                     Button::new("file-association")
                         .small()
-                        .label(tr!("系统关联 · 待接入"))
+                        .label(tr!("System association · Unavailable"))
                         .disabled(true),
                     p,
                 )),

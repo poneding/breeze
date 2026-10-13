@@ -79,3 +79,28 @@ muted line states that custom shortcuts are not supported yet.
   (⌘I/⌘K/⌘, on macOS, Ctrl equivalents on Windows/Linux).
 - Native inspection after the screen was unlocked confirmed the stacked sidebar, the
   bounded and centered Settings column, and the two-axis-centered About page.
+
+## Second refinement, October 13, 2026
+
+- The sidebar footer stacks About (Primary+I) above Shortcuts (Primary+K), with
+  Settings (Primary+,) last.
+- The titlebar Settings button is removed. Settings stays reachable from the
+  sidebar entry and Primary+,; the titlebar keeps Home, the document tabs, Open,
+  and the theme control.
+- The About check action is labelled "Check for updates" (`检查更新`), matching the
+  Settings policy row; the old "Check now" string is gone.
+- The update status wraps inside a bounded 360 px width and stays centered below
+  the check button, so a long failure message no longer shares the button's line.
+- Author and Source code are single rows: the muted label and its value share one
+  line, and a fixed 64 px label column left-aligns both values.
+
+These refinements replace the first-review order and centering notes above.
+Component tests were updated accordingly: the sidebar order, the settings shortcut
+instead of the titlebar button, the wrapped/centered status, and the single-line
+left-aligned credits.
+
+Native visual inspection of this pass was blocked: the session lacks the macOS
+Screen Recording permission, so `screencapture` returned only the desktop
+wallpaper and menu bar, and the per-window capture failed with
+`could not create image from window`. The layout claims rest on the component
+bounds above. Windows/Linux native checks remain open.

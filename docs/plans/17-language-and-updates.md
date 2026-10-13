@@ -7,7 +7,9 @@ Requested on October 11, 2026. This work contains two separately verified phases
    preserve user content, filenames, document text, and official theme names. Apply
    changes immediately, refresh existing input placeholders and theme groups, and
    restore the saved choice. Retain numeric preference compatibility (0 = Simplified
-   Chinese, 1 = English, 2 = Traditional Chinese).
+   Chinese, 1 = English, 2 = Traditional Chinese). Work package 19 later added
+   automatic detection and re-keyed the catalog on English; see
+   [19 — Automatic language detection](19-language-detection.md).
 2. Query stable GitHub Releases for `poneding/breeze`, the future repository named by
    the user. Implement manual checks, an optional startup check, semantic version
    comparison, bounded background requests and clear failure/empty states. A newer

@@ -2,7 +2,7 @@
 
 ## Scope
 
-Implement document-coordinate annotations on an independent native canvas. Annotations are not PDF content edits. Start with actual drawing, markup, notes, undo/redo, debounced autosave, and explicit durable sidecar saving. Standard PDF export is gated separately.
+Implement document-coordinate annotations on an independent native canvas. Annotations are not PDF content edits. Start with actual drawing, markup, notes, undo/redo, and explicit durable sidecar saving — the user saves, nothing saves in the background. Standard PDF export is gated separately.
 
 ## Changes
 
@@ -13,7 +13,7 @@ Implement document-coordinate annotations on an independent native canvas. Annot
 5. Store each file's annotations in `<filename>.breeze.json`. The built-in sample uses the application data directory. Validate size/count/finite-number limits before accepting sidecars.
 6. Hash source bytes, check the source again before saving, and compare the sidecar's previous revision. External changes block save/load rather than being silently overwritten.
 7. Use atomic replacement for an existing sidecar and non-clobbering creation for a new one. Report the exact saved destination and errors.
-8. Preserve per-document undo/redo and draft isolation. Closing/quitting with unsaved changes must not silently discard them.
+8. Preserve per-document undo/redo and draft isolation. An edit stays unsaved until the user saves it; closing/quitting with unsaved changes must not silently discard them (see [manual annotation saving](21-manual-annotation-save.md)).
 
 ## Acceptance
 

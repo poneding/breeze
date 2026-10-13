@@ -259,7 +259,7 @@ impl RasterView {
 fn keys(view: Viewport) -> Result<Vec<Key>> {
     anyhow::ensure!(
         view.scale.is_finite() && view.scale > 0. && view.scale <= 64.,
-        tr!("不支持的页面缩放")
+        tr!("Unsupported page zoom")
     );
     Ok(vec![Key::new(view.page, view.rotation, view.scale)])
 }
@@ -456,7 +456,8 @@ impl Breeze {
                                 false,
                             ) {
                                 let view = paint_view.clone();
-                                let message = tf!("页面纹理上传失败：{}", format!("{:#}", error));
+                                let message =
+                                    tf!("Page texture upload failed: {}", format!("{:#}", error));
                                 cx.defer(move |cx| {
                                     view.update(cx, |this, cx| {
                                         if generation == this.generation {
@@ -484,7 +485,9 @@ impl Breeze {
                         .text_size(px(11.))
                         .bg(rgb(0xffffff))
                         .text_color(rgb(0xb56b3c))
-                        .child(tr!("页面渲染失败，部分内容无法显示"))
+                        .child(tr!(
+                            "Page rendering failed; some content could not be displayed"
+                        ))
                         .child(div().child(message.chars().take(512).collect::<String>())),
                 )
             })
@@ -521,20 +524,21 @@ impl Breeze {
                 this.raster.busy = false;
                 if this.raster.requested(key) {
                     let result = (|| -> Result<()> {
-                        let page =
-                            result.map_err(|e| anyhow::anyhow!(tf!("页面请求取消：{}", e)))??;
+                        let page = result
+                            .map_err(|e| anyhow::anyhow!(tf!("Page request cancelled: {}", e)))??;
                         anyhow::ensure!(
                             page.fingerprint == this.reading.fingerprint,
-                            tr!("文档已在外部改变，请重新打开")
+                            tr!("The document changed externally. Reopen it.")
                         );
                         let pixels = page
                             .pixels
-                            .ok_or_else(|| anyhow::anyhow!(tr!("缺少页面像素")))?;
+                            .ok_or_else(|| anyhow::anyhow!(tr!("Page pixels are missing")))?;
                         // The engine can round the density up to whole DPI, and can
                         // also reduce it to fit its own budget. Only the first is
                         // acceptable: the surface asked for this density and the
                         // raster is cached under it.
-                        let resolution = tr!("渲染器未返回所需清晰度");
+                        let resolution =
+                            tr!("The renderer did not return the requested resolution");
                         // The engine rounds the density up to whole DPI, and can also
                         // reduce it to fit its own budget. Both sides compare that
                         // DPI integer, so only rounding up is accepted here.

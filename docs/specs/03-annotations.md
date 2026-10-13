@@ -22,7 +22,8 @@ Do not flatten all annotations merely to make screenshots look correct. Flatteni
 
 ## Persistence and integrity
 
-- Autosave annotation state to a sidecar, not the entire PDF after every stroke.
+- Save annotation state to a sidecar only on an explicit user action; never rewrite the entire PDF to persist a stroke.
+- Keep unsaved annotation state in the session and refuse close, quit, tab close, or library removal until the user saves, keeps a recovery copy, or explicitly discards it.
 - Preserve annotation undo/redo semantics independently of the source document.
 - Fingerprint the source before applying saved sidecar state. Stop on mismatches or unsupported objects.
 - Prefer Save As. Saving failures must not damage the original document.
@@ -30,6 +31,6 @@ Do not flatten all annotations merely to make screenshots look correct. Flatteni
 
 ## Implemented sidecar workflow
 
-Completed gestures create native overlays in PDF user-space coordinates. Ink erasure, annotation removal from the document-wide filtered sidebar, and bounded undo/redo modify only annotation state. Tool settings use fixed document colors and explicit opacity, independent of the application theme. A 500 ms debounce writes sidecars with a source SHA-256 and optimistic sidecar revision checks. Read/write/conflict errors remain visible and disable automatic overwrite. Save As selects a new non-clobbering destination and persists its association. Close/quit is refused while annotations are dirty or a save is pending; normal closing also waits for application-state persistence.
+Completed gestures create native overlays in PDF user-space coordinates. Ink erasure, annotation removal from the document-wide filtered sidebar, and bounded undo/redo modify only annotation state. Tool settings use fixed document colors and explicit opacity, independent of the application theme. Sidecars are written only when the user saves (Save, Save As, or Primary+S); an edit stays in the session and is reported as unsaved, and every write still carries a source SHA-256 and optimistic sidecar revision checks. Read/write/conflict errors remain visible and disable overwrite. Save As selects a new non-clobbering destination and persists its association. Close/quit is refused while annotations are dirty or a save is pending; normal closing also waits for application-state persistence. Because nothing is written before the user saves, an unexpected termination can lose that session's annotations; the refusal paths above are the mitigation, not background writes.
 
 Current text selection is a glyph-center rectangular selection; rotated glyph runs and unavailable extraction are not guessed. Text annotations have an anchor and plain text entered on the page, not full rich-text editing. The sidecar layer supports direct selection, style changes, text revision, deletion, and movement of non-text-markup annotations; numeric and pointer drafts commit as single history transactions. Source identity and a transient history revision guard stale selections. Wavy lines are free paths. Restricted standard annotation export is implemented. Text annotations are explicitly exported as Unicode sticky notes with an icon, not as guessed-font inline FreeText. Existing PDF annotations are preserved, not imported into editable history. Forms/widgets, signatures, encryption, unsupported UserUnit, and existing destinations are rejected. See [work package 05](../plans/05-annotation-export.md).

@@ -50,17 +50,17 @@ impl DocumentPanel {
 
 fn kind_presentation(kind: Kind) -> (IconName, &'static str) {
     match kind {
-        Kind::Highlight => (IconName::Highlighter, tr!("文本高亮")),
-        Kind::Area => (IconName::Scan, tr!("区域高亮")),
-        Kind::Underline => (IconName::Underline, tr!("下划线")),
-        Kind::Strikeout => (IconName::Strikethrough, tr!("删除线")),
-        Kind::Ink => (IconName::Pencil, tr!("画笔")),
-        Kind::Note => (IconName::Type, tr!("文本批注")),
-        Kind::Ellipse => (IconName::Circle, tr!("圆形")),
-        Kind::Rectangle => (IconName::Square, tr!("矩形")),
-        Kind::Line => (IconName::Minus, tr!("直线")),
-        Kind::Squiggle => (IconName::LineSquiggle, tr!("波浪线")),
-        Kind::Arrow => (IconName::ArrowUpRight, tr!("箭头")),
+        Kind::Highlight => (IconName::Highlighter, tr!("Text highlight")),
+        Kind::Area => (IconName::Scan, tr!("Area highlight")),
+        Kind::Underline => (IconName::Underline, tr!("Underline")),
+        Kind::Strikeout => (IconName::Strikethrough, tr!("Strikethrough")),
+        Kind::Ink => (IconName::Pencil, tr!("Pen")),
+        Kind::Note => (IconName::Type, tr!("Text note")),
+        Kind::Ellipse => (IconName::Circle, tr!("Ellipse")),
+        Kind::Rectangle => (IconName::Square, tr!("Rectangle")),
+        Kind::Line => (IconName::Minus, tr!("Line")),
+        Kind::Squiggle => (IconName::LineSquiggle, tr!("Wavy line")),
+        Kind::Arrow => (IconName::ArrowUpRight, tr!("Arrow")),
     }
 }
 
@@ -107,8 +107,8 @@ impl Breeze {
                                     .small()
                                     .icon(IconName::Info)
                                     .selected(!self.search_open && self.document_panel.tab == 0)
-                                    .accessibility_label(tr!("文档信息"))
-                                    .tooltip(tr!("文档信息"))
+                                    .accessibility_label(tr!("Document information"))
+                                    .tooltip(tr!("Document information"))
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.cancel_search();
                                         this.search_open = false;
@@ -125,8 +125,8 @@ impl Breeze {
                                     .small()
                                     .icon(IconName::Highlighter)
                                     .selected(!self.search_open && self.document_panel.tab == 1)
-                                    .accessibility_label(tr!("当前文档的标注"))
-                                    .tooltip(tr!("当前文档的标注"))
+                                    .accessibility_label(tr!("Document annotations"))
+                                    .tooltip(tr!("Document annotations"))
                                     .on_click(cx.listener(|this, _, _, cx| {
                                         this.cancel_search();
                                         this.search_open = false;
@@ -152,7 +152,7 @@ impl Breeze {
         let book = &self.books[self.active];
         let muted = Theme::global(cx).muted_foreground;
         let path = match &book.source {
-            Source::Sample => tr!("内置示例文档").to_owned(),
+            Source::Sample => tr!("Bundled sample document").to_owned(),
             Source::File(path) => path.display().to_string(),
         };
         let categories = book
@@ -173,12 +173,12 @@ impl Breeze {
             .overflow_y_scroll()
             .p_3()
             .gap_3()
-            .child(info_field(tr!("名称"), book.title.clone(), muted))
-            .child(info_field(tr!("类型"), "PDF".into(), muted))
+            .child(info_field(tr!("Name"), book.title.clone(), muted))
+            .child(info_field(tr!("Format"), "PDF".into(), muted))
             .child(info_field(
-                tr!("页数"),
+                tr!("Pages"),
                 if self.reading.sizes.is_empty() {
-                    tr!("正在读取…").into()
+                    tr!("Reading…").into()
                 } else {
                     book.state.navigation.total().to_string()
                 },
@@ -188,27 +188,27 @@ impl Breeze {
                 self.reading.sizes.get(book.state.navigation.page()),
                 |content, size| {
                     content.child(info_field(
-                        tr!("当前页尺寸"),
+                        tr!("Current page size"),
                         format!("{:.0} × {:.0} pt", size.0, size.1),
                         muted,
                     ))
                 },
             )
             .child(info_field(
-                tr!("分类"),
+                tr!("Categories"),
                 if categories.is_empty() {
-                    tr!("未分类").into()
+                    tr!("Unassigned").into()
                 } else {
                     categories.join("、")
                 },
                 muted,
             ))
             .child(info_field(
-                tr!("标注"),
-                tf!("{} 项", book.annotations.history.items.len()),
+                tr!("Annotations"),
+                tf!("{} items", book.annotations.history.items.len()),
                 muted,
             ))
-            .child(info_field(tr!("文件位置"), path, muted))
+            .child(info_field(tr!("File location"), path, muted))
             .when_some(
                 match &book.source {
                     Source::File(path) => Some(path.clone()),
@@ -220,24 +220,21 @@ impl Breeze {
                             .ghost()
                             .small()
                             .icon(IconName::FolderOpen)
-                            .label(tr!("在文件夹中显示"))
+                            .label(tr!("Show in folder"))
                             .on_click(move |_, _, cx| cx.reveal_path(&path)),
                     )
                 },
             )
             .when_some(book.annotations.path.as_ref(), |content, path| {
                 content.child(info_field(
-                    tr!("标注保存位置"),
+                    tr!("Annotation location"),
                     path.display().to_string(),
                     muted,
                 ))
             })
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(muted)
-                    .child(tr!("标注独立保存；不修改源 PDF。")),
-            )
+            .child(div().text_size(px(11.)).text_color(muted).child(tr!(
+                "Annotations are saved separately. The source PDF is not modified."
+            )))
             .when_some(
                 self.preview
                     .as_ref()
@@ -298,7 +295,7 @@ impl Breeze {
                                 div()
                                     .text_size(px(11.))
                                     .text_color(muted)
-                                    .child(tr!("仅当前页")),
+                                    .child(tr!("Current page only")),
                             ),
                     ),
             )
@@ -312,11 +309,11 @@ impl Breeze {
                     .text_size(px(12.))
                     .text_color(muted)
                     .child(if !data.ready && data.error.is_none() {
-                        tr!("正在载入标注…")
+                        tr!("Loading annotations…")
                     } else if total == 0 {
-                        tr!("暂无标注")
+                        tr!("No annotations")
                     } else {
-                        tr!("没有匹配的标注")
+                        tr!("No matching annotations")
                     })
                     .into_any_element()
             } else {
@@ -350,7 +347,7 @@ impl Breeze {
                                 self.command(
                                     "undo",
                                     IconName::Undo2,
-                                    tr!("撤销标注"),
+                                    tr!("Undo annotation"),
                                     &UndoAnnotation,
                                     cx,
                                 )
@@ -360,7 +357,7 @@ impl Breeze {
                                 self.command(
                                     "redo",
                                     IconName::Redo2,
-                                    tr!("重做标注"),
+                                    tr!("Redo annotation"),
                                     &RedoAnnotation,
                                     cx,
                                 )
@@ -370,7 +367,7 @@ impl Breeze {
                                 self.command(
                                     "save-sidecar",
                                     IconName::Save,
-                                    tr!("保存标注"),
+                                    tr!("Save annotations"),
                                     &SaveAnnotations,
                                     cx,
                                 )
@@ -379,24 +376,32 @@ impl Breeze {
                             .child(self.command(
                                 "save-sidecar-as",
                                 IconName::FolderOpen,
-                                tr!("标注另存为"),
+                                tr!("Save annotations as"),
                                 &SaveAnnotationsAs,
                                 cx,
                             )),
                     )
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(muted)
-                            .child(if data.saving {
-                                tr!("正在保存…")
-                            } else if data.dirty() {
-                                tr!("有未保存标注")
-                            } else if data.ready {
-                                tr!("标注已载入 · 自动保存到旁置文件")
-                            } else {
-                                tr!("标注尚未就绪")
-                            }),
+                    .when_some(
+                        if data.saving {
+                            Some(tr!("Saving…"))
+                        } else if data.dirty() {
+                            Some(tr!("Unsaved annotations"))
+                        } else if data.ready {
+                            // A loaded, saved sidecar needs no announcement.
+                            None
+                        } else {
+                            Some(tr!("Annotations are not ready"))
+                        },
+                        |content, status| {
+                            content.child(
+                                div()
+                                    .id("annotation-status")
+                                    .test_support()
+                                    .text_size(px(11.))
+                                    .text_color(muted)
+                                    .child(status),
+                            )
+                        },
                     )
                     .when_some(data.error.as_ref(), |content, error| {
                         content.child(
@@ -421,15 +426,15 @@ impl Breeze {
             .label(
                 selected
                     .map(|kind| kind_presentation(kind).1)
-                    .unwrap_or(tr!("全部类型")),
+                    .unwrap_or(tr!("All types")),
             )
-            .accessibility_label(tr!("按标注类型筛选"))
+            .accessibility_label(tr!("Filter by annotation type"))
             .dropdown_menu(move |mut menu, window, _| {
                 for kind in std::iter::once(None).chain(KINDS.into_iter().map(Some)) {
                     let source = source.clone();
                     let (icon, label) = kind
                         .map(kind_presentation)
-                        .unwrap_or((IconName::List, tr!("全部类型")));
+                        .unwrap_or((IconName::List, tr!("All types")));
                     menu = menu.item(
                         PopupMenuItem::new(label)
                             .icon(icon)
@@ -482,9 +487,9 @@ impl Breeze {
                         .flex_1()
                         .min_w_0()
                         .disabled(disabled)
-                        .accessibility_label(tf!("{} · 第 {} 页", label, annotation.page + 1))
+                        .accessibility_label(tf!("{} · Page {}", label, annotation.page + 1))
                         .tooltip(if annotation.text.is_empty() {
-                            tf!("{} · 第 {} 页", label, annotation.page + 1)
+                            tf!("{} · Page {}", label, annotation.page + 1)
                         } else {
                             annotation.text.clone()
                         })
@@ -506,7 +511,7 @@ impl Breeze {
                                             },
                                         ))
                                         .child(div().text_size(px(11.)).text_color(muted).child(
-                                            tf!("第 {} 页 · {}", annotation.page + 1, label),
+                                            tf!("Page {} · {}", annotation.page + 1, label),
                                         )),
                                 ),
                         )
@@ -528,8 +533,8 @@ impl Breeze {
                         .small()
                         .icon(IconName::Trash)
                         .disabled(disabled)
-                        .accessibility_label(tr!("删除此标注"))
-                        .tooltip(tr!("删除此标注"))
+                        .accessibility_label(tr!("Delete this annotation"))
+                        .tooltip(tr!("Delete this annotation"))
                         .on_click(cx.listener(move |this, _, _, cx| {
                             if !this.annotation_navigation_allowed(cx) {
                                 return;
@@ -546,7 +551,6 @@ impl Breeze {
                             let mut items = book.annotations.history.items.clone();
                             items.remove(index);
                             book.annotations.history.replace(items);
-                            this.schedule_annotation_save(this.active, cx);
                             cx.notify();
                         })),
                 ),

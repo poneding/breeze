@@ -15,6 +15,7 @@ breeze-pdf.workspace = true
 image.workspace = true
 ureq = { version = "=3.4.2", default-features = false, features = ["rustls"] }
 semver = "=1.0.28"
+sys-locale = "=0.3.2"
 [lints]
 workspace = true
 

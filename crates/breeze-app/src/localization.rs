@@ -5,12 +5,13 @@ impl Breeze {
         if self.applied_language == Some(self.language) {
             return;
         }
-        let language = i18n::Language::from_saved(self.language);
+        let preference = i18n::LanguagePreference::from_saved(self.language);
+        let language = preference.resolve();
         i18n::set_language(language);
         gpui_kit::component::set_locale(language.locale());
         self.applied_language = Some(self.language);
         self.language_select.update(cx, |select, cx| {
-            select.set_selected_value(&language, window, cx);
+            select.set_selected_value(&i18n::LanguageItem::Choice(preference), window, cx);
         });
         self.theme_select.update(cx, |select, cx| {
             select.set_items(
@@ -21,9 +22,9 @@ impl Breeze {
             select.set_selected_value(&self.theme_preference, window, cx);
         });
         for (input, placeholder) in [
-            (&self.search_input, tr!("搜索文档文字（回车）")),
-            (&self.library_input, tr!("筛选文档名称")),
-            (&self.category_input, tr!("分类名称")),
+            (&self.search_input, tr!("Search document text (Enter)")),
+            (&self.library_input, tr!("Filter document names")),
+            (&self.category_input, tr!("Category name")),
         ] {
             input.update(cx, |input, cx| {
                 input.set_placeholder(placeholder, window, cx)
@@ -32,7 +33,7 @@ impl Breeze {
         self.refresh_outline_language(window, cx);
         self.refresh_annotation_language(window, cx);
         self.tool_settings.dismiss();
-        window.set_window_title(tr!("Breeze · 本地阅读工作台"));
+        window.set_window_title(tr!("Breeze · Local reading workspace"));
     }
 }
 

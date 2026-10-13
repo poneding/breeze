@@ -138,7 +138,7 @@ fn titlebar_and_theme_dropdown_stay_in_sync(cx: &mut TestAppContext) {
     let (handle, view) = app(cx);
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
-        window.click("settings", cx);
+        window.press("secondary-,", cx);
         let view_state = view.read(cx);
         assert!(view_state.screen == Screen::Home && view_state.home_page == HomePage::Settings);
         window.render_frame(cx);
@@ -249,8 +249,8 @@ fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext)
         assert_eq!(view.read(cx).home_page, HomePage::Library);
         assert!(window.find(("library-open", 0usize)).visible());
 
-        // The titlebar command activates the same Settings entry.
-        window.click("settings", cx);
+        // The Settings shortcut activates the same sidebar entry.
+        window.press("secondary-,", cx);
         window.render_frame(cx);
         let state = view.read(cx);
         assert_eq!(state.screen, Screen::Home);
@@ -282,11 +282,11 @@ fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext)
             );
         }
         // The three entries stack vertically in the requested order.
-        let shortcuts = window.find("home-shortcuts").bounds();
         let about = window.find("home-about").bounds();
+        let shortcuts = window.find("home-shortcuts").bounds();
         let settings = window.find("home-settings").bounds();
-        assert!(shortcuts.bottom() <= about.top());
-        assert!(about.bottom() <= settings.top());
+        assert!(about.bottom() <= shortcuts.top());
+        assert!(shortcuts.bottom() <= settings.top());
     })
     .unwrap();
 }
@@ -338,11 +338,18 @@ fn global_pages_are_bounded_and_centered(cx: &mut TestAppContext) {
         window.render_frame(cx);
         let body = window.find("about-body").bounds();
         let tile = window.find("brand-tile").bounds();
+        let author_row = window.find("about-credit-author").bounds();
+        let source_row = window.find("about-credit-source").bounds();
+        let author = window.find("about-author").bounds();
         let repo = window.find("open-repository").bounds();
         assert!((tile.center().x - body.center().x).abs() < px(2.));
-        assert!((repo.center().x - body.center().x).abs() < px(2.));
+        // Credits share one line per entry and align their values on the left.
+        assert!((author_row.left() - source_row.left()).abs() < px(1.));
+        assert!((author.left() - repo.left()).abs() < px(1.));
+        assert!(author_row.size.height < px(24.) && source_row.size.height < px(24.));
+        assert!(author_row.bottom() <= source_row.top());
         assert!(tile.center().y - body.top() > px(80.));
-        assert!(body.bottom() - repo.bottom() > px(80.));
+        assert!(body.bottom() - source_row.bottom() > px(80.));
     })
     .unwrap();
 }
@@ -405,7 +412,7 @@ fn theme_search_selects_a_dark_gallery_entry(cx: &mut TestAppContext) {
     let (handle, view) = app(cx);
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
-        window.click("settings", cx);
+        window.press("secondary-,", cx);
         window.render_frame(cx);
         window.click("theme-select", cx);
         window.render_frame(cx);
@@ -837,7 +844,7 @@ fn categories_are_user_owned_and_layout_roundtrips(cx: &mut TestAppContext) {
             assert_eq!(view.categories.len(), 1);
             assert_eq!(view.categories[0].id, 2);
             assert_eq!(view.books[0].categories, vec![2]);
-            assert_eq!(view.snapshot().version, 8);
+            assert_eq!(view.snapshot().version, 9);
         });
     })
     .unwrap();
@@ -1287,8 +1294,8 @@ fn document_tabs_compress_without_covering_titlebar_actions(cx: &mut TestAppCont
                 assert!(divider.right() <= plus.bounds().left());
                 assert!(plus.bounds().right() <= add.right());
                 assert!(window.try_find("open").is_none());
-                for id in ["theme", "settings"] {
-                    let button = window.find(id);
+                {
+                    let button = window.find("theme");
                     assert!(button.visible());
                     assert!(button.bounds().left() >= actions.left());
                     assert!(button.bounds().right() <= actions.right());
@@ -1303,7 +1310,7 @@ fn document_tabs_compress_without_covering_titlebar_actions(cx: &mut TestAppCont
                     assert!(first.size.width <= previous);
                 }
                 previous_width = Some(first.size.width);
-                window.click("settings", cx);
+                window.press("secondary-,", cx);
                 let state = view.read(cx);
                 assert!(state.screen == Screen::Home && state.home_page == HomePage::Settings);
             })
@@ -1383,7 +1390,7 @@ fn short_document_titles_use_content_width_and_leave_room_for_shadow(cx: &mut Te
         assert!(window.find(("document", 2usize)).bounds().size.width < px(228.));
         let actions = window.find("titlebar-actions").bounds();
         assert!(window.find("document-tab-add").bounds().right() <= actions.left());
-        assert!(window.find("settings").visible());
+        assert!(window.find("theme").visible());
     })
     .unwrap();
 }
@@ -2096,6 +2103,32 @@ fn category_editor_actions_are_right_aligned_and_ordered(cx: &mut TestAppContext
         assert!(save.right() <= editor.right());
         assert!(editor.right() - save.right() <= px(2.));
         assert!(cancel.origin.x > editor.origin.x);
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn status_bar_reports_only_real_notices(cx: &mut TestAppContext) {
+    let page = rendered_sample();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| seed_rendered_page(view, page));
+        window.render_frame(cx);
+        // A healthy document says nothing; the retired "source unchanged"
+        // placeholder must not come back.
+        assert!(window.try_find("reader-status").is_none());
+        view.update(cx, |view, cx| {
+            view.message = tr!("Unsaved annotations").into();
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(window.find("reader-status").visible());
+        view.update(cx, |view, cx| {
+            view.message.clear();
+            cx.notify();
+        });
+        window.render_frame(cx);
+        assert!(window.try_find("reader-status").is_none());
     })
     .unwrap();
 }

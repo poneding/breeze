@@ -26,7 +26,7 @@ Status: implemented as a restricted development exporter after this plan was wri
 
 - Reuse the 256 MiB source limit and 5,000 annotation / 100,000 point-or-quad limits.
 - Bound temporary output and verification allocations. Avoid rendering all document pages on the UI thread.
-- Export is an explicit background operation, not part of the pen-input or autosave path.
+- Export is an explicit background operation, not part of the pen-input or sidecar-save path.
 - Keep exported appearances vector-based. No bitmap fallback and no bundled new font system for this package.
 
 ## Automated acceptance

@@ -50,7 +50,7 @@ impl Breeze {
             .iter()
             .find(|c| c.id == id)
             .map(|c| c.name.clone())
-            .unwrap_or_else(|| tr!("未分类").into())
+            .unwrap_or_else(|| tr!("Unassigned").into())
     }
     pub(super) fn save_category(&mut self, cx: &mut Context<Self>) {
         let result = validate_name(
@@ -75,7 +75,7 @@ impl Breeze {
                     });
                     self.library_filter = id + 3;
                 } else {
-                    self.message = tr!("最多支持 100 个分类").into();
+                    self.message = tr!("A maximum of 100 categories is supported").into();
                     cx.notify();
                     return;
                 }
@@ -111,7 +111,7 @@ impl Breeze {
                             .px_2()
                             .gap_2()
                             .child(Icon::new(IconName::Tags).small().text_color(p.muted))
-                            .child(style::eyebrow(tr!("分类"), p)),
+                            .child(style::eyebrow(tr!("Categories"), p)),
                     )
                     .child(div().flex_1())
                     .child(
@@ -120,15 +120,15 @@ impl Breeze {
                                 .ghost()
                                 .small()
                                 .icon(IconName::Plus)
-                                .accessibility_label(tr!("新建分类"))
-                                .tooltip(tr!("新建分类")),
+                                .accessibility_label(tr!("New category"))
+                                .tooltip(tr!("New category")),
                             None,
                             cx,
                         ),
                     ),
             )
             .child(
-                left_button("unassigned-category", IconName::Tag, tr!("未分类"))
+                left_button("unassigned-category", IconName::Tag, tr!("Unassigned"))
                     .selected(self.home_page == HomePage::Library && self.library_filter == 3)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.home_page = HomePage::Library;
@@ -211,11 +211,10 @@ impl Breeze {
                                                         .small()
                                                         .size(px(20.))
                                                         .icon(IconName::Pencil)
-                                                        .accessibility_label(tf!(
-                                                            "修改分类：{}",
+                                                        .accessibility_label(tf!("Edit category: {}",
                                                             category.name
                                                         ))
-                                                        .tooltip(tr!("修改分类")),
+                                                        .tooltip(tr!("Edit category")),
                                                     Some(id),
                                                     cx,
                                                 ),
@@ -230,11 +229,10 @@ impl Breeze {
                                                     .small()
                                                     .size(px(20.))
                                                     .icon(IconName::Trash)
-                                                    .accessibility_label(tf!(
-                                                        "删除分类：{}",
+                                                    .accessibility_label(tf!("Delete category: {}",
                                                         category.name
                                                     ))
-                                                    .tooltip(tr!("删除分类；保留文档及其他分类"))
+                                                    .tooltip(tr!("Delete category; keep documents and other memberships"))
                                                     .on_click(cx.listener(
                                                         move |this, _, _, cx| {
                                                             cx.stop_propagation();
@@ -303,7 +301,7 @@ impl Breeze {
                                     .text_color(category_tint(color, cx)),
                             )
                             .selected(self.category_color == color)
-                            .accessibility_label(tf!("分类颜色：{}", colors::label(color)))
+                            .accessibility_label(tf!("Category color: {}", colors::label(color)))
                             .tooltip(colors::label(color))
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.category_color = color;
@@ -319,7 +317,7 @@ impl Breeze {
                         Button::new("cancel-category")
                             .ghost()
                             .small()
-                            .label(tr!("取消"))
+                            .label(tr!("Cancel"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.category_form = false;
                                 cx.notify();
@@ -328,7 +326,7 @@ impl Breeze {
                     .child(
                         Button::new("save-category")
                             .small()
-                            .label(tr!("保存"))
+                            .label(tr!("Save"))
                             .on_click(cx.listener(|this, _, _, cx| this.save_category(cx))),
                     ),
             )
@@ -366,11 +364,11 @@ impl Breeze {
             .map(|c| c.name.as_str())
             .collect();
         let label = if names.is_empty() {
-            tr!("未分类").to_owned()
+            tr!("Unassigned").to_owned()
         } else {
             names.join("、")
         };
-        let mut choices = vec![(0, tr!("清除分类").to_owned())];
+        let mut choices = vec![(0, tr!("Clear categories").to_owned())];
         choices.extend(self.categories.iter().map(|c| (c.id, c.name.clone())));
         let view = cx.entity();
         let p = self.p(cx);
@@ -379,8 +377,8 @@ impl Breeze {
             .small()
             .w(px(144.))
             .flex_shrink_0()
-            .accessibility_label(tf!("分类（可多选）：{}", label))
-            .tooltip(tf!("分类（可多选）：{}", label))
+            .accessibility_label(tf!("Categories (multiple): {}", label))
+            .tooltip(tf!("Categories (multiple): {}", label))
             .child(
                 div()
                     .w_full()

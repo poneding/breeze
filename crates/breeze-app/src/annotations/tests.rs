@@ -300,7 +300,6 @@ async fn successful_save_as_acknowledges_only_written_snapshot(cx: &mut TestAppC
     .await;
     let hash = view.update(cx, |view, _| {
         let data = &mut view.books[0].annotations;
-        data.autosave = None;
         assert_eq!(data.saved, vec![note("Original")]);
         assert_eq!(data.history.items.len(), 2);
         assert!(data.dirty());
@@ -343,4 +342,42 @@ async fn stale_picker_cannot_attach_to_a_reloaded_document(cx: &mut TestAppConte
     })
     .unwrap();
     assert!(!destination.exists());
+}
+
+#[gpui_kit::test]
+async fn edits_stay_unsaved_until_the_user_saves(cx: &mut TestAppContext) {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("sidecar.json");
+    let (handle, view) = saved_document(cx, &path);
+    let before = std::fs::read(&path).unwrap();
+    view.update(cx, |view, cx| {
+        view.books[0].annotations.history.add(note("Pending"));
+        assert!(view.books[0].annotations.dirty());
+        assert!(!view.allow_close(cx));
+    });
+    // No timer or background write may persist an edit on its own: even after the
+    // retired debounce window the file still holds only the saved snapshot.
+    cx.executor()
+        .advance_clock(std::time::Duration::from_secs(2));
+    cx.run_until_parked();
+    view.read_with(cx, |view, _| {
+        let data = &view.books[0].annotations;
+        assert!(!data.saving);
+        assert_eq!(data.saved, vec![note("Original")]);
+        assert!(data.dirty());
+    });
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    let hash = view.read_with(cx, |view, _| view.books[0].annotations.fingerprint.clone());
+    view.update(cx, |view, cx| view.save_annotations(cx));
+    cx.wait_for(handle, std::time::Duration::from_secs(5), |_, cx| {
+        !view.read(cx).books[0].annotations.saving
+    })
+    .await;
+    view.read_with(cx, |view, _| assert!(!view.books[0].annotations.dirty()));
+    assert_eq!(
+        breeze_storage::load_annotations(&path, &hash)
+            .unwrap()
+            .annotations,
+        vec![note("Original"), note("Pending")]
+    );
 }

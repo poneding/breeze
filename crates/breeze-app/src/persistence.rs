@@ -60,7 +60,7 @@ fn first_category_id() -> usize {
 impl Default for SavedState {
     fn default() -> Self {
         Self {
-            version: 8,
+            version: 9,
             books: Vec::new(),
             active: 0,
             categories: Vec::new(),
@@ -88,8 +88,20 @@ impl SavedState {
             self.updates = 0;
         }
     }
+    /// Version 9 inserted automatic detection at index 0 and shifted the explicit
+    /// languages; translate the stored index so an existing choice survives.
+    fn migrate_language(&mut self) {
+        if self.version >= 9 {
+            return;
+        }
+        self.language = match self.language {
+            0 => i18n::LanguagePreference::SimplifiedChinese as usize,
+            1 => i18n::LanguagePreference::English as usize,
+            _ => i18n::LanguagePreference::TraditionalChinese as usize,
+        };
+    }
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(matches!(self.version, 1..=8), "Unsupported state version");
+        anyhow::ensure!(matches!(self.version, 1..=9), "Unsupported state version");
         anyhow::ensure!(self.books.len() <= 4096, "Too many library entries");
         anyhow::ensure!(
             self.width.is_finite() && (168.0..=360.0).contains(&self.width),
@@ -98,8 +110,16 @@ impl SavedState {
         // Version 8 retired the third update policy. Older snapshots may still
         // carry it until `restore` migrates the value.
         let update_policy_is_valid = self.updates < 2 || (self.version < 8 && self.updates < 3);
+        // Version 9 inserted automatic detection ahead of the explicit languages.
+        // Older snapshots are migrated in `restore`, so each version range only
+        // accepts the indices it could actually have written.
+        let language_is_valid = if self.version < 9 {
+            self.language < 3
+        } else {
+            self.language < 4
+        };
         anyhow::ensure!(
-            self.language < 3 && update_policy_is_valid && self.window < 3,
+            language_is_valid && update_policy_is_valid && self.window < 3,
             "Invalid preferences"
         );
         anyhow::ensure!(
@@ -161,7 +181,7 @@ impl SavedState {
 impl Breeze {
     pub(super) fn snapshot(&self) -> SavedState {
         SavedState {
-            version: 8,
+            version: 9,
             books: self
                 .books
                 .iter()
@@ -255,12 +275,14 @@ impl Breeze {
                         }
                     }
                     Ok(Err(e)) => {
-                        this.storage_error =
-                            Some(tf!("本地状态加载失败，已禁止写入：{}", format!("{:#}", e)));
+                        this.storage_error = Some(tf!(
+                            "Local state could not be loaded; writes are disabled: {}",
+                            format!("{:#}", e)
+                        ));
                         this.storage = None;
                     }
                     Err(_) => {
-                        this.storage_error = Some(tr!("本地状态线程不可用").into());
+                        this.storage_error = Some(tr!("Local state worker is unavailable").into());
                         this.storage = None;
                     }
                 }
@@ -271,6 +293,7 @@ impl Breeze {
     }
     pub(super) fn restore(&mut self, mut state: SavedState, cx: &mut Context<Self>) {
         state.migrate_update_policy();
+        state.migrate_language();
         if state.version < 5 {
             // Earlier snapshots treated every 100% value as Actual Size.
             if state.reading_preferences.zoom == Zoom::Percent(100) {
@@ -384,14 +407,17 @@ impl Breeze {
                                 }
                             }
                             Ok(Err(error)) => {
-                                this.storage_error =
-                                    Some(tf!("本地状态保存失败：{}", format!("{:#}", error)));
+                                this.storage_error = Some(tf!(
+                                    "Local state save failed: {}",
+                                    format!("{:#}", error)
+                                ));
                                 this.last_snapshot = None;
                                 this.storage_ready = false;
                                 cx.notify();
                             }
                             Err(error) => {
-                                this.storage_error = Some(tf!("本地状态保存被中断：{}", error));
+                                this.storage_error =
+                                    Some(tf!("Local state save interrupted: {}", error));
                                 this.last_snapshot = None;
                                 this.storage_ready = false;
                                 cx.notify();
@@ -418,7 +444,7 @@ impl Breeze {
         self.page_task = None;
         self.reading.cancel();
         if self.restoring {
-            self.message = tr!("请等待本地状态加载完成").into();
+            self.message = tr!("Wait for local state to finish loading").into();
             cx.notify();
             return false;
         }
@@ -428,7 +454,8 @@ impl Breeze {
         let receive = match store.save(self.snapshot()) {
             Ok(r) => r,
             Err(e) => {
-                self.storage_error = Some(tf!("关闭前保存失败：{}", format!("{:#}", e)));
+                self.storage_error =
+                    Some(tf!("Save before closing failed: {}", format!("{:#}", e)));
                 cx.notify();
                 return false;
             }
@@ -445,12 +472,14 @@ impl Breeze {
                         window.remove_window();
                     }
                     Ok(Err(e)) => {
-                        this.storage_error =
-                            Some(tf!("关闭前保存失败，窗口已保留：{}", format!("{:#}", e)));
+                        this.storage_error = Some(tf!(
+                            "Save before closing failed; the window remains open: {}",
+                            format!("{:#}", e)
+                        ));
                         cx.notify();
                     }
                     Err(e) => {
-                        this.storage_error = Some(tf!("保存被中断：{}", e));
+                        this.storage_error = Some(tf!("Save interrupted: {}", e));
                         cx.notify();
                     }
                 }
@@ -584,6 +613,43 @@ mod tests {
         state.width = 200.;
         state.version = 999;
         assert!(state.validate().is_err());
+    }
+    #[test]
+    fn language_choice_survives_the_detection_index_shift() {
+        // Version 8 stored 0/1/2 for Simplified Chinese, English and Traditional Chinese.
+        for (stored, expected) in [
+            (0usize, i18n::LanguagePreference::SimplifiedChinese),
+            (1, i18n::LanguagePreference::English),
+            (2, i18n::LanguagePreference::TraditionalChinese),
+        ] {
+            let mut legacy = SavedState {
+                version: 8,
+                language: stored,
+                ..Default::default()
+            };
+            legacy.validate().unwrap();
+            legacy.migrate_language();
+            assert_eq!(legacy.language, expected as usize);
+        }
+        // Version 8 could not store the explicit Traditional Chinese index added
+        // in version 9 (automatic detection reuses the old Simplified Chinese slot).
+        assert!(
+            SavedState {
+                version: 8,
+                language: i18n::LanguagePreference::TraditionalChinese as usize,
+                ..Default::default()
+            }
+            .validate()
+            .is_err()
+        );
+        for preference in i18n::LanguagePreference::ALL {
+            SavedState {
+                language: preference as usize,
+                ..Default::default()
+            }
+            .validate()
+            .unwrap();
+        }
     }
     #[test]
     fn state_json_roundtrip() {

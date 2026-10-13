@@ -85,7 +85,8 @@ impl AnnotationEditing {
 impl Breeze {
     pub(super) fn annotation_navigation_allowed(&mut self, cx: &mut Context<Self>) -> bool {
         if self.annotation_editing.editor.is_some() {
-            self.message = tr!("请按 Enter 完成文本标注，或按 Esc 取消，再切换位置").into();
+            self.message =
+                tr!("Finish the text note with Enter or cancel with Esc before navigating").into();
             cx.notify();
             return false;
         }
@@ -163,7 +164,7 @@ impl Breeze {
         let input = cx.new(|cx| {
             InputState::new(window, cx)
                 .default_value(annotation.text.clone())
-                .placeholder(tr!("输入文本，Enter 完成"))
+                .placeholder(tr!("Enter text; Enter finishes"))
                 .validate(|text, _| text.len() <= 16_384)
         });
         let subscription = cx.subscribe_in(&input, window, |this, input, event, window, cx| {
@@ -202,7 +203,7 @@ impl Breeze {
             _subscriptions: vec![subscription, observer],
         });
         input.update(cx, |input, cx| input.focus(window, cx));
-        self.message = tr!("Enter 完成文本标注 · Esc 取消").into();
+        self.message = tr!("Enter finishes the text note · Esc cancels").into();
         cx.notify();
     }
 
@@ -220,7 +221,7 @@ impl Breeze {
         let mut annotation = editor.annotation.clone();
         annotation.text = editor.input.read(cx).value().to_string();
         if let Err(error) = annotation.validate() {
-            self.message = tf!("无法完成文本标注：{}", error);
+            self.message = tf!("Cannot finish text note: {}", error);
             cx.notify();
             return;
         }
@@ -233,7 +234,7 @@ impl Breeze {
                 .as_ref()
                 .is_some_and(|target| !target.matches(book))
         {
-            self.message = tr!("标注或文档已变化，输入内容已保留；请复制内容后按 Esc 取消").into();
+            self.message = tr!("The annotation or document changed. Input is retained; copy it and press Esc to cancel.").into();
             cx.notify();
             return;
         }
@@ -246,7 +247,7 @@ impl Breeze {
             original.index
         } else {
             if !can_add(book, &annotation) {
-                self.message = tr!("当前文档标注数量已达上限，输入内容已保留").into();
+                self.message = tr!("The annotation limit was reached. Input is retained.").into();
                 cx.notify();
                 return;
             }
@@ -255,8 +256,9 @@ impl Breeze {
             index
         };
         self.annotation_editing.editor = None;
-        self.schedule_annotation_save(self.active, cx);
-        self.message = tr!("文本标注已完成").into();
+        // The note stays unsaved until the user saves it; the reader status area
+        // and the annotation footer both report the pending change.
+        self.message.clear();
         self.select_annotation(index, window, cx);
         window.focus(&self.focus, cx);
         cx.notify();
@@ -377,7 +379,7 @@ impl Breeze {
         let book = &mut self.books[self.active];
         if !selected.target.matches(book) {
             self.annotation_editing.clear();
-            self.message = tr!("标注已变化，请重新选择").into();
+            self.message = tr!("Annotation changed. Select it again.").into();
             cx.notify();
             return;
         }
@@ -387,7 +389,6 @@ impl Breeze {
             book.annotations.history.replace(items);
             selected.target.revision = book.annotations.history.revision();
             selected.target.expected = selected.preview.clone();
-            self.schedule_annotation_save(self.active, cx);
         }
         self.annotation_editing.selection = Some(selected);
     }
@@ -408,8 +409,7 @@ impl Breeze {
             let mut items = book.annotations.history.items.clone();
             items.remove(selected.target.index);
             book.annotations.history.replace(items);
-            self.schedule_annotation_save(self.active, cx);
-            self.message = tr!("标注已删除，可撤销").into();
+            self.message = tr!("Annotation deleted; undo is available").into();
         }
         self.annotation_editing.clear();
         window.focus(&self.focus, cx);
@@ -649,15 +649,17 @@ impl Breeze {
             .child(
                 row()
                     .gap_1()
-                    .child(div().flex_1().text_size(px(11.)).child(tr!("已选中标注")))
+                    // The controls say what is selected; a title would only repeat
+                    // the click. The spacer keeps them on the trailing edge.
+                    .child(div().flex_1())
                     .when(selected.preview.kind == Kind::Note, |row| {
                         row.child(
                             Button::new("edit-annotation-text")
                                 .ghost()
                                 .small()
                                 .icon(IconName::Type)
-                                .accessibility_label(tr!("编辑标注文本"))
-                                .tooltip(tr!("编辑文本"))
+                                .accessibility_label(tr!("Edit annotation text"))
+                                .tooltip(tr!("Edit text"))
                                 .on_click(cx.listener(move |this, _, window, cx| {
                                     this.commit_selected_annotation(cx);
                                     if let Some(selected) = this
@@ -681,9 +683,9 @@ impl Breeze {
                             .ghost()
                             .small()
                             .icon(IconName::Trash)
-                            .accessibility_label(tr!("删除选中标注"))
+                            .accessibility_label(tr!("Delete selected annotation"))
                             .tooltip_with_action(
-                                tr!("删除选中标注"),
+                                tr!("Delete selected annotation"),
                                 &DeleteSelectedAnnotation,
                                 Some("Breeze"),
                             )
@@ -742,7 +744,7 @@ impl Breeze {
                     content.child(
                         row()
                             .gap_2()
-                            .child(div().text_size(px(11.)).child(tr!("线宽")))
+                            .child(div().text_size(px(11.)).child(tr!("Line width")))
                             .child(
                                 div()
                                     .id("selected-annotation-width")
@@ -757,7 +759,7 @@ impl Breeze {
                 row()
                     .justify_between()
                     .text_size(px(11.))
-                    .child(tr!("不透明度"))
+                    .child(tr!("Opacity"))
                     .child(format!("{:.0}%", selected.preview.opacity * 100.)),
             )
             .child(
@@ -789,7 +791,7 @@ impl Breeze {
     pub(super) fn refresh_annotation_language(&self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(state) = &self.annotation_editing.editor {
             state.input.update(cx, |input, cx| {
-                input.set_placeholder(tr!("输入文本，Enter 完成"), window, cx)
+                input.set_placeholder(tr!("Enter text; Enter finishes"), window, cx)
             });
         }
     }

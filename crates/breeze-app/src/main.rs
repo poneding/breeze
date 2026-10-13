@@ -196,17 +196,18 @@ struct Breeze {
     reading_preferences: ReadingPreferences,
     language: usize,
     applied_language: Option<usize>,
-    language_select: Entity<SelectState<Vec<i18n::Language>>>,
+    language_select: Entity<SelectState<i18n::LanguageChoices>>,
     update_policy: usize,
     updates: updates::Updates,
     window_policy: usize,
 }
 impl Breeze {
     fn new(worker: PdfWorker, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        i18n::set_language(i18n::Language::SimplifiedChinese);
+        i18n::set_language(i18n::LanguagePreference::default().resolve());
         let language_select = cx.new(|cx| {
             SelectState::new(
-                i18n::Language::ALL.to_vec(),
+                i18n::LanguageChoices::new(),
+                // Detection is the default and the first row.
                 Some(gpui_kit::component::IndexPath::new(0)),
                 window,
                 cx,
@@ -214,8 +215,10 @@ impl Breeze {
         });
         let language_subscription =
             cx.subscribe_in(&language_select, window, |this, _, event, window, cx| {
-                if let SelectEvent::Confirm(Some(language)) = event {
-                    this.language = *language as usize;
+                if let SelectEvent::Confirm(Some(item)) = event
+                    && let Some(preference) = item.choice()
+                {
+                    this.language = preference as usize;
                     this.refresh_language(window, cx);
                     cx.notify();
                 }
@@ -227,17 +230,18 @@ impl Breeze {
                 window.focus(&this.focus, cx);
             }
         });
-        let search_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder(tr!("搜索文档文字（回车）")));
+        let search_input = cx
+            .new(|cx| InputState::new(window, cx).placeholder(tr!("Search document text (Enter)")));
         let search_subscription = cx.subscribe(&search_input, |this, _, event, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) {
                 this.run_search(cx);
             }
         });
         let library_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder(tr!("筛选文档名称")));
+            cx.new(|cx| InputState::new(window, cx).placeholder(tr!("Filter document names")));
         let library_observer = cx.observe(&library_input, |_, _, cx| cx.notify());
-        let category_input = cx.new(|cx| InputState::new(window, cx).placeholder(tr!("分类名称")));
+        let category_input =
+            cx.new(|cx| InputState::new(window, cx).placeholder(tr!("Category name")));
         let category_submission = cx.subscribe(&category_input, |this, _, event, cx| {
             if this.category_form && matches!(event, InputEvent::PressEnter { .. }) {
                 this.save_category(cx);
@@ -507,7 +511,7 @@ impl Breeze {
                         }
                     }
                     Ok(Err(error)) => this.message = format!("{error:#}"),
-                    Err(_) => this.message = tr!("请求已取消，请重新打开文档").into(),
+                    Err(_) => this.message = tr!("Request cancelled. Reopen the document.").into(),
                 }
                 if this.preview.is_none() {
                     this.pending_window_policy = false;
@@ -523,7 +527,7 @@ impl Breeze {
             return;
         }
         if self.books[index].annotations.dirty() || self.books[index].annotations.saving {
-            self.message = tr!("请先保存批注，再移除资料库条目").into();
+            self.message = tr!("Save annotations before removing the library entry").into();
             cx.notify();
             return;
         }
@@ -553,7 +557,7 @@ impl Breeze {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some(tr!("打开文档 · 当前原型支持 PDF").into()),
+            prompt: Some(tr!("Open document · PDF supported").into()),
         });
         cx.spawn(async move |this, cx| match receiver.await {
             Ok(Ok(Some(paths))) => {
@@ -563,7 +567,7 @@ impl Breeze {
             }
             Ok(Err(e)) => {
                 let _ = this.update(cx, |this, cx| {
-                    this.message = tf!("文件对话框失败：{}", e);
+                    this.message = tf!("File dialog failed: {}", e);
                     cx.notify();
                 });
             }
@@ -573,7 +577,7 @@ impl Breeze {
     }
     fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
         let work = cx.background_spawn(async move {
-            std::fs::canonicalize(&path).map_err(|e| tf!("无法打开 {}：{}", path.display(), e))
+            std::fs::canonicalize(&path).map_err(|e| tf!("Cannot open {}: {}", path.display(), e))
         });
         cx.spawn(async move |this, cx| {
             let result = work.await;
@@ -602,9 +606,9 @@ impl Breeze {
         let title = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| tr!("文档").into());
+            .unwrap_or_else(|| tr!("Document").into());
         if self.books.len() >= 4096 {
-            self.message = tr!("资料库条目已达上限").into();
+            self.message = tr!("The library entry limit has been reached").into();
             cx.notify();
             return;
         }
@@ -709,9 +713,9 @@ impl Render for Breeze {
                 .items_center()
                 .justify_center()
                 .child(if self.closing {
-                    tr!("正在保存本地状态…")
+                    tr!("Saving local state…")
                 } else {
-                    tr!("正在恢复本地阅读空间…")
+                    tr!("Restoring your reading workspace…")
                 })
                 .into_any_element()
         } else {
@@ -865,7 +869,7 @@ impl Render for Breeze {
 }
 fn texture(p: Pixels) -> Result<Arc<RenderImage>> {
     let image = image::RgbaImage::from_raw(p.width, p.height, p.bgra)
-        .ok_or_else(|| anyhow::anyhow!(tr!("页面像素大小不一致")))?;
+        .ok_or_else(|| anyhow::anyhow!(tr!("Page pixel size mismatch")))?;
     Ok(Arc::new(RenderImage::new(vec![image::Frame::new(image)])))
 }
 fn main() -> Result<()> {
@@ -876,7 +880,13 @@ fn main() -> Result<()> {
         .run(move |cx| {
             gpui_kit::init(cx);
             if let Err(error) = appearance::init(cx) {
-                eprintln!("{}", tf!("无法初始化内置主题：{}", format!("{:#}", error)));
+                eprintln!(
+                    "{}",
+                    tf!(
+                        "Cannot initialize bundled themes: {}",
+                        format!("{:#}", error)
+                    )
+                );
                 cx.quit();
                 return;
             }
@@ -905,7 +915,7 @@ fn main() -> Result<()> {
                     let view = cx.new(|cx| Breeze::new(worker, window, cx));
                     view.update(cx, |this, cx| {
                         window.focus(&this.focus, cx);
-                        window.set_window_title(tr!("Breeze · 本地阅读工作台"));
+                        window.set_window_title(tr!("Breeze · Local reading workspace"));
                         this.apply_theme(cx);
                         this.initialize_storage(initial, cx);
                     });
@@ -929,7 +939,7 @@ fn main() -> Result<()> {
                 },
             );
             if let Err(error) = result {
-                eprintln!("{}", tf!("无法启动 Breeze：{}", format!("{:#}", error)));
+                eprintln!("{}", tf!("Cannot start Breeze: {}", format!("{:#}", error)));
                 cx.quit();
             }
             cx.activate(true);

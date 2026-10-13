@@ -14,55 +14,58 @@ pub(super) fn groups() -> Vec<(&'static str, Vec<Shortcut>)> {
     let row = |label, actions| Shortcut { label, actions };
     vec![
         (
-            tr!("文件"),
+            tr!("File"),
             vec![
-                row(tr!("打开文档"), vec![&Open]),
-                row(tr!("关闭当前标签"), vec![&CloseTab]),
-                row(tr!("切换标签"), vec![&NextTab, &PreviousTab]),
-                row(tr!("退出 Breeze"), vec![&Quit]),
+                row(tr!("Open document"), vec![&Open]),
+                row(tr!("Close current tab"), vec![&CloseTab]),
+                row(tr!("Switch tabs"), vec![&NextTab, &PreviousTab]),
+                row(tr!("Quit Breeze"), vec![&Quit]),
             ],
         ),
         (
-            tr!("阅读"),
+            tr!("Read"),
             vec![
-                row(tr!("上一页"), vec![&PreviousPage]),
-                row(tr!("下一页"), vec![&NextPage]),
-                row(tr!("跳转到页"), vec![&FocusPage]),
-                row(tr!("放大"), vec![&ZoomIn]),
-                row(tr!("缩小"), vec![&ZoomOut]),
-                row(tr!("实际大小"), vec![&ActualSize]),
-                row(tr!("适合页面"), vec![&FitPage]),
-                row(tr!("适合宽度"), vec![&FitWidth]),
-                row(tr!("切换阅读布局"), vec![&CycleLayout]),
-                row(tr!("向左旋转 90 度"), vec![&RotateLeft]),
-                row(tr!("向右旋转 90 度"), vec![&RotateRight]),
-                row(tr!("全屏阅读"), vec![&ToggleFullScreen]),
-                row(tr!("搜索文档"), vec![&SearchDocument]),
-                row(tr!("复制选中文字"), vec![&CopySelection]),
+                row(tr!("Previous page"), vec![&PreviousPage]),
+                row(tr!("Next page"), vec![&NextPage]),
+                row(tr!("Go to page"), vec![&FocusPage]),
+                row(tr!("Zoom in"), vec![&ZoomIn]),
+                row(tr!("Zoom out"), vec![&ZoomOut]),
+                row(tr!("Actual size"), vec![&ActualSize]),
+                row(tr!("Fit page"), vec![&FitPage]),
+                row(tr!("Fit width"), vec![&FitWidth]),
+                row(tr!("Change reading layout"), vec![&CycleLayout]),
+                row(tr!("Rotate 90° left"), vec![&RotateLeft]),
+                row(tr!("Rotate 90° right"), vec![&RotateRight]),
+                row(tr!("Fullscreen reading"), vec![&ToggleFullScreen]),
+                row(tr!("Search document"), vec![&SearchDocument]),
+                row(tr!("Copy selected text"), vec![&CopySelection]),
             ],
         ),
         (
-            tr!("标注"),
+            tr!("Annotations"),
             vec![
-                row(tr!("保存标注"), vec![&SaveAnnotations]),
-                row(tr!("标注另存为"), vec![&SaveAnnotationsAs]),
-                row(tr!("撤销标注"), vec![&UndoAnnotation]),
-                row(tr!("重做标注"), vec![&RedoAnnotation]),
-                row(tr!("删除选中批注"), vec![&DeleteSelectedAnnotation]),
-                row(tr!("取消编辑"), vec![&CancelAnnotationEdit]),
+                row(tr!("Save annotations"), vec![&SaveAnnotations]),
+                row(tr!("Save annotations as"), vec![&SaveAnnotationsAs]),
+                row(tr!("Undo annotation"), vec![&UndoAnnotation]),
+                row(tr!("Redo annotation"), vec![&RedoAnnotation]),
+                row(
+                    tr!("Delete selected annotation"),
+                    vec![&DeleteSelectedAnnotation],
+                ),
+                row(tr!("Cancel editing"), vec![&CancelAnnotationEdit]),
             ],
         ),
         (
-            tr!("界面"),
+            tr!("Interface"),
             vec![
-                row(tr!("主页"), vec![&Home]),
-                row(tr!("设置"), vec![&Preferences]),
-                row(tr!("关于"), vec![&ShowAbout]),
-                row(tr!("快捷键"), vec![&ShowShortcuts]),
-                row(tr!("展开 / 收起导航"), vec![&ToggleSidebar]),
-                row(tr!("展开 / 收起文档侧栏"), vec![&ToggleDocumentPanel]),
-                row(tr!("收藏 / 取消收藏"), vec![&Favorite]),
-                row(tr!("切换主题"), vec![&CycleTheme]),
+                row(tr!("Home"), vec![&Home]),
+                row(tr!("Settings"), vec![&Preferences]),
+                row(tr!("About"), vec![&ShowAbout]),
+                row(tr!("Shortcuts"), vec![&ShowShortcuts]),
+                row(tr!("Toggle navigation"), vec![&ToggleSidebar]),
+                row(tr!("Toggle document sidebar"), vec![&ToggleDocumentPanel]),
+                row(tr!("Toggle favorite"), vec![&Favorite]),
+                row(tr!("Change theme"), vec![&CycleTheme]),
             ],
         ),
     ]
@@ -91,7 +94,7 @@ impl Breeze {
                     div()
                         .text_size(px(16.))
                         .font_weight(FontWeight::SEMIBOLD)
-                        .child(tr!("快捷键")),
+                        .child(tr!("Shortcuts")),
                 )
                 .children(groups().into_iter().filter_map(|(title, rows)| {
                     // Actions without a registered binding are omitted, never invented.
@@ -111,7 +114,7 @@ impl Breeze {
                     div()
                         .text_size(px(11.))
                         .text_color(p.muted)
-                        .child(tr!("暂不支持自定义快捷键。")),
+                        .child(tr!("Custom shortcuts are not supported yet.")),
                 ),
         )
     }

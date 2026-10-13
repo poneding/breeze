@@ -18,7 +18,7 @@ impl Breeze {
             return;
         }
         if self.search_busy {
-            self.message = tr!("请先取消正在进行的搜索").into();
+            self.message = tr!("Cancel the current search first").into();
             cx.notify();
             return;
         }
@@ -26,7 +26,7 @@ impl Breeze {
         let generation = self.search_generation;
         self.search_hits.clear();
         self.search_busy = true;
-        self.search_notice = tr!("正在搜索…").into();
+        self.search_notice = tr!("Searching…").into();
         let token = Arc::new(AtomicBool::new(false));
         self.search_cancel = Some(token.clone());
         let source = self.books[self.active].source.clone();
@@ -42,10 +42,10 @@ impl Breeze {
                 match result {
                     Ok(hits) => {
                         this.search_notice = tf!(
-                            "{} 处匹配{}",
+                            "{} matches{}",
                             hits.len(),
                             if hits.len() == 300 {
-                                tr!("（达到上限）")
+                                tr!(" (limit reached)")
                             } else {
                                 ""
                             }
@@ -103,7 +103,7 @@ impl Breeze {
                             .ghost()
                             .small()
                             .icon(IconName::X)
-                            .tooltip(tr!("取消并关闭搜索"))
+                            .tooltip(tr!("Cancel and close search"))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.close_search(cx);
                             })),

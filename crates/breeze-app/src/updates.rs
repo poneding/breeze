@@ -60,8 +60,9 @@ impl Updates {
         true
     }
 
-    /// Current check state for the About page, in the active language.
-    pub(super) fn message(&self) -> String {
+    /// Current check state for the About page, in the active language. States that
+    /// carry no news for the reader render nothing instead of filler text.
+    pub(super) fn message(&self) -> Option<String> {
         self.status.message()
     }
 
@@ -171,24 +172,27 @@ fn check_latest() -> CheckStatus {
 }
 
 impl CheckStatus {
-    fn message(&self) -> String {
-        match self {
-            Self::Idle => tr!("尚未检查更新").into(),
-            Self::Checking => tr!("正在检查更新…").into(),
+    /// The check outcome as a sentence, or `None` when there is nothing to report:
+    /// the button already labels an in-flight check, and an untouched check is not
+    /// news worth the reader's attention.
+    fn message(&self) -> Option<String> {
+        Some(match self {
+            // Silence beats stating that nothing has happened yet.
+            Self::Idle | Self::Checking => return None,
             Self::Unpublished => {
-                tr!("未找到公开正式版本；仓库可能尚未创建、尚未公开或尚未发布 Release。").into()
+                tr!("No public stable release found. The repository may not exist, may be private, or may have no releases yet.").into()
             }
-            Self::Current { latest } => tf!("当前版本无需更新 · 最新正式版本 {}", latest),
-            Self::Available { version, .. } => tf!("发现新版本 {}", version),
+            Self::Current { latest } => tf!("No update needed · Latest stable version {}", latest),
+            Self::Available { version, .. } => tf!("New version {} available", version),
             Self::Failed(error) => match error {
-                CheckError::Timeout => tr!("检查更新超时，请重试。").into(),
-                CheckError::Network(detail) => tf!("无法连接更新服务：{}", detail),
-                CheckError::TooLarge => tr!("更新响应过大，已停止读取。请稍后重试。").into(),
-                CheckError::InvalidMetadata => tr!("更新信息无效；需要有效的正式版本号。").into(),
-                CheckError::RateLimited => tr!("GitHub 请求限额已用尽，请稍后重试。").into(),
-                CheckError::Http(status) => tf!("更新服务返回 HTTP {}，请稍后重试。", status),
+                CheckError::Timeout => tr!("Update check timed out. Try again.").into(),
+                CheckError::Network(detail) => tf!("Cannot connect to the update service: {}", detail),
+                CheckError::TooLarge => tr!("The update response is too large. Try again later.").into(),
+                CheckError::InvalidMetadata => tr!("Invalid update metadata; a valid stable version is required.").into(),
+                CheckError::RateLimited => tr!("GitHub rate limit reached. Try again later.").into(),
+                CheckError::Http(status) => tf!("Update service returned HTTP {}. Try again later.", status),
             },
-        }
+        })
     }
 }
 
@@ -214,9 +218,9 @@ impl Breeze {
             .small()
             .icon(IconName::RefreshCw)
             .label(if self.updates.in_flight {
-                tr!("正在检查更新…")
+                tr!("Checking for updates…")
             } else {
-                tr!("立即检查")
+                tr!("Check for updates")
             })
             .disabled(self.updates.in_flight)
             .on_click(cx.listener(|this, _, _, cx| this.check_updates(false, cx)))
@@ -237,6 +241,7 @@ impl Breeze {
             return None;
         }
         let url = self.update_release_url()?;
+        let message = self.updates.message()?;
         Some(
             row()
                 .gap_2()
@@ -244,16 +249,11 @@ impl Breeze {
                 .py_1()
                 .border_b_1()
                 .border_color(self.p(cx).line)
-                .child(
-                    div()
-                        .flex_1()
-                        .min_w_0()
-                        .child(self.updates.status.message()),
-                )
+                .child(div().flex_1().min_w_0().child(message))
                 .child(
                     Button::new("update-banner-release")
                         .small()
-                        .label(tr!("查看发布版本"))
+                        .label(tr!("View release"))
                         .on_click(move |_, _, cx| cx.open_url(&url)),
                 )
                 .child(
@@ -261,7 +261,7 @@ impl Breeze {
                         .ghost()
                         .small()
                         .icon(IconName::X)
-                        .accessibility_label(tr!("关闭更新提示"))
+                        .accessibility_label(tr!("Dismiss update notification"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             this.updates.banner_dismissed = true;
                             cx.notify();

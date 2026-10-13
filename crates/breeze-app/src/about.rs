@@ -6,6 +6,8 @@ const AUTHOR: &str = "Pone Ding<poneding@gmail.com>";
 /// The tile is displayed at 64 logical pixels; decode once at a bounded size.
 const LOGO_MAX_PIXELS: u32 = 160;
 const LOGO_BYTES: &[u8] = include_bytes!("../../../assets/brand/breeze-icon.png");
+/// Keeps the two credit labels in one left-aligned column.
+const CREDIT_LABEL_WIDTH: f32 = 64.;
 
 /// Decode the bundled brand tile into a bounded BGRA texture.
 ///
@@ -54,49 +56,64 @@ impl Breeze {
                         div()
                             .text_size(px(12.))
                             .text_color(p.muted)
-                            .child(tf!("版本 {}", version)),
+                            .child(tf!("Version {}", version)),
                     ),
             )
             .child(
-                row()
-                    .gap_3()
-                    .child(self.update_check_button(cx))
-                    .child(
-                        div()
-                            .id("update-status")
-                            .test_support()
-                            .max_w(px(360.))
-                            .text_size(px(12.))
-                            .text_color(p.muted)
-                            .child(self.updates.message()),
-                    )
-                    .when_some(self.update_release_url(), |row, url| {
-                        row.child(
-                            Button::new("open-update-release")
-                                .small()
-                                .label(tr!("查看发布版本"))
-                                .on_click(move |_, _, cx| cx.open_url(&url)),
+                column()
+                    .gap_2()
+                    .items_center()
+                    .child(row().gap_3().child(self.update_check_button(cx)).when_some(
+                        self.update_release_url(),
+                        |row, url| {
+                            row.child(
+                                Button::new("open-update-release")
+                                    .small()
+                                    .label(tr!("View release"))
+                                    .on_click(move |_, _, cx| cx.open_url(&url)),
+                            )
+                        },
+                    ))
+                    // Only a real result earns a line here; long failures wrap
+                    // inside a bounded width and stay centered under the button.
+                    .when_some(self.updates.message(), |column, message| {
+                        column.child(
+                            div()
+                                .id("update-status")
+                                .test_support()
+                                .w_full()
+                                .max_w(px(360.))
+                                .text_center()
+                                .text_size(px(12.))
+                                .text_color(p.muted)
+                                .child(message),
                         )
                     }),
             )
             .child(
                 column()
                     .gap_3()
-                    .items_center()
+                    .items_start()
                     .child(about_credit(
-                        tr!("作者"),
-                        div().text_size(px(12.)).child(AUTHOR.to_string()),
+                        "about-credit-author",
+                        tr!("Author"),
+                        div()
+                            .id("about-author")
+                            .test_support()
+                            .text_size(px(12.))
+                            .child(AUTHOR.to_string()),
                         p,
                     ))
                     .child(about_credit(
-                        tr!("开源地址"),
+                        "about-credit-source",
+                        tr!("Source code"),
                         Button::new("open-repository")
                             .ghost()
                             .small()
                             .icon(IconName::ExternalLink)
                             .label(updates::REPOSITORY.trim_start_matches("https://"))
-                            .accessibility_label(tr!("打开 GitHub 仓库"))
-                            .tooltip(tr!("打开 GitHub 仓库"))
+                            .accessibility_label(tr!("Open the GitHub repository"))
+                            .tooltip(tr!("Open the GitHub repository"))
                             .on_click(|_, _, cx| cx.open_url(updates::REPOSITORY)),
                         p,
                     )),
@@ -137,13 +154,23 @@ impl Breeze {
     }
 }
 
-/// One credit block, stacked so the label and value share the same center line.
-fn about_credit(label: &str, value: impl IntoElement, p: Palette) -> Div {
-    column()
-        .gap_1()
+/// One credit row: a muted label and its value share a line and start at the
+/// same left edge, so the two values line up in one column.
+fn about_credit(
+    id: &'static str,
+    label: &str,
+    value: impl IntoElement,
+    p: Palette,
+) -> impl IntoElement {
+    row()
+        .id(id)
+        .test_support()
+        .gap_3()
         .items_center()
         .child(
             div()
+                .w(px(CREDIT_LABEL_WIDTH))
+                .flex_shrink_0()
                 .text_size(px(11.))
                 .text_color(p.muted)
                 .child(label.to_string()),

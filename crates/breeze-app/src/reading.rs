@@ -542,10 +542,10 @@ impl Breeze {
                 this.reading.busy = false;
                 let result = (|| -> Result<()> {
                     let page =
-                        result.map_err(|e| anyhow::anyhow!(tf!("页面请求取消：{}", e)))??;
+                        result.map_err(|e| anyhow::anyhow!(tf!("Page request cancelled: {}", e)))??;
                     anyhow::ensure!(
                         page.fingerprint == this.reading.fingerprint,
-                        tr!("文档在外部发生变化，请关闭后重新打开；未修改原文件")
+                        tr!("The document changed externally. Close and reopen it; the source is unchanged.")
                     );
                     if !(if thumbnail {
                         &this.reading.wanted_thumbs
@@ -560,7 +560,7 @@ impl Breeze {
                     if thumbnail {
                         let pixels = page
                             .pixels
-                            .ok_or_else(|| anyhow::anyhow!(tr!("缺少缩略图像素")))?;
+                            .ok_or_else(|| anyhow::anyhow!(tr!("Thumbnail pixels are missing")))?;
                         let bytes = pixels.bgra.len();
                         anyhow::ensure!(
                             this.reading.thumbnails.insert_with_eviction(
@@ -570,13 +570,13 @@ impl Breeze {
                                 this.reading.wanted_thumbs.clone(),
                                 |image| cx.defer(move |cx| cx.drop_image(image, None))
                             ),
-                            tr!("可见缩略图超出内存预算")
+                            tr!("Visible thumbnails exceed the memory budget")
                         );
                     } else {
                         let preview = Preview::from_page(page)?;
                         anyhow::ensure!(
                             this.reading.insert(page_index, preview.clone()),
-                            tr!("可见页面文字数据超出 8 MiB 内存预算，请切换单页")
+                            tr!("Visible page text exceeds the 8 MiB budget. Switch to single page.")
                         );
                         if page_index == this.books[this.active].state.navigation.page()
                             && this.gesture.is_empty()
@@ -662,7 +662,8 @@ impl Breeze {
             scroll.base_handle.set_offset(search.saved_offset);
             window.focus(&self.focus, cx);
         } else {
-            let input = cx.new(|cx| InputState::new(window, cx).placeholder(tr!("搜索目录标题")));
+            let input =
+                cx.new(|cx| InputState::new(window, cx).placeholder(tr!("Search outline titles")));
             let subscription = cx.subscribe(&input, |this, input, event, cx| {
                 if matches!(event, InputEvent::Change)
                     && let Some(search) = &mut this.reading.outline_search
@@ -712,8 +713,8 @@ impl Breeze {
                         .ghost()
                         .small()
                         .icon(IconName::X)
-                        .accessibility_label(tr!("关闭目录搜索"))
-                        .tooltip(tr!("关闭目录搜索"))
+                        .accessibility_label(tr!("Close outline search"))
+                        .tooltip(tr!("Close outline search"))
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.toggle_outline_search(window, cx)
                         })),
@@ -746,7 +747,7 @@ impl Breeze {
                 .test_support()
                 .p_2()
                 .text_color(self.p(cx).muted)
-                .child(tr!("没有匹配的目录标题"))
+                .child(tr!("No matching outline titles"))
                 .into_any_element();
         }
         let current = active_outline(&outline, self.books[self.active].state.navigation.page());
@@ -787,16 +788,16 @@ impl Breeze {
                                                 .accessibility_label(format!(
                                                     "{}：{}",
                                                     if collapsed {
-                                                        tr!("展开")
+                                                        tr!("Expand")
                                                     } else {
-                                                        tr!("收起")
+                                                        tr!("Collapse")
                                                     },
                                                     item.title
                                                 ))
                                                 .tooltip(if collapsed {
-                                                    tr!("展开子目录")
+                                                    tr!("Expand child entries")
                                                 } else {
-                                                    tr!("收起子目录")
+                                                    tr!("Collapse child entries")
                                                 })
                                                 .on_click(cx.listener(move |this, _, _, cx| {
                                                     this.toggle_outline(index, cx)
@@ -830,7 +831,7 @@ impl Breeze {
                                             .tooltip(if target.is_some() {
                                                 item.title.clone()
                                             } else {
-                                                tr!("命名目的地尚未解析").into()
+                                                tr!("Named destination is unresolved").into()
                                             })
                                             .on_click(cx.listener(move |this, _, _, cx| {
                                                 if let Some(page) = target {
@@ -884,7 +885,7 @@ impl Breeze {
             .size_full()
             .p_0()
             .border_0()
-            .accessibility_label(tf!("第 {} 页缩略图", page + 1))
+            .accessibility_label(tf!("Page {} thumbnail", page + 1))
             .child(
                 column()
                     .size_full()
@@ -920,7 +921,7 @@ impl Breeze {
                                                     .errors
                                                     .get(&(true, page))
                                                     .cloned()
-                                                    .unwrap_or_else(|| tr!("正在准备…").into()),
+                                                    .unwrap_or_else(|| tr!("Preparing…").into()),
                                             ),
                                     )
                                 }
@@ -1031,9 +1032,9 @@ impl Breeze {
                                 if self.reading.wanted_pages.contains(&page)
                                     && page >= self.reading.wanted_pages.start.saturating_add(8)
                                 {
-                                    tr!("可见页面超过 8 页预算，请提高缩放或切换单页").into()
+                                    tr!("More than 8 pages are visible. Zoom in or switch to single page.").into()
                                 } else {
-                                    tf!("第 {} 页 · 正在准备…", page + 1)
+                                    tf!("Page {} · Preparing…", page + 1)
                                 }
                             }),
                     ),
@@ -1188,7 +1189,7 @@ impl Breeze {
                 .items_center()
                 .justify_center()
                 .child(div().text_color(p.muted).child(if self.loading {
-                    tr!("正在准备页面…").into()
+                    tr!("Preparing page…").into()
                 } else {
                     self.message.clone()
                 }))
@@ -1342,7 +1343,7 @@ impl Breeze {
     pub(super) fn refresh_outline_language(&self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(state) = &self.reading.outline_search {
             state.input.update(cx, |input, cx| {
-                input.set_placeholder(tr!("搜索目录标题"), window, cx)
+                input.set_placeholder(tr!("Search outline titles"), window, cx)
             });
         }
     }

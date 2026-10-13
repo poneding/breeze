@@ -179,3 +179,51 @@ fn sidebar_is_independent_of_mode_and_fits_a_narrow_window(cx: &mut TestAppConte
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn annotations_footer_only_reports_unfinished_work(cx: &mut TestAppContext) {
+    let worker = PdfWorker::new().unwrap();
+    let page = futures::executor::block_on(worker.request(Source::Sample, 0).unwrap())
+        .unwrap()
+        .unwrap();
+    let fingerprint = page.fingerprint.clone();
+    let preview = Preview::from_page(page).unwrap();
+    let (handle, view) = crate::ui_tests::app(cx);
+    let items = vec![annotation(0, Kind::Ink)];
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.preview = Some(preview.clone());
+            view.reading.sizes = Arc::new(vec![preview.points; 4]);
+            view.reading.source = Some(Source::Sample);
+            view.reading.fingerprint = fingerprint.clone();
+            view.books[0].annotations.fingerprint = fingerprint.clone();
+            view.books[0].annotations.ready = true;
+            view.books[0].annotations.history.items = items.clone();
+            view.books[0].annotations.saved = items.clone();
+            view.document_panel.show_annotations();
+        });
+        window.render_frame(cx);
+        // A loaded and saved sidecar is not news, so the footer stays empty.
+        assert!(window.try_find("annotation-status").is_none());
+        view.update(cx, |view, cx| {
+            view.books[0]
+                .annotations
+                .history
+                .items
+                .push(annotation(1, Kind::Ink));
+            cx.notify();
+        });
+        window.render_frame(cx);
+        // An unsaved change is: it explains why saving is still pending.
+        assert!(window.find("annotation-status").visible());
+        view.update(cx, |view, cx| {
+            view.books[0].annotations.history.items = items.clone();
+            view.books[0].annotations.ready = false;
+            cx.notify();
+        });
+        window.render_frame(cx);
+        // A sidecar that is not ready still says so.
+        assert!(window.find("annotation-status").visible());
+    })
+    .unwrap();
+}

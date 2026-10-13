@@ -91,7 +91,7 @@ impl Breeze {
                         self.command(
                             "collapse",
                             IconName::PanelLeft,
-                            tr!("导航面板"),
+                            tr!("Navigation panel"),
                             &ToggleSidebar,
                             cx,
                         )
@@ -112,13 +112,13 @@ impl Breeze {
                                 this.tool = 0;
                                 cx.notify();
                             }))
-                            .child(Tab::new().label(tr!("阅读")).tooltip(|window, cx| {
-                                Tooltip::new(tr!("阅读模式"))
+                            .child(Tab::new().label(tr!("Read")).tooltip(|window, cx| {
+                                Tooltip::new(tr!("Read mode"))
                                     .action(&ReadMode, Some("Breeze"))
                                     .build(window, cx)
                             }))
-                            .child(Tab::new().label(tr!("标注")).tooltip(|window, cx| {
-                                Tooltip::new(tr!("标注模式"))
+                            .child(Tab::new().label(tr!("Annotations")).tooltip(|window, cx| {
+                                Tooltip::new(tr!("Annotate mode"))
                                     .action(&AnnotateMode, Some("Breeze"))
                                     .build(window, cx)
                             })),
@@ -129,7 +129,7 @@ impl Breeze {
                         self.command(
                             "reader-search",
                             IconName::Search,
-                            tr!("搜索文档"),
+                            tr!("Search document"),
                             &SearchDocument,
                             cx,
                         )
@@ -139,7 +139,7 @@ impl Breeze {
                         self.command(
                             "reader-star",
                             IconName::Bookmark,
-                            tr!("收藏"),
+                            tr!("Favorites"),
                             &Favorite,
                             cx,
                         )
@@ -148,9 +148,9 @@ impl Breeze {
                         ))
                         .accessibility_label(
                             if self.books[self.active].favorite {
-                                tr!("取消收藏")
+                                tr!("Remove favorite")
                             } else {
-                                tr!("收藏")
+                                tr!("Favorites")
                             },
                         ),
                     )
@@ -158,7 +158,7 @@ impl Breeze {
                         self.command(
                             "document-panel-toggle",
                             IconName::PanelRight,
-                            tr!("文档侧栏"),
+                            tr!("Document sidebar"),
                             &ToggleDocumentPanel,
                             cx,
                         )
@@ -256,14 +256,16 @@ impl Breeze {
                                 cx.notify()
                             }))
                             .when(has_outline, |tabs| {
-                                tabs.child(Tab::new().label(tr!("目录")).tooltip(|window, cx| {
-                                    Tooltip::new(tr!("目录"))
-                                        .action(&ShowOutline, Some("Breeze"))
-                                        .build(window, cx)
-                                }))
+                                tabs.child(Tab::new().label(tr!("Outline")).tooltip(
+                                    |window, cx| {
+                                        Tooltip::new(tr!("Outline"))
+                                            .action(&ShowOutline, Some("Breeze"))
+                                            .build(window, cx)
+                                    },
+                                ))
                             })
-                            .child(Tab::new().label(tr!("缩略图")).tooltip(|window, cx| {
-                                Tooltip::new(tr!("缩略图"))
+                            .child(Tab::new().label(tr!("Thumbnails")).tooltip(|window, cx| {
+                                Tooltip::new(tr!("Thumbnails"))
                                     .action(&ShowThumbnails, Some("Breeze"))
                                     .build(window, cx)
                             })),
@@ -280,8 +282,8 @@ impl Breeze {
                                         .small()
                                         .icon(IconName::Search)
                                         .selected(self.outline_search_open())
-                                        .accessibility_label(tr!("搜索目录标题"))
-                                        .tooltip(tr!("搜索目录标题"))
+                                        .accessibility_label(tr!("Search outline titles"))
+                                        .tooltip(tr!("Search outline titles"))
                                         .on_click(cx.listener(|this, _, window, cx| {
                                             this.toggle_outline_search(window, cx);
                                         })),
@@ -314,24 +316,41 @@ impl Breeze {
             .ghost()
             .small()
             .icon(IconName::EllipsisVertical)
-            .accessibility_label(tr!("更多目录操作"))
-            .tooltip(tr!("更多目录操作"))
+            .accessibility_label(tr!("More outline actions"))
+            .tooltip(tr!("More outline actions"))
             .dropdown_menu(move |menu, window, _| {
                 menu.item(
-                    PopupMenuItem::new(tr!("全部展开"))
+                    PopupMenuItem::new(tr!("Expand all"))
                         .icon(IconName::ListChevronsUpDown)
                         .on_click(window.listener_for(&view, |this, _, _, cx| {
                             this.set_outline_expanded(true, cx);
                         })),
                 )
                 .item(
-                    PopupMenuItem::new(tr!("全部收起"))
+                    PopupMenuItem::new(tr!("Collapse all"))
                         .icon(IconName::ListChevronsDownUp)
                         .on_click(window.listener_for(&view, |this, _, _, cx| {
                             this.set_outline_expanded(false, cx);
                         })),
                 )
             })
+    }
+    /// The one status line the reader shows, or `None` when there is nothing to
+    /// report. A healthy document leaves the area empty instead of announcing
+    /// that nothing is wrong.
+    fn status_notice(&self) -> Option<String> {
+        let book = &self.books[self.active];
+        if let Some(error) = &book.annotations.error {
+            Some(tf!("Annotation error: {}", error))
+        } else if self.raster.page_failed(book.state.navigation.page()) {
+            Some(tr!("Page rendering failed; some content could not be displayed").into())
+        } else if !self.message.is_empty() {
+            Some(self.message.clone())
+        } else if book.annotations.dirty() {
+            Some(tr!("Unsaved annotations").into())
+        } else {
+            None
+        }
     }
     fn status(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let p = self.p(cx);
@@ -352,7 +371,7 @@ impl Breeze {
                 self.command(
                     "previous",
                     IconName::ChevronLeft,
-                    tr!("上一页"),
+                    tr!("Previous page"),
                     &PreviousPage,
                     cx,
                 )
@@ -364,8 +383,14 @@ impl Breeze {
                 s.navigation.total()
             )))
             .child(
-                self.command("next", IconName::ChevronRight, tr!("下一页"), &NextPage, cx)
-                    .disabled(visible.end == s.navigation.total()),
+                self.command(
+                    "next",
+                    IconName::ChevronRight,
+                    tr!("Next page"),
+                    &NextPage,
+                    cx,
+                )
+                .disabled(visible.end == s.navigation.total()),
             )
             .child(div().w(px(42.)).child(Input::new(&self.page_input).small()))
             .child(
@@ -373,9 +398,9 @@ impl Breeze {
                     .ghost()
                     .small()
                     .icon(IconName::CornerDownLeft)
-                    .accessibility_label(tr!("跳转到输入页码"))
+                    .accessibility_label(tr!("Go to entered page"))
                     .tooltip_with_action(
-                        tr!("跳转到输入页码；快捷键聚焦页码框"),
+                        tr!("Go to entered page; shortcut focuses the page field"),
                         &FocusPage,
                         Some("Breeze"),
                     )
@@ -388,23 +413,15 @@ impl Breeze {
                     .overflow_hidden()
                     .text_size(px(11.))
                     .text_color(p.muted)
-                    .child(
-                        if let Some(error) = &self.books[self.active].annotations.error {
-                            tf!("标注异常：{}", error)
-                        } else if !self.message.is_empty() {
-                            self.message.clone()
-                        } else if self.books[self.active].annotations.dirty() {
-                            tr!("批注未保存").into()
-                        } else {
-                            tr!("原件未修改").into()
-                        },
-                    ),
+                    .when_some(self.status_notice(), |area, notice| {
+                        area.child(div().id("reader-status").test_support().child(notice))
+                    }),
             )
             .child(self.rotate_button(false, cx))
             .child(self.rotate_button(true, cx))
             .child(self.layout_button(cx))
             .child(self.zoom_button(cx))
-            .child(self.command("zoom-out", IconName::Minus, tr!("缩小"), &ZoomOut, cx))
+            .child(self.command("zoom-out", IconName::Minus, tr!("Zoom out"), &ZoomOut, cx))
             .child(
                 div()
                     .id("zoom-percent")
@@ -414,7 +431,7 @@ impl Breeze {
                     .text_size(px(12.))
                     .child(format!("{:.0}%", self.display_zoom(window))),
             )
-            .child(self.command("zoom-in", IconName::Plus, tr!("放大"), &ZoomIn, cx))
+            .child(self.command("zoom-in", IconName::Plus, tr!("Zoom in"), &ZoomIn, cx))
             .child(self.fullscreen_button(cx))
             .into_any_element()
     }

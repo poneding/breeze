@@ -9,9 +9,9 @@ impl Breeze {
     /// One quarter turn per click; the reader's rotation is view-only state.
     pub(super) fn rotate_button(&self, clockwise: bool, cx: &mut Context<Self>) -> Button {
         let label = if clockwise {
-            tr!("向右旋转 90 度")
+            tr!("Rotate 90° right")
         } else {
-            tr!("向左旋转 90 度")
+            tr!("Rotate 90° left")
         };
         Button::new(if clockwise {
             "rotate-right"
@@ -39,7 +39,7 @@ impl Breeze {
             } else {
                 IconName::Fullscreen
             },
-            tr!("全屏阅读"),
+            tr!("Fullscreen reading"),
             &ToggleFullScreen,
             cx,
         )
@@ -59,12 +59,12 @@ impl Breeze {
                 IconName::File
             })
             .label(tr!(selected.label()))
-            .accessibility_label(tf!("阅读布局：{}", tr!(selected.label())))
-            .tooltip_with_action(tr!("切换阅读布局"), &CycleLayout, Some("Breeze"))
+            .accessibility_label(tf!("Reading layout: {}", tr!(selected.label())))
+            .tooltip_with_action(tr!("Change reading layout"), &CycleLayout, Some("Breeze"))
             .dropdown_menu(move |menu, window, _| {
                 menu.check_side(Side::Right)
                     .item(
-                        PopupMenuItem::new(tr!("单页"))
+                        PopupMenuItem::new(tr!("Single page"))
                             .icon(IconName::File)
                             .checked(!selected.is_spread())
                             .on_click(window.listener_for(&view, |this, _, _, cx| {
@@ -75,7 +75,7 @@ impl Breeze {
                             })),
                     )
                     .item(
-                        PopupMenuItem::new(tr!("双页"))
+                        PopupMenuItem::new(tr!("Two pages"))
                             .icon(IconName::Columns2)
                             .checked(selected.is_spread())
                             .on_click(window.listener_for(&view, |this, _, _, cx| {
@@ -87,7 +87,7 @@ impl Breeze {
                     )
                     .separator()
                     .item(
-                        PopupMenuItem::new(tr!("连续"))
+                        PopupMenuItem::new(tr!("Continuous"))
                             .icon(IconName::GalleryVertical)
                             .checked(selected.is_continuous())
                             .on_click(window.listener_for(&view, |this, _, _, cx| {
@@ -105,22 +105,22 @@ impl Breeze {
         let selected = self.books[self.active].state.zoom;
         let view = cx.entity();
         let (icon, label): (_, String) = match selected {
-            Zoom::FitPage => (IconName::Maximize, tr!("适合页面").into()),
-            Zoom::FitWidth => (IconName::MoveHorizontal, tr!("适合宽度").into()),
-            Zoom::ActualSize => (IconName::Scan, tr!("实际大小").into()),
-            Zoom::Percent(_) => (IconName::SlidersHorizontal, tr!("自定义比例").into()),
+            Zoom::FitPage => (IconName::Maximize, tr!("Fit page").into()),
+            Zoom::FitWidth => (IconName::MoveHorizontal, tr!("Fit width").into()),
+            Zoom::ActualSize => (IconName::Scan, tr!("Actual size").into()),
+            Zoom::Percent(_) => (IconName::SlidersHorizontal, tr!("Custom zoom").into()),
         };
         Button::new("zoom")
             .ghost()
             .small()
             .icon(icon)
             .label(label)
-            .accessibility_label(tr!("缩放选项"))
-            .tooltip(tr!("选择缩放方式"))
+            .accessibility_label(tr!("Zoom options"))
+            .tooltip(tr!("Choose zoom mode"))
             .dropdown_menu(move |menu, window, _| {
                 menu.check_side(Side::Right)
                     .item(
-                        PopupMenuItem::new(tr!("适合页面"))
+                        PopupMenuItem::new(tr!("Fit page"))
                             .icon(IconName::Maximize)
                             .checked(selected == Zoom::FitPage)
                             .action(Box::new(FitPage))
@@ -129,7 +129,7 @@ impl Breeze {
                             })),
                     )
                     .item(
-                        PopupMenuItem::new(tr!("适合宽度"))
+                        PopupMenuItem::new(tr!("Fit width"))
                             .icon(IconName::MoveHorizontal)
                             .checked(selected == Zoom::FitWidth)
                             .action(Box::new(FitWidth))
@@ -138,7 +138,7 @@ impl Breeze {
                             })),
                     )
                     .item(
-                        PopupMenuItem::new(tr!("实际大小"))
+                        PopupMenuItem::new(tr!("Actual size"))
                             .icon(IconName::Scan)
                             .checked(selected == Zoom::ActualSize)
                             .action(Box::new(ActualSize))
@@ -147,7 +147,7 @@ impl Breeze {
                             })),
                     )
                     .item(
-                        PopupMenuItem::new(tr!("自定义比例"))
+                        PopupMenuItem::new(tr!("Custom zoom"))
                             .icon(IconName::SlidersHorizontal)
                             .checked(matches!(selected, Zoom::Percent(_)))
                             .on_click(window.listener_for(&view, |this, _, window, cx| {

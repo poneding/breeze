@@ -42,9 +42,9 @@ impl Breeze {
                     .gap_1()
                     .children(
                         [
-                            (IconName::LibraryBig, tr!("全部文档"), 2),
-                            (IconName::Clock3, tr!("最近阅读"), 0),
-                            (IconName::Bookmark, tr!("收藏"), 1),
+                            (IconName::LibraryBig, tr!("All documents"), 2),
+                            (IconName::Clock3, tr!("Recent"), 0),
+                            (IconName::Bookmark, tr!("Favorites"), 1),
                         ]
                         .into_iter()
                         .map(|(icon, label, index)| {
@@ -72,25 +72,25 @@ impl Breeze {
                     .border_t_1()
                     .border_color(p.line)
                     .child(self.home_page_button(
-                        "home-shortcuts",
-                        IconName::Keyboard,
-                        tr!("快捷键"),
-                        HomePage::Shortcuts,
-                        &ShowShortcuts,
-                        cx,
-                    ))
-                    .child(self.home_page_button(
                         "home-about",
                         IconName::Info,
-                        tr!("关于"),
+                        tr!("About"),
                         HomePage::About,
                         &ShowAbout,
                         cx,
                     ))
                     .child(self.home_page_button(
+                        "home-shortcuts",
+                        IconName::Keyboard,
+                        tr!("Shortcuts"),
+                        HomePage::Shortcuts,
+                        &ShowShortcuts,
+                        cx,
+                    ))
+                    .child(self.home_page_button(
                         "home-settings",
                         IconName::Settings,
-                        tr!("设置"),
+                        tr!("Settings"),
                         HomePage::Settings,
                         &Preferences,
                         cx,
@@ -198,17 +198,17 @@ impl Breeze {
                             .text_size(px(16.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child(match self.library_filter {
-                                1 => tr!("收藏").to_owned(),
-                                2 => tr!("全部文档").to_owned(),
+                                1 => tr!("Favorites").to_owned(),
+                                2 => tr!("All documents").to_owned(),
                                 n if n >= 3 => self.category_name(n - 3),
-                                _ => tr!("最近阅读").to_owned(),
+                                _ => tr!("Recent").to_owned(),
                             }),
                     )
                     .child(
                         div()
                             .text_size(px(12.))
                             .text_color(p.muted)
-                            .child(tf!("{} 份", filtered.len())),
+                            .child(tf!("{} documents", filtered.len())),
                     )
                     .child(div().flex_1())
                     .child(
@@ -218,8 +218,8 @@ impl Breeze {
                     )
                     .children(
                         [
-                            (false, IconName::List, tr!("列表视图")),
-                            (true, IconName::LayoutGrid, tr!("网格视图")),
+                            (false, IconName::List, tr!("List view")),
+                            (true, IconName::LayoutGrid, tr!("Grid view")),
                         ]
                         .into_iter()
                         .map(|(grid, icon, label)| {
@@ -241,7 +241,7 @@ impl Breeze {
                         d.child(self.command(
                             "home-open",
                             IconName::FilePlusCorner,
-                            tr!("打开文档"),
+                            tr!("Open document"),
                             &Open,
                             cx,
                         ))
@@ -257,7 +257,7 @@ impl Breeze {
                         .text_size(px(11.))
                         .text_color(p.muted)
                         .gap_2()
-                        .child(div().flex_1().min_w_0().child(tr!("文档")))
+                        .child(div().flex_1().min_w_0().child(tr!("Document")))
                         .child(
                             div()
                                 .id("category-heading")
@@ -265,7 +265,7 @@ impl Breeze {
                                 .w(px(CATEGORY_WIDTH))
                                 .flex_shrink_0()
                                 .px_2()
-                                .child(tr!("分类")),
+                                .child(tr!("Categories")),
                         )
                         .child(
                             div()
@@ -273,7 +273,7 @@ impl Breeze {
                                 .test_support()
                                 .w(px(POSITION_WIDTH))
                                 .flex_shrink_0()
-                                .child(tr!("位置")),
+                                .child(tr!("Location")),
                         )
                         .child(div().w(px(ACTIONS_WIDTH)).flex_shrink_0()),
                 )
@@ -293,7 +293,7 @@ impl Breeze {
             .group_hover("library-row", move |s| s.bg(p.tint))
             .small()
             .w_full()
-            .accessibility_label(tf!("阅读文档：{}", b.title))
+            .accessibility_label(tf!("Read document: {}", b.title))
             .tooltip(self.cover_description(index))
             .on_click(cx.listener(move |this, _, _, cx| this.open_book(index, cx)))
             .h(px(48.))
@@ -338,9 +338,9 @@ impl Breeze {
                             .text_size(px(12.))
                             .text_color(p.muted)
                             .child(if b.opened {
-                                tf!("第 {} 页", b.state.navigation.page() + 1)
+                                tf!("Page {}", b.state.navigation.page() + 1)
                             } else {
-                                tr!("尚未打开").into()
+                                tr!("Not opened").into()
                             }),
                     )
                     .child(self.library_actions(index, cx)),
@@ -360,11 +360,11 @@ impl Breeze {
                     .small()
                     .icon(document_icons::bookmark_icon(b.favorite))
                     .accessibility_label(if b.favorite {
-                        tr!("取消收藏")
+                        tr!("Remove favorite")
                     } else {
-                        tr!("收藏")
+                        tr!("Favorites")
                     })
-                    .tooltip(tr!("收藏 / 取消收藏"))
+                    .tooltip(tr!("Toggle favorite"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.books[index].favorite = !this.books[index].favorite;
@@ -376,8 +376,8 @@ impl Breeze {
                     .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
                     .small()
                     .icon(IconName::ArrowUpRight)
-                    .accessibility_label(tr!("阅读文档"))
-                    .tooltip(tr!("阅读文档"))
+                    .accessibility_label(tr!("Read document"))
+                    .tooltip(tr!("Read document"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.open_book(index, cx)
@@ -388,8 +388,8 @@ impl Breeze {
                     .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
                     .small()
                     .icon(IconName::X)
-                    .accessibility_label(tr!("从资料库移除"))
-                    .tooltip(tr!("移除条目，不删除文件"))
+                    .accessibility_label(tr!("Remove from library"))
+                    .tooltip(tr!("Remove entry; keep file"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
                         this.forget_book(index, cx)
@@ -436,7 +436,7 @@ impl Breeze {
             .w_full()
             .h(px(264.))
             .p_2()
-            .accessibility_label(tf!("阅读文档：{}", book.title))
+            .accessibility_label(tf!("Read document: {}", book.title))
             .tooltip(self.cover_description(index))
             .on_click(cx.listener(move |this, _, _, cx| this.open_book(index, cx)))
             .child(
@@ -472,9 +472,9 @@ impl Breeze {
                             .child(format!(
                                 "PDF · {}",
                                 if book.last_opened > 0 {
-                                    tf!("第 {} 页", book.state.navigation.page() + 1)
+                                    tf!("Page {}", book.state.navigation.page() + 1)
                                 } else {
-                                    tr!("尚未打开").into()
+                                    tr!("Not opened").into()
                                 }
                             )),
                     )
@@ -517,7 +517,7 @@ impl Breeze {
                                         div()
                                             .id("library-empty")
                                             .test_support()
-                                            .child(tr!("暂无文档")),
+                                            .child(tr!("No documents")),
                                     ),
                             ),
                     ),

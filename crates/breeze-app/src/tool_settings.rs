@@ -13,18 +13,18 @@ actions!(breeze_tool_settings, [CloseToolSettings]);
 
 pub(super) fn annotation_tools() -> [(IconName, &'static str); 12] {
     [
-        (IconName::Highlighter, tr!("文本高亮")),
-        (IconName::Scan, tr!("区域高亮")),
-        (IconName::Underline, tr!("下划线")),
-        (IconName::Strikethrough, tr!("删除线")),
-        (IconName::Pencil, tr!("画笔")),
-        (IconName::Eraser, tr!("橡皮擦")),
-        (IconName::Type, tr!("文本批注")),
-        (IconName::Circle, tr!("圆形")),
-        (IconName::Square, tr!("矩形")),
-        (IconName::Minus, tr!("直线")),
-        (IconName::LineSquiggle, tr!("波浪线")),
-        (IconName::ArrowUpRight, tr!("箭头")),
+        (IconName::Highlighter, tr!("Text highlight")),
+        (IconName::Scan, tr!("Area highlight")),
+        (IconName::Underline, tr!("Underline")),
+        (IconName::Strikethrough, tr!("Strikethrough")),
+        (IconName::Pencil, tr!("Pen")),
+        (IconName::Eraser, tr!("Eraser")),
+        (IconName::Type, tr!("Text note")),
+        (IconName::Circle, tr!("Ellipse")),
+        (IconName::Square, tr!("Rectangle")),
+        (IconName::Minus, tr!("Line")),
+        (IconName::LineSquiggle, tr!("Wavy line")),
+        (IconName::ArrowUpRight, tr!("Arrow")),
     ]
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,7 +98,7 @@ pub(super) fn bind(cx: &mut App) {
 impl Breeze {
     pub(super) fn tools(&self, mode: Mode, cx: &mut Context<Self>) -> Stateful<Div> {
         let tools = match mode {
-            Mode::Read => vec![(IconName::MousePointer2, tr!("浏览"))],
+            Mode::Read => vec![(IconName::MousePointer2, tr!("Browse"))],
             Mode::Annotate => annotation_tools().to_vec(),
         };
         row()
@@ -114,8 +114,8 @@ impl Breeze {
                         .small()
                         .icon(IconName::MousePointer2)
                         .selected(self.tool == annotation_editing::SELECT_TOOL)
-                        .accessibility_label(tr!("选择标注"))
-                        .tooltip(tr!("选择标注以修改、移动或删除"))
+                        .accessibility_label(tr!("Select annotation"))
+                        .tooltip(tr!("Select an annotation to edit, move or delete"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if !this.annotation_navigation_allowed(cx) {
                                 return;
@@ -223,7 +223,7 @@ impl Breeze {
             return div()
                 .text_size(px(12.))
                 .text_color(muted)
-                .child(tr!("点击笔迹可擦除整条笔画，原文和其他标注保持不变。"));
+                .child(tr!("Click ink to erase its entire stroke. Original content and other annotations are preserved."));
         }
         column()
             .gap_3()
@@ -232,7 +232,7 @@ impl Breeze {
                 content.child(
                     column()
                         .gap_1()
-                        .child(setting_label(tr!("线宽（0.25–100 pt）"), muted))
+                        .child(setting_label(tr!("Line width (0.25–100 pt)"), muted))
                         .when_some(self.tool_settings.controls.as_ref(), |content, controls| {
                             content.child(
                                 div()
@@ -246,8 +246,7 @@ impl Breeze {
             })
             .child(self.tool_opacity_choices(key, cx))
             .when(key.index == 6, |content| {
-                content.child(div().text_size(px(11.)).text_color(muted).child(tr!(
-                    "点击页面输入文本，Enter 完成，Esc 取消。导出为可打开全文的便笺图标。"
+                content.child(div().text_size(px(11.)).text_color(muted).child(tr!("Click the page to enter text. Enter finishes; Esc cancels. Exports as a note icon with popup text."
                 )))
             })
     }
@@ -258,7 +257,7 @@ impl Breeze {
         let selected = self.tool_settings.annotation[key.index].color;
         column()
             .gap_1()
-            .child(setting_label(tr!("颜色"), theme.muted_foreground))
+            .child(setting_label(tr!("Color"), theme.muted_foreground))
             .child(
                 row()
                     .gap_1()
@@ -274,7 +273,7 @@ impl Breeze {
                                     .p_0()
                                     .accessibility_label(format!(
                                         "{}：{}",
-                                        tr!("颜色"),
+                                        tr!("Color"),
                                         colors::label(color)
                                     ))
                                     .child(
@@ -304,7 +303,7 @@ impl Breeze {
                 row()
                     .justify_between()
                     .child(setting_label(
-                        tr!("不透明度"),
+                        tr!("Opacity"),
                         Theme::global(cx).muted_foreground,
                     ))
                     .child(
