@@ -11,8 +11,7 @@ Authorized on October 3, 2026. Execute phases in order, committing each complete
 - [ ] **4 — Library, search, accessibility (R07–R11).** Correct history labels, match counts/snippets and navigation, accessible names, and targeted cover refresh. Define Recent versus All before changing its semantics.
 - [ ] **5 — Replace prototype interactions (F02/F03/F04).** Implement language switching and native file-open delivery. Remove dead preview branches and label unavailable capabilities honestly. Update checking requires a real endpoint/channel decision; do not invent one.
 - [ ] **6 — Annotation editing and navigation (F05/F06).** Logical selection, named/page-position destinations, saved annotation manipulation, and validated imported annotations without duplicate appearances.
-- [ ] **7 — Precise original-content editing (F01).** Follow work package 12's source-identity, isolated image-use, limited text-editing, and save/reopen gates. No erasure/reinsertion, cover-up, or rasterized editing.
-- [ ] **8 — Security, resources and release (V01–V05).** Working dependency auditing, representative Release measurements, decoder/resource limits, malformed-input tests, native three-platform acceptance, licenses, signing and packaging.
+- [ ] **7 — Security, resources and release (V01–V05).** Working dependency auditing, representative Release measurements, decoder/resource limits, malformed-input tests, native three-platform acceptance, licenses, signing and packaging.
 
 ## Acceptance discipline
 
@@ -20,7 +19,7 @@ Authorized on October 3, 2026. Execute phases in order, committing each complete
 - UI behavior changes require native interaction/visual checks against the tested revision. Record tool/platform limitations explicitly.
 - Keep source PDFs unchanged. Use scratch files and isolated `BREEZE_DATA_DIR` under `target/`.
 - Record phase outcomes here and in `STATUS.md`; generated logs, snapshots and screenshots remain under `target/`.
-- Platform acceptance, representative fidelity/performance, real release endpoints, signing credentials and distribution choices remain separate gates. This plan does not waive the structural-editing contract.
+- Platform acceptance, representative fidelity/performance, real release endpoints, signing credentials and distribution choices remain separate gates.
 
 ## Execution record
 

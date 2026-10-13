@@ -136,10 +136,7 @@ fn keyboard_activation_opens_settings_and_escape_dismisses(cx: &mut TestAppConte
         window.press("enter", cx);
         assert_eq!(
             view.read(cx).tool_settings.keyboard_open,
-            Some(ToolKey {
-                mode: Mode::Annotate,
-                index: 4
-            })
+            Some(ToolKey { index: 4 })
         );
     })
     .unwrap();
@@ -154,7 +151,7 @@ fn keyboard_activation_opens_settings_and_escape_dismisses(cx: &mut TestAppConte
 }
 
 #[gpui_kit::test]
-fn note_and_edit_settings_are_reachable_without_a_sidebar(cx: &mut TestAppContext) {
+fn note_settings_are_reachable_without_a_sidebar(cx: &mut TestAppContext) {
     let (handle, view) = crate::ui_tests::app(cx);
     cx.update_window(handle, |_, window, cx| {
         view.update(cx, |view, _| view.books[0].state.mode = Mode::Annotate);
@@ -166,24 +163,6 @@ fn note_and_edit_settings_are_reachable_without_a_sidebar(cx: &mut TestAppContex
     cx.update_window(handle, |_, window, cx| {
         assert!(window.find("tool-settings-content").visible());
         assert!(window.try_find("ink-width").is_none());
-        assert!(!view.read(cx).document_panel.open);
-        window.press("secondary-3", cx);
-        window.render_frame(cx);
-        window.hover(("tool", 0usize), cx);
-    })
-    .unwrap();
-    advance(cx, handle, 400);
-    cx.update_window(handle, |_, window, cx| {
-        assert!(window.find("tool-settings-content").visible());
-        window.click("font-larger", cx);
-        window.click("bold", cx);
-        window.click(("tool-color", 7usize), cx);
-        assert_eq!(view.read(cx).tool_settings.text[0].size, 20);
-        assert!(view.read(cx).tool_settings.text[0].bold);
-        assert_eq!(
-            view.read(cx).tool_settings.text[0].color,
-            CategoryColor::Pink
-        );
         assert!(view.read(cx).books[0].annotations.history.items.is_empty());
         assert!(!view.read(cx).document_panel.open);
     })
@@ -196,14 +175,7 @@ fn numeric_controls_reject_invalid_values_and_discard_old_tool_events(cx: &mut T
     let width = cx
         .update_window(handle, |_, window, cx| {
             view.update(cx, |view, cx| {
-                view.prepare_tool_controls(
-                    ToolKey {
-                        mode: Mode::Annotate,
-                        index: 4,
-                    },
-                    window,
-                    cx,
-                );
+                view.prepare_tool_controls(ToolKey { index: 4 }, window, cx);
                 view.tool_settings.controls.as_ref().unwrap().width.clone()
             })
         })
@@ -220,14 +192,7 @@ fn numeric_controls_reject_invalid_values_and_discard_old_tool_events(cx: &mut T
     }
     cx.update_window(handle, |_, window, cx| {
         view.update(cx, |view, cx| {
-            view.prepare_tool_controls(
-                ToolKey {
-                    mode: Mode::Annotate,
-                    index: 9,
-                },
-                window,
-                cx,
-            )
+            view.prepare_tool_controls(ToolKey { index: 9 }, window, cx)
         });
         width.update(cx, |input, cx| input.set_value("7", window, cx));
     })

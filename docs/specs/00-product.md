@@ -6,8 +6,8 @@
 - Use Rust for application logic, UI, and document processing. System API bindings are allowed; C/C++ PDF engines and WebView-based document rendering are not.
 - Support macOS, Windows, and Linux, with native validation on each platform before release.
 - Default annotation persistence is a sidecar file, with explicit export to a new PDF.
-- Existing text and image edits must change the actual source content or selected drawing instance. Covering content, erasing a region and appending replacement text, or rasterizing a page is not an acceptable substitute.
-- Defer OCR, password/encrypted documents, form editing, digital signatures, and DRM.
+- PDF page content is read-only. Breeze does not expose original text or image editing, and annotations are stored separately from the source document.
+- Defer OCR, password/encrypted documents, forms, digital signatures, and DRM.
 - Report inadequate performance or fidelity before adopting compromises. Do not silently add fallback engines or reduce quality targets.
 
 ## Product targets
@@ -20,9 +20,6 @@ These are requirements, not a list of completed prototype features.
 | Reading | Document tabs, opening PDFs, page navigation, page-number entry, and zoom/fit modes |
 | Navigation | Collapsible embedded outline and thumbnail panel, loaded on demand |
 | Annotations | Text highlight, area highlight, underline, strikeout, pen, eraser, text note, circle, rectangle, line, wavy line, and arrow |
-| Existing text editing | Font, foreground/background color, opacity, size, bold, italic, and alignment within a defined text run/block |
-| Existing image editing | Scale, rotate, and delete one selected drawing instance without changing other shared-resource uses |
-| Insertion | New text and image objects, separate from replacement of existing content |
 | Settings | Default-file association, language, theme, update policy, opening-window behavior, session restoration, and reading-position restoration |
 
 Single/two-page arrangement and continuous scrolling are independent reading settings, with continuous single-page as the default. Layout and zoom choices are remembered. Text selection is a prerequisite for semantic text markup; consult delivery status for the implemented selection and search subset.
@@ -31,19 +28,16 @@ Single/two-page arrangement and continuous scrolling are independent reading set
 
 - The eraser operates on editable annotation ink, not original page content. Whole-stroke erasure is the initial proposal; partial-stroke erasure needs a separate cost/experience decision.
 - Text markup follows glyph quadrilaterals. A freehand wavy line is a path, not a text range.
-- Editing a text block does not imply Word-style page-wide reflow. Block boundaries and alignment semantics must be explicit.
-- Missing glyphs must not silently become wrong characters. An explicitly selected, embeddable replacement font may be proposed with a preview.
 - Do not add cloud sync, telemetry, AI features, a plugin system, mobile clients, or a browser version without a new requirement.
 
 ## Prototype baseline
 
-The compact UI direction is accepted. The source PDF remains read-only. The local reader now persists library/settings and reading state, supports search and glyph-bounds selection, and draws/saves independent sidecar annotations. Restricted annotation export is implemented, while original-content editing remains unavailable; see [delivery status](../plans/STATUS.md).
+The compact UI direction is accepted. The source PDF remains read-only. The local reader now persists library/settings and reading state, supports search and glyph-bounds selection, and draws/saves independent sidecar annotations. Restricted annotation export is implemented. PDF page content is never edited; see [delivery status](../plans/STATUS.md).
 
 A document may belong to multiple user-created categories. Removing a category removes only that membership; a document is Unassigned when it has no category memberships.
 
 ## Decisions still required
 
 - Confirm minimum OS versions and supported CPU architectures before release commitments.
-- Define text-run/block editing, alignment, and reflow boundaries through targeted validation.
 - Decide the initial scope of existing-annotation editing.
 - On a source fingerprint mismatch, stop automatic sidecar application and require explicit reassociation. Do not build speculative automatic migration machinery.

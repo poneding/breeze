@@ -71,7 +71,7 @@ Windows/Linux runtime checks are pending.
 
 - [05 — Annotation export](05-annotation-export.md) was written before implementation, then implemented and validated for the stated subset.
 - [06 — Opening-window policies](06-window-policy.md) was written before implementation, then implemented and tested. Native QA found an origin-related sizing issue, which was corrected with a regression test.
-- [07 — Remaining work](07-remaining-work.md) defines concrete renderer, layout, structural-editing, localization, platform/release, recovery, and imported-annotation packages. It is a backlog, not a completion claim.
+- [07 — Remaining work](07-remaining-work.md) defines concrete renderer, layout, localization, platform/release, recovery, and imported-annotation packages. It is a backlog, not a completion claim.
 
 ## Export restrictions
 
@@ -103,7 +103,7 @@ The final native recheck after this correction was blocked by the locked Mac. Po
 
 - Standard-font substitution/fidelity and the earlier real-paper raster p95 miss remain open.
 - PDF Oxide 0.3.78's high-level annotation Contents API decodes UTF-16 strings as UTF-8. Export retains valid standard encoding, independently verified externally. Future imported-note UI needs a tested decoder/upstream correction.
-- The new writer does not resolve these reader defects or validate general PDF editing.
+- The annotation writer does not resolve these reader defects or establish general document interoperability.
 
 ## Performance scope
 
@@ -114,7 +114,6 @@ One controlled export fixture run took about 14.72 ms in the development profile
 ## Remaining work
 
 - Renderer fidelity/corpus coverage, adaptive DPI/tiles, and representative-corpus layout/scroll performance acceptance. Fixed-raster continuous/spread layouts and virtualized navigation are implemented.
-- True original text/image editing, insertion into PDF content, source-object hit testing, and rich text-block formatting.
 - Importing/editing pre-existing PDF annotations without duplicate appearances.
 - Native localization acceptance outside macOS, OS file associations/open events, signed update/install delivery and production-ready installers/packages.
 - Complete conflict recovery/reassociation UX and native three-platform/resource/fuzz acceptance.
@@ -293,9 +292,9 @@ Formatting, workspace tests (116 passed, three existing probes ignored), and Cli
 
 The reader toolbar now ends with Search, Favorite, and a document-sidebar toggle in every mode. The optional 256 px sidebar starts closed, with Information and Annotations tabs in a 38 px header. Information uses the loaded document's name, format, pages, current-page dimensions, categories, and source/sidecar locations. The virtualized annotation list covers the current document across pages, supports type and current-page filters, navigates to an item's page, and deletes the checked item through the existing undo/redo and sidecar-save workflow. Save, Save As, export, and error reporting remain reachable; annotation errors also appear in the reader status.
 
-Tool configuration moved out of the permanent sidebar into interactive Kit hover cards (350 ms open / 300 ms close). Pointer travel into the card retains it; keyboard activation opens a focusable Kit popover with Escape dismissal. Hovering alone does not select a tool. Annotation styles and text-edit previews are independent per tool for the current session. The palette shares eight fixed, saturated colors with category tags. Highlight/area tools default to 40% amber; strokes/notes default to full opacity, and the displayed percentage is the actual saved opacity. Existing annotations and original PDF content are unchanged. Note input and edit-preview input are separate; original-content editing remains unavailable.
+Tool configuration moved out of the permanent sidebar into interactive Kit hover cards (350 ms open / 300 ms close). Pointer travel into the card retains it; keyboard activation opens a focusable Kit popover with Escape dismissal. Hovering alone does not select a tool. Annotation styles are independent per tool for the current session. The palette shares eight fixed, saturated colors with category tags. Highlight/area tools default to 40% amber; strokes/notes default to full opacity, and the displayed percentage is the actual saved opacity. Existing annotations and original PDF page content are unchanged.
 
-Validation: formatting, the full workspace suite (122 passed; three existing probes ignored), and Clippy with warnings denied pass. The isolated commit candidate passes 112 workspace tests (the same three ignored) and Clippy. Six new logic/component tests cover real hover-card pointer travel, eight colors and saved stroke geometry, independent tool settings, note/edit inputs, keyboard activation/Escape, sidebar mode independence and narrow geometry, filter indices/order, current-page filtering, deletion/undo, navigation, and toolbar search focus. A test caught the filter menu's closing transition intercepting an immediate synthetic row click; the regression now waits for that transition before testing the row.
+Validation: formatting, the full workspace suite (122 passed; three existing probes ignored), and Clippy with warnings denied pass. The isolated commit candidate passes 112 workspace tests (the same three ignored) and Clippy. Six new logic/component tests cover real hover-card pointer travel, eight colors and saved stroke geometry, independent tool settings, note input, keyboard activation/Escape, sidebar mode independence and narrow geometry, filter indices/order, current-page filtering, deletion/undo, navigation, and toolbar search focus. A test caught the filter menu's closing transition intercepting an immediate synthetic row click; the regression now waits for that transition before testing the row.
 
 Isolated native macOS runs used `cargo run --locked -p breeze-app` and review state under `target/reader-tools-review/`. Light-theme captures confirm the toolbar order, annotation sidebar/filter, and interactive tool-card layout; dark-theme capture confirms the toolbar and unchanged page colors. Native activation/accessibility was intermittent (`Could not activate review window`, `target unavailable`), so dark sidebar/card interactions and the final small swatch/row sizing refinements are covered by component checks rather than a complete native recheck. Windows/Linux native checks remain unperformed. Review captures, sample copies, sidecars, and scratch builds are excluded from version control.
 

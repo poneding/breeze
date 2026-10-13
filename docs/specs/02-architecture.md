@@ -10,13 +10,13 @@ breeze-app -> breeze-core
 ```
 
 - `breeze-core` owns navigation, zoom, and mode state without UI or PDF-engine types.
-- `breeze-pdf` owns reading, rasterization, outlines, thumbnails, and the worker queue, plus a separate protected annotation-copy exporter. Source-content editing is not exposed.
+- `breeze-pdf` owns reading, rasterization, outlines, thumbnails, and the worker queue, plus a separate protected annotation-copy exporter. PDF content editing is not part of the product.
 - `breeze-storage` owns background state writes, process locking, atomic JSON, fingerprints, and optimistic sidecar revision checks.
 - `breeze-app` owns the native window, document sessions, Home/Reader/Settings views, appearance preferences, command dispatch, and component tests.
 
 `annotation_editing.rs` owns page-local text drafts, selection targets, and preview-to-history commits. Its geometry helpers hit-test the independent sidecar shapes after converting the pointer through each page's CropBox/rotation transform. Targets contain the source, fingerprint, history revision, item index, and expected annotation; asynchronous saves and UI callbacks cannot apply stale edits to a replacement item. The history revision is transient and does not change the sidecar schema. Text Input entities are created only for active page editing and respect native IME composition. Annotation previews are independent overlays and do not invalidate PDF raster tiles.
 
-The initial exploratory tool is no longer part of the workspace. Do not add empty storage/platform/editor crates ahead of concrete responsibilities. No dynamic plugins, generic event bus, script runtime, or multiple-engine fallback framework is needed.
+The initial exploratory tool is no longer part of the workspace. Do not add empty storage/platform crates ahead of concrete responsibilities. No dynamic plugins, generic event bus, script runtime, or multiple-engine fallback framework is needed.
 
 ## Format and session boundaries
 
@@ -47,25 +47,22 @@ Do not assume that `page_height - y` is sufficient for rotated/cropped pages. Ve
 
 ## Target data model
 
-The current typed JSON schema implements library/settings and annotation fields below. The edit-transaction row remains a future responsibility:
+The current typed JSON schema implements library/settings and annotation fields below:
 
 | Model | Required information |
 |---|---|
 | Library entry | Stable ID, source path, title, format, last access, favorite/category state, native reading location |
 | Settings | Language, Follow System or a GPUI Kit registry theme name, update/window policies, independent file/position restoration switches |
 | Annotation | Document fingerprint, page anchor, quads/path/bounds, style, author/time, stable ID |
-| Edit transaction | Source fingerprint, object/stream reference, operator or usage identity, before/after data, affected resources, undo command |
 | UI transient state | Hover, selected tool, drag draft, popup, focus, request generation |
 
 Implemented persistence uses the OS local application-data directory for preferences/library metadata (or `BREEZE_DATA_DIR`) and a document-adjacent `name.pdf.breeze.json` annotation sidecar. Report unwritable locations and ask for an explicit destination; do not silently redirect to an alternative store.
 
 Source fingerprint mismatches stop automatic sidecar application. Original files are not overwritten by default. Use temporary-file replacement for durable writes, and avoid migration frameworks before there is a real supported historical schema.
 
-## Future invalidation and undo
+## Future invalidation
 
 Cache keys need content revision, page, render/device scale, rotation, and color policy. Annotation drafts should be an independent drawing layer, not a reason to rerasterize the PDF page on every pointer event.
-
-A structural edit invalidates only affected pages and resource users. Dragging updates a transient preview; pointer-up commits one undoable operation. Parsing, font subsetting, saving, and output validation stay off the UI thread.
 
 ## Current safety limits
 

@@ -30,7 +30,6 @@ pub fn bind(cx: &mut App) {
         KeyBinding::new("secondary-shift-t", CycleTheme, Some("Breeze")),
         KeyBinding::new("secondary-1", ReadMode, Some("Breeze")),
         KeyBinding::new("secondary-2", AnnotateMode, Some("Breeze")),
-        KeyBinding::new("secondary-3", EditMode, Some("Breeze")),
         KeyBinding::new("secondary-shift-o", ShowOutline, Some("Breeze")),
         KeyBinding::new("secondary-shift-m", ShowThumbnails, Some("Breeze")),
         // Page/zoom shortcuts must not consume editing keys inside an Input.
@@ -211,10 +210,7 @@ impl Breeze {
                     input.focus(window, cx);
                     input.select_all(window, cx);
                 });
-            } else if action.as_any().is::<ReadMode>()
-                || action.as_any().is::<AnnotateMode>()
-                || action.as_any().is::<EditMode>()
-            {
+            } else if action.as_any().is::<ReadMode>() || action.as_any().is::<AnnotateMode>() {
                 if !self.annotation_navigation_allowed(cx) {
                     return;
                 }
@@ -222,10 +218,8 @@ impl Breeze {
                 self.gesture.clear();
                 self.books[self.active].state.mode = if action.as_any().is::<ReadMode>() {
                     Mode::Read
-                } else if action.as_any().is::<AnnotateMode>() {
-                    Mode::Annotate
                 } else {
-                    Mode::Edit
+                    Mode::Annotate
                 };
                 self.tool = 0;
                 cx.notify();
@@ -564,6 +558,5 @@ fn action_label(action: &dyn Action) -> &'static str {
     name!(ShowThumbnails, tr!("缩略图"));
     name!(ReadMode, tr!("阅读模式"));
     name!(AnnotateMode, tr!("标注模式"));
-    name!(EditMode, tr!("编辑模式 · 工具预览"));
     tr!("命令")
 }

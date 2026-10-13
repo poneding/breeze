@@ -164,7 +164,7 @@ fn sidebar_is_independent_of_mode_and_fits_a_narrow_window(cx: &mut TestAppConte
         window.resize(size(px(720.), px(580.)));
         window.render_frame(cx);
         window.click("document-panel-toggle", cx);
-        for action in [&AnnotateMode as &dyn Action, &EditMode, &ReadMode] {
+        for action in [&AnnotateMode as &dyn Action, &ReadMode] {
             view.update(cx, |view, cx| view.execute(action, window, cx));
             window.render_frame(cx);
             assert!(view.read(cx).document_panel.open);

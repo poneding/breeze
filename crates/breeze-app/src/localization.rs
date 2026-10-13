@@ -24,8 +24,6 @@ impl Breeze {
             (&self.search_input, tr!("搜索文档文字（回车）")),
             (&self.library_input, tr!("筛选文档名称")),
             (&self.category_input, tr!("分类名称")),
-            (&self.font_input, tr!("系统默认")),
-            (&self.edit_text_input, tr!("让思绪，在此停留。")),
         ] {
             input.update(cx, |input, cx| {
                 input.set_placeholder(placeholder, window, cx)

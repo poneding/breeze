@@ -71,8 +71,6 @@ fn commands_and_input_keys_work(cx: &mut TestAppContext) {
         assert!(view.read(cx).sidebar);
         window.press("secondary-2", cx);
         assert_eq!(view.read(cx).books[0].state.mode, Mode::Annotate);
-        window.press("secondary-3", cx);
-        assert_eq!(view.read(cx).books[0].state.mode, Mode::Edit);
         window.press("secondary-g", cx);
         assert!(
             view.read(cx)

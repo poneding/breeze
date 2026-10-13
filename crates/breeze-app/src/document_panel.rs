@@ -236,7 +236,7 @@ impl Breeze {
                 div()
                     .text_size(px(11.))
                     .text_color(muted)
-                    .child(tr!("标注独立保存；原文编辑尚未开放。")),
+                    .child(tr!("标注独立保存；不修改源 PDF。")),
             )
             .when_some(
                 self.preview

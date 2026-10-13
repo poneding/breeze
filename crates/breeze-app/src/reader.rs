@@ -122,11 +122,6 @@ impl Breeze {
                                     .action(&AnnotateMode, Some("Breeze"))
                                     .build(window, cx)
                             }))
-                            .child(Tab::new().label(tr!("编辑")).tooltip(|window, cx| {
-                                Tooltip::new(tr!("编辑模式 · 工具预览"))
-                                    .action(&EditMode, Some("Breeze"))
-                                    .build(window, cx)
-                            })),
                     )
                     .child(div().h(px(18.)).w(px(1.)).bg(p.line))
                     .child(self.tools(mode, cx))

@@ -6,13 +6,11 @@ pub mod library;
 pub enum Mode {
     Read,
     Annotate,
-    Edit,
 }
 impl Mode {
     pub fn from_index(index: usize) -> Self {
         match index {
             1 => Self::Annotate,
-            2 => Self::Edit,
             _ => Self::Read,
         }
     }
@@ -20,7 +18,6 @@ impl Mode {
         match self {
             Self::Read => 0,
             Self::Annotate => 1,
-            Self::Edit => 2,
         }
     }
 }
@@ -413,7 +410,7 @@ mod tests {
     }
     #[test]
     fn mode_roundtrip() {
-        for i in 0..3 {
+        for i in 0..2 {
             assert_eq!(Mode::from_index(i).index(), i);
         }
     }

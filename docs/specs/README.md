@@ -9,7 +9,7 @@ The user accepted the compact UI's general direction on September 29, 2026. Impl
 | [00 — Product](00-product.md) | Confirmed scope, boundaries, and unresolved decisions |
 | [01 — Engine assessment](01-validation.md) | Dependency decisions and unresolved validation risks |
 | [02 — Architecture](02-architecture.md) | Current crate boundaries, rendering, and future data model |
-| [03 — PDF editing and annotations](03-pdf-editing.md) | Structural editing contract, annotation mapping, and save integrity |
+| [03 — Annotations](03-annotations.md) | Annotation mapping, sidecar persistence, and export integrity |
 | [04 — UI design](04-design.md) | Accepted compact layout, appearance, and shortcuts |
 | [05 — Platform and quality](05-platform-quality.md) | Platform assumptions, performance targets, and verification gates |
 | [06 — Icons](06-icons.md) | Icon source, licensing, and function-to-icon mapping |
@@ -18,6 +18,3 @@ Implementation plans belong in [docs/plans](../plans/README.md). Do not treat ta
 
 Current concrete work packages are [annotation export](../plans/05-annotation-export.md), [opening-window policies](../plans/06-window-policy.md), and the [remaining-work backlog](../plans/07-remaining-work.md). Consult [delivery status](../plans/STATUS.md) for executed tests and outstanding native/release checks.
 
-## Research proposals
-
-- [07 — PDF editing research](07-pdf-editing-research.md): October 3, 2026 comparison of Quark, open-source implementations, and public SDK interfaces, with a proposed Rust implementation route. This is research, not a changed engine decision or accepted editor implementation. The proposed validation work is [work package 12](../plans/12-structural-editing-validation.md).

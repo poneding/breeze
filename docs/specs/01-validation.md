@@ -7,8 +7,8 @@
 | GPUI Kit 0.7.0 / GPUI snapshot 0.3.7 | Adopted for the native prototype |
 | `pdf_oxide` 0.3.78 | Provisional read-only parser/renderer, not a production fidelity approval |
 | `office_oxide` 0.1.9 | Keep the verified transitive version in `Cargo.lock` |
-| High-level PDF DOM editing | Rejected as the product's precise structural-editing implementation |
-| `lopdf` 0.45.0 | Adopted for restricted annotation-copy export; not approved as a complete structural editor |
+| PDF page content | Read-only; content editing is not a product capability |
+| `lopdf` 0.45.0 | Adopted for restricted annotation-copy export |
 | Alternative native PDF engines | Not authorized |
 
 The exploratory executable, raw reports, screenshots, and temporary fixtures were removed during repository cleanup. The observations below are retained as a **historical decision record**, not as a currently reproducible benchmark suite. Recreate focused, versioned tests before relying on them for a production decision.
@@ -42,16 +42,6 @@ These figures exclude GPU upload and UI presentation. OS file caches were not cl
 - `max_output_pixels` bounds the output raster, not all decoder/intermediate allocations. High-resolution JPEG2000/JBIG2 cases need separate peak-memory testing.
 - CJK/CID/subset fonts, Type 3 fonts, complex transparency, color management, malformed files, and broad real-document compatibility are not accepted on the strength of these probes.
 
-## Structural-editing observations
-
-A controlled experiment using `lopdf` changed one known ASCII `Tj` operand. After saving and reopening, the replacement text was extractable, the old text was absent from the active page, 120 unrelated operations were unchanged, and pixel differences were confined to the selected region.
-
-Separate controlled tests changed or removed a top-level image `Do` usage. The target page changed while another page sharing the image resource remained pixel-identical, with text extraction unchanged.
-
-These results apply only to known synthetic objects. They do not establish arbitrary PDF text editing, CJK/font replacement, nested Form editing, hit testing, or secure erasure of orphaned historical objects.
-
-The evaluated `pdf_oxide` `set_text` / `save_page` implementation routes existing-content changes through geometric destructive redaction and appended content. Even when text extraction changes, this does not satisfy the project's precise source-editing contract. Do not connect it to the product's existing-content editor.
-
 ## Revalidation gates
 
 Before production work depending on the engine, obtain representative, redistributable test documents and record their hashes, feature coverage, hardware, dependency graph, and expected output. Validate semantics and visual fidelity independently, and keep any new benchmark harness narrowly scoped to the decision it supports.
@@ -61,8 +51,8 @@ Windows and Linux native behavior remains unverified. System-theme event deliver
 ## Primary references
 
 - [GPUI Kit](https://github.com/longbridge/gpui-kit) and [versioned API](https://docs.rs/gpui-kit/0.7.0/gpui_kit/)
-- [PDF Oxide](https://github.com/yfedoseev/pdf_oxide): evaluated 0.3.78 rendering and editor source
-- [lopdf](https://docs.rs/lopdf/0.45.0/lopdf/): the version used in the retired structural-editing experiment
+- [PDF Oxide](https://github.com/yfedoseev/pdf_oxide): evaluated 0.3.78 rendering source
+- [lopdf](https://docs.rs/lopdf/0.45.0/lopdf/): the version used for restricted annotation-copy export
 
 References describe upstream capabilities, not measured application guarantees.
 

@@ -1,6 +1,6 @@
 # Work Package 05: Standard PDF Annotation Export
 
-Status: implemented as a restricted development exporter after this plan was written. Controlled fixtures passed independent parsing/rendering and the native save-dialog workflow; broader corpus/release acceptance is still pending. This package does not implement original-content editing.
+Status: implemented as a restricted development exporter after this plan was written. Controlled fixtures passed independent parsing/rendering and the native save-dialog workflow; broader corpus/release acceptance is still pending. This package does not modify source page content.
 
 ## User-visible contract
 
@@ -15,7 +15,7 @@ Status: implemented as a restricted development exporter after this plan was wri
 
 1. Add pinned `lopdf = 0.45.0` as a pure Rust writer dependency of `breeze-pdf`, not a replacement renderer. Retain existing PDF Oxide/Office Oxide pins.
 2. Add `crates/breeze-pdf/src/export.rs` with a snapshot-based request and receipt. Validate input and destination before serialization.
-3. Add `export/appearance.rs` to produce Form XObject normal appearances. Keep the implementation independent of GPUI and PDF Oxide's DOM editor.
+3. Add `export/appearance.rs` to produce Form XObject normal appearances. Keep the implementation independent of GPUI and the PDF engine's DOM types.
 4. Map Highlight/Underline/StrikeOut to QuadPoints; region/rectangle to Square; ellipse to Circle; line/arrow to Line/LE; pen/free wavy path to Ink; note to Text/Unicode Contents.
 5. Reuse existing page references; append to a copied page Annots array rather than mutating a shared array. Keep original Contents and Resources untouched.
 6. Serialize to a same-directory temporary file. Reopen with the writer and the independent existing parser; check page count, added annotations, appearance resources, unchanged source objects/page-content streams, and signatures of all newly serialized annotation/appearance objects. Recheck the source fingerprint, then publish without overwriting any existing path.
@@ -37,7 +37,6 @@ Status: implemented as a restricted development exporter after this plan was wri
 - Original/alias/existing destinations, changed source, invalid page/style/geometry, encrypted/form/signed documents, and excessive output fail without publishing a file.
 - A source with no existing Annots and a source with an indirect/shared Annots array are both covered.
 - Generated Appearance streams are nonempty, have valid BBox/resources, and render within their intended bounds.
-- No exporter path calls the rejected `set_text`/`save_page` content-edit API.
 
 ## Manual acceptance and gate
 

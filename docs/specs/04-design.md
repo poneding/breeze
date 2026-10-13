@@ -8,7 +8,7 @@ The user accepted the compact prototype's general layout on September 29, 2026. 
 - Document tabs occupy the native GPUI Kit TitleBar; do not stack a second title bar beneath OS chrome.
 - Home, Open, Settings, theme, and other global commands use icon buttons with accessibility labels and tooltips.
 - Home owns every global page. Library, About, Shortcuts, and Settings share one compact sidebar and one content area.
-- Keep necessary text on document tabs, navigation tabs, and Reading/Annotate/Edit mode tabs.
+- Keep necessary text on document tabs, navigation tabs, and Reading/Annotate mode tabs.
 - Use restrained separators, small radii, a 4-pixel spacing system, and no decorative glass/gradient effects.
 
 ## Layout and density
@@ -16,7 +16,7 @@ The user accepted the compact prototype's general layout on September 29, 2026. 
 ```text
 Native title bar: window controls | Home | document tabs | divider | Plus | theme | Settings
 +---------------------------+---------------------------------------------------+
-| Outline / Thumbnails tabs | Reading / Annotate / Edit + contextual tools       |
+| Outline / Thumbnails tabs | Reading / Annotate + contextual tools              |
 |                           +---------------------------------------------------+
 | Embedded outline or       | Document viewport              | optional         |
 | scrollable thumbnails         |                                | properties       |
@@ -112,23 +112,21 @@ Use one GPUI Kit Select labeled Theme, replacing the segmented mode control and 
 
 PDF pages are not inverted, tinted, or rerendered by theme selection. Theme preference, library state, and restoration switches persist locally. State versions 1–2 retain Follow System or migrate explicit Light/Dark to the corresponding built-in name; retired palette fields are accepted on read but omitted from version-3 snapshots. The language dropdown applies English, Simplified Chinese, or Traditional Chinese to application chrome immediately and persists the choice; user names, paths, document content, and official theme names are preserved. Update checks use the user-designated `poneding/breeze` stable GitHub Releases source. Manual is the default, Automatic checks once per startup, and Never prevents background checks. Explicit checks remain available in every policy. A newer release offers its GitHub page; automatic download/install is unavailable. Opening-window policies are implemented separately from page zoom and applied once for new/restored active documents.
 
-## Annotation and editing modes
+## Annotation modes
 
-All twelve requested annotation tools operate on the independent sidecar layer. The reader toolbar ends with Search, Favorite, and the document-sidebar toggle in that order. Search is available in every mode. The optional 256 px right sidebar starts closed and is independent of Reading/Annotate/Edit mode. It is a sibling of the reader content below the title bar, so its 38 px header aligns with the reader toolbar instead of starting below it. Its header uses separate Information and Annotations icon buttons with the same spacing; the document-sidebar toggle remains selected while the sidebar is open, and the active header button is selected for the current view. While document search is open, its input, Search action, and close action replace those two header buttons in the same toolbar row.
+All twelve requested annotation tools operate on the independent sidecar layer. The reader toolbar ends with Search, Favorite, and the document-sidebar toggle in that order. Search is available in every mode. The optional 256 px right sidebar starts closed and is independent of Reading/Annotate mode. It is a sibling of the reader content below the title bar, so its 38 px header aligns with the reader toolbar instead of starting below it. Its header uses separate Information and Annotations icon buttons with the same spacing; the document-sidebar toggle remains selected while the sidebar is open, and the active header button is selected for the current view. While document search is open, its input, Search action, and close action replace those two header buttons in the same toolbar row.
 
 Information shows the current document's name, format, page count, current page dimensions, categories, annotation count, and file/sidecar locations. Annotations lists the current document's sidecar items across all pages in page order, with an all-types/type filter and an optional current-page filter. Rows show type, color, page, and note text when present; clicking navigates to the page. Deletion affects the chosen sidecar item and supports undo/redo. The list is virtualized. Existing embedded PDF annotations are not imported into editable history. Document text search opens the same right sidebar automatically and shows its results below the toolbar; it never replaces the left Outline/Thumbnails navigation. Opening search records whether the right sidebar was already open. Closing search with its close button, Search command, or Escape restores that state, so a temporarily opened sidebar closes while an already open sidebar remains visible.
 
-Annotation and editing tools open Kit hover cards after a short pointer dwell. The pointer can enter the card and adjust its controls; leaving both trigger and card closes it after a short grace period. Keyboard activation opens a focusable Kit popover dismissed by Escape. Hovering alone never selects a different tool. Colors, line widths, and opacity are remembered independently for each annotation tool for the current application session. Line width uses a decimal Kit NumberInput (0.25–100 pt, 0.25 pt steps); opacity uses a continuous 0–100% Kit Slider. The eraser explains whole-stroke removal and has no irrelevant color/width controls. Editing text and insert-text keep separate preview styles.
+Annotation tools open Kit hover cards after a short pointer dwell. The pointer can enter the card and adjust its controls; leaving both trigger and card closes it after a short grace period. Keyboard activation opens a focusable Kit popover dismissed by Escape. Hovering alone never selects a different tool. Colors, line widths, and opacity are remembered independently for each annotation tool for the current application session. Line width uses a decimal Kit NumberInput (0.25–100 pt, 0.25 pt steps); opacity uses a continuous 0–100% Kit Slider. The eraser explains whole-stroke removal and has no irrelevant color/width controls.
 
 The Type text-annotation tool opens an empty native Input at the clicked page position after mouse release. Enter commits one annotation; Escape cancels. IME composition confirmation does not commit partial text. Text is displayed directly with the annotation's foreground and opacity, without a sticky-note background. Double-click an existing text annotation or use its selected Edit Text control to revise it. Unfinished input is retained and blocks navigation, closing, saving, and export until completed or cancelled. Existing PDF-copy export still discloses and emits standard sticky notes with exact Unicode contents.
 
 Click sidecar annotations in Reading or Annotate mode to select them; Annotate also offers a selection pointer. A selection outline and nearby controls allow color, width, and opacity changes, text editing, and deletion. Delete/Backspace removes the selection outside native inputs. Non-text-markup annotations can be dragged within their page; text markup remains tied to its glyph geometry. A slider drag, line-width confirmation, text confirmation, or completed move forms one undoable edit. Source fingerprint, history revision, index, and the original item protect edits from stale or shifted targets. Changing another annotation, undo/redo, and document navigation invalidate old selections. Original PDF content is outside these hit targets.
 
-Use the same eight fixed colors for category tags and annotation/edit swatches: red `#EF4444`, orange `#F97316`, amber `#F59E0B`, green `#22C55E`, teal `#14B8A6`, blue `#3B82F6`, violet `#8B5CF6`, and pink `#EC4899`. These colors are independent of application appearance. Annotation opacity is exactly the displayed percentage; new text/area highlights default to 40% amber, while strokes and notes default to 100%. Existing stored annotations retain their color and opacity.
+Use the same eight fixed colors for category tags and annotation swatches: red `#EF4444`, orange `#F97316`, amber `#F59E0B`, green `#22C55E`, teal `#14B8A6`, blue `#3B82F6`, violet `#8B5CF6`, and pink `#EC4899`. These colors are independent of application appearance. Annotation opacity is exactly the displayed percentage; new text/area highlights default to 40% amber, while strokes and notes default to 100%. Existing stored annotations retain their color and opacity.
 
-Editing offers text, image, insert-text, and insert-image entry points. The independent style preview is explicitly not a PDF overlay editor. Applying original-content edits stays unavailable until structural editing is validated. Annotation export is a separate enabled, restricted workflow with explicit destination and sticky-note semantics.
-
-Show annotation load/save/conflict state, undo/redo, Save, Save As, and export controls in the Annotations sidebar. Surface annotation errors in the reader status as well. Use concise capability messages for unavailable original-content editing. Never imply successful file changes.
+Show annotation load/save/conflict state, undo/redo, Save, Save As, and export controls in the Annotations sidebar. Surface annotation errors in the reader status as well. Never imply successful file changes.
 
 ## Tooltips, accessibility, and shortcuts
 
@@ -145,7 +143,7 @@ Use Kit's native `Tooltip`, `Tooltip::action`, and `Button::tooltip_with_action`
 | Toggle navigation panel | Primary+B |
 | Focus page input / submit | Primary+G, then Enter |
 | Previous / next page | PageUp / PageDown |
-| Reading / Annotate / Edit | Primary+1 / 2 / 3 |
+| Reading / Annotate | Primary+1 / 2 |
 | Outline / Thumbnails | Primary+Shift+O / Primary+Shift+M |
 | Favorite | Primary+D |
 | Zoom in / out | Primary++ (also Primary+=) / Primary+-; Primary+wheel over the document |

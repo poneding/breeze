@@ -444,9 +444,7 @@ impl Breeze {
             return;
         }
         let mode = self.books[self.active].state.mode;
-        if mode == Mode::Edit
-            || (mode == Mode::Annotate && self.tool == annotation_editing::SELECT_TOOL)
-        {
+        if mode == Mode::Annotate && self.tool == annotation_editing::SELECT_TOOL {
             cx.notify();
             return;
         }

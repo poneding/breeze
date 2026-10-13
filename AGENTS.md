@@ -3,8 +3,8 @@
 ## Project status and authority
 
 - Breeze is a native, cross-format reading application. PDF is the first backend, not the application-wide document model.
-- The user accepted the compact prototype's general UI direction on September 29, 2026. This is design acceptance, not approval of production rendering, annotations, or structural editing.
-- Implementation of the planned product was authorized on September 29, 2026. The repository now includes a local reader, persistence, and sidecar annotations; Restricted annotation export and opening-window policies have since been implemented; structural editing and production acceptance remain gated. Track implemented behavior in `docs/plans/STATUS.md`. Do not restore historical artifacts without a concrete need.
+- The user accepted the compact prototype's general UI direction on September 29, 2026. This is design acceptance, not approval of production rendering or annotations.
+- Implementation of the planned product was authorized on September 29, 2026. The repository now includes a local reader, persistence, and sidecar annotations; Restricted annotation export and opening-window policies have since been implemented; PDF page content is read-only, and production acceptance remains gated. Track implemented behavior in `docs/plans/STATUS.md`. Do not restore historical artifacts without a concrete need.
 - Read `docs/specs/README.md`, `00-product.md`, and `01-validation.md` before changing architecture. Read `docs/plans/README.md` before beginning a new implementation phase.
 - Keep technical specifications in `docs/specs/` and implementation plans in `docs/plans/`. Separate confirmed requirements, proposals, implemented behavior, and unverified assumptions.
 - Commit each completed and verified implementation phase promptly under the Git convention below; this is standing authorization for those local commits. Do not start sub-agents, push, or publish unless the user explicitly requests it or an applicable instruction authorizes it.
@@ -20,9 +20,7 @@
 
 - Target macOS, Windows, and Linux. Rust bindings to system windowing, GPU, fonts, and input methods are allowed.
 - Keep application logic, UI, and document processing in Rust. Do not introduce PDFium, MuPDF, Poppler, or a WebView/JavaScript reader as an application document engine.
-- **Never simulate existing-content editing with white rectangles, overlaid replacement text, region erasure followed by insertion, or full-page rasterization.** If an operation cannot safely target the original object or drawing instance, report that it is unsupported.
-- Do not use `pdf_oxide`'s high-level `set_text` / `save_page` path as the structural editor. The evaluated version uses geometric erasure and appended content rather than precise source-operator replacement.
-- Annotations default to a sidecar file with explicit export to a new PDF. Content edits are separate transactions, not annotations disguised as replacement content.
+- Annotations default to a sidecar file with explicit export to a new PDF. Page content remains read-only.
 - Defer OCR, encrypted/password documents, forms, digital signatures, and DRM. Do not bypass restrictions.
 - Report performance or fidelity failures with measurements, impact, and options before changing architecture or lowering quality targets. No unapproved fallback engine.
 
@@ -59,7 +57,6 @@
 - Coalesce virtual-list measurement/visible callbacks before changing navigation or issuing work; measuring an offscreen item must not become a navigation event. Bind each page gesture to that surface's page and geometry.
 - Load pages on demand. Use explicit byte budgets for future caches; do not retain a texture for every page or rerender the entire document for one annotation.
 - Make RGBA/BGRA, premultiplied alpha, PDF/display coordinates, CropBox, rotation, UserUnit, and device scale explicit.
-- Structural edits must identify a content stream, operator, and resource usage. Isolate shared resources before changing one instance; preserve unrelated operations and validate saved output by reopening it.
 - Future persistence requires temporary-file replacement and source fingerprint checks. Never overwrite the original by default or claim that an ordinary full rewrite securely erases old content.
 - Necessary input limits, error reporting, and data-integrity checks are not optional fallback architecture.
 

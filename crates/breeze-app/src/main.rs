@@ -71,7 +71,6 @@ actions!(
         CycleTheme,
         ReadMode,
         AnnotateMode,
-        EditMode,
         ShowOutline,
         ShowThumbnails,
         ZoomIn,
@@ -187,8 +186,6 @@ struct Breeze {
     preview: Option<Arc<Preview>>,
     message: String,
     page_input: Entity<InputState>,
-    font_input: Entity<InputState>,
-    edit_text_input: Entity<InputState>,
     focus: FocusHandle,
     tool: usize,
     tool_settings: tool_settings::ToolSettings,
@@ -223,9 +220,6 @@ impl Breeze {
                     cx.notify();
                 }
             });
-        let edit_text_input =
-            cx.new(|cx| InputState::new(window, cx).placeholder(tr!("让思绪，在此停留。")));
-        let edit_subscription = cx.observe(&edit_text_input, |_, _, cx| cx.notify());
         let page_input = cx.new(|cx| InputState::new(window, cx).default_value("1"));
         let page_submission = cx.subscribe_in(&page_input, window, |this, _, event, window, cx| {
             if matches!(event, InputEvent::PressEnter { .. }) && this.screen == Screen::Reader {
@@ -319,7 +313,6 @@ impl Breeze {
             full_screen: false,
             library_input,
             _subscriptions: vec![
-                edit_subscription,
                 page_submission,
                 resize_observer,
                 appearance_observer,
@@ -357,9 +350,7 @@ impl Breeze {
             preview: None,
             message: "".into(),
             page_input,
-            font_input: cx.new(|cx| InputState::new(window, cx).placeholder(tr!("系统默认"))),
             focus: cx.focus_handle(),
-            edit_text_input,
             tool: 0,
             tool_settings: tool_settings::ToolSettings::default(),
             document_panel: document_panel::DocumentPanel::default(),
@@ -797,9 +788,6 @@ impl Render for Breeze {
             .on_action(cx.listener(|this, action: &AnnotateMode, window, cx| {
                 this.execute(action, window, cx)
             }))
-            .on_action(
-                cx.listener(|this, action: &EditMode, window, cx| this.execute(action, window, cx)),
-            )
             .on_action(cx.listener(|this, action: &ShowOutline, window, cx| {
                 this.execute(action, window, cx)
             }))

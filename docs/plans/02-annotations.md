@@ -21,7 +21,7 @@ Implement document-coordinate annotations on an independent native canvas. Annot
 - Ink/shape/note creation and markup selection survive zoom/page switches and a sidecar reopen.
 - Undo/redo is one action per completed gesture; eraser never modifies background pixels.
 - A changed PDF, invalid sidecar, conflicting revision, or failed write leaves original files intact.
-- Export and structural-edit buttons are not enabled until their own gates pass.
+- Export is not enabled until its own gate passes.
 
 ## Review boundary
 

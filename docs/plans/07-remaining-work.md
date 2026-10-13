@@ -26,22 +26,7 @@ This document turns the remaining product targets into implementation-sized work
 
 **Acceptance:** mixed-size 1,000-page fixture, bounded CPU/GPU caches, stale-generation rejection, zoom/anchor tests, no every-page texture allocation, and native interaction/frame measurements.
 
-## R3: Supported-subset original-content editing
-
-**Dependency:** R1 plus a precise source-identity mapping; annotation export is not evidence that this is solved.
-
-**Files:** a cohesive `breeze-pdf` editing module and UI selection/property adapters; a separate crate only if the responsibilities justify it.
-
-1. Parse content streams into retained operations with stream IDs, resource scopes, CTM/text state, and drawing-use identities.
-2. Begin with uniquely mapped ASCII/simple-font text runs and top-level isolated image uses. Mark all other selections unsupported rather than applying geometric redaction.
-3. Replace only the target operand/transform/usage. Keep old/new command values for undo; copy shared resources before editing a single instance.
-4. Validate font encoding, CMap/ToUnicode, glyph widths, embedding permissions, and subsetting before expanding to CJK/font changes.
-5. Add font/size/color/opacity and explicit text-block alignment one operation at a time. Treat background as a requested object, never a cover for old text.
-6. Add real insertion of new text/images, handles, image rotation/scale/delete, Save As, reopen, and repeated-edit validation.
-
-**Acceptance:** active content extraction changes correctly, unrelated operators and regions remain unchanged, other shared-resource uses remain unchanged, undo/redo and repeated saves are correct, and unsupported cases cannot reach the save path. Full-page rebuilds, cover-up edits, and region erasure/reinsertion are prohibited.
-
-## R4: Localization and platform opening
+## R3: Localization and platform opening
 
 **Files:** introduce a small typed UI-string/catalog module in `breeze-app`, extend persistence for language selection, and add minimal platform integration only when used.
 
@@ -52,7 +37,7 @@ This document turns the remaining product targets into implementation-sized work
 
 **Gate:** no complete-localization or association claim before all native paths pass.
 
-## R5: Update checking and release artifacts
+## R4: Update checking and release artifacts
 
 **External decision required:** a real release repository/endpoint, signing policy/keys, distribution channels, supported CPU/OS matrix, and versioning policy. Do not invent these values or publish automatically.
 
@@ -63,7 +48,7 @@ This document turns the remaining product targets into implementation-sized work
 
 **Gate:** no placeholder network requests, unsigned silent updater, fictitious "up to date" result, or publication without user authorization.
 
-## R6: Persistence/recovery acceptance
+## R5: Persistence/recovery acceptance
 
 **Files:** `breeze-storage`, `persistence.rs`, `annotations.rs`, and existing integration tests.
 
@@ -74,7 +59,7 @@ This document turns the remaining product targets into implementation-sized work
 
 **Acceptance:** each failure leaves the original document and last valid state intact, has an actionable UI message, and does not silently clear history or switch storage locations.
 
-## R7: Editing pre-existing PDF annotations
+## R6: Editing pre-existing PDF annotations
 
 **Dependency:** verified PDF text-string decoding and a display path that can isolate imported annotation appearances.
 
