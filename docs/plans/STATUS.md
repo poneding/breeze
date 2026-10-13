@@ -158,7 +158,7 @@ The settings screen now has one native searchable Kit Select for Theme instead o
 
 [Theme provenance](../../assets/themes/README.md) records the pinned upstream source and license. Original author metadata and JSON bytes are preserved; every file was verified against the upstream Git blob ID. No runtime network access, external theme directory, or theme-directory watcher is required. Kit's selected configuration supplies both component and application-chrome colors without Breeze palette overrides; compact typography/radii and 34/38/32 px chrome heights are retained. PDF colors and page jobs are unchanged.
 
-The titlebar command and Primary+Shift+T cycle the same choices. Follow System continues to use window appearance events; named themes retain their declared mode. State version 3 persists the theme name. Versions 1–2 preserve System or migrate Light/Dark to the matching built-in theme, dropping the retired palette fields from new snapshots without changing library/annotation references.
+The titlebar command and Primary+Shift+T cycle the same choices. Follow System continues to use window appearance events; named themes retain their declared mode. The theme name is persisted in the current state schema (version 7). Every legacy version preserves System or migrates Light/Dark to the matching built-in theme, and the retired palette fields are read but omitted from new snapshots without changing library, category, or annotation references.
 
 Validation for this change:
 
@@ -195,7 +195,7 @@ The complete working checkout passes formatting, workspace tests (81 passed, thr
 
 The working tree now prefetches a bounded region around the viewport and adjacent pages, retains previous pixels during scale replacement, uses stable semantic zoom identities, and preserves continuous scroll position when the outline width changes. Fit modes reuse density reserved for a collapsed outline where the budget permits; larger cases keep the previous picture during native-density replacement. See [work package 11](11-reader-continuity.md).
 
-Six new continuity regressions pass, including asynchronous prefetch completion with no additional frame/scroll event. Formatting and Clippy pass. The workspace run excluding one independently failing library observation test passes 99 tests; it is not a full-suite pass. Native verification is blocked by the locked Mac, so this follow-up remains uncommitted and must not be marked visually accepted yet.
+Six new continuity regressions pass, including asynchronous prefetch completion with no additional frame/scroll event. Formatting and Clippy pass. The workspace run excluding one independently failing library observation test passes 99 tests; it is not a full-suite pass. Native verification is blocked by the locked Mac, so this follow-up was committed without native verification, which remains pending; it must not be marked visually accepted yet.
 
 ## Outline navigation refinement (October 3, 2026)
 
