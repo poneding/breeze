@@ -289,7 +289,9 @@ fn render(
         let total = doc.page_count()?;
         anyhow::ensure!(total > 0 && total <= 20_000, "当前支持 1–20000 页文档");
         let geometries = (0..total)
-            .map(|page| page_geometry(&doc, page))
+            .map(|page| {
+                page_geometry(&doc, page).with_context(|| format!("第 {} 页不支持阅读", page + 1))
+            })
             .collect::<Result<Vec<_>>>()?;
         let sizes = Arc::new(geometries.iter().map(|g| g.size()).collect());
         let mut outline = Vec::new();
@@ -455,6 +457,24 @@ fn render(
     Ok(result)
 }
 fn page_geometry(doc: &PdfDocument, page: usize) -> Result<PageGeometry> {
+    // UserUnit is a leaf-page attribute, not an inherited page-tree attribute.
+    // Reject it before any metadata, thumbnail or page raster is returned: the reader's
+    // hit testing and export currently require one point per user-space unit.
+    let object = doc.get_page(page)?;
+    let dictionary = object.as_dict().context("Page is not a dictionary")?;
+    if let Some(value) = dictionary.get("UserUnit") {
+        let unit = doc
+            .resolve_object(value)
+            .context("Cannot resolve page UserUnit")?;
+        let unit = unit
+            .as_real()
+            .or_else(|| unit.as_integer().map(|value| value as f64))
+            .context("Page UserUnit must be a number")?;
+        anyhow::ensure!(
+            unit == 1.0,
+            "页面使用非默认 UserUnit={unit}；当前阅读器尚不支持此页面单位"
+        );
+    }
     let info = doc.get_page_info(page)?;
     let bounds = if let Some(crop) = info.crop_box {
         let x = crop.x.max(info.media_box.x);
