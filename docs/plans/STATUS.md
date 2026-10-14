@@ -748,3 +748,25 @@ session lacks Screen Recording permission (`CGPreflightScreenCaptureAccess` is
 false and `screencapture` returns only the desktop wallpaper); the isolated
 app's window and startup were confirmed, but its hover states could not be
 captured. Windows/Linux native checks remain open.
+
+## October 14 category forms confirm with Enter and muted row actions
+
+Category creation and rename now confirm with Enter. Kit's Popover binds `enter`
+to its `Confirm` action and dispatches it before the input's own submit event,
+so the editor handles `Confirm` on the popover content, saves, and stops
+propagation; an invalid name keeps the editor open with its message instead of
+dismissing an unsaved form. The category input's own `PressEnter` subscription
+was removed because it could only ever arrive after the popover had closed.
+
+The category row's edit and delete icons rest at the muted foreground and take
+the panel foreground only while that button itself is hovered, with no hover
+background. This withdraws the danger-colored delete hover described above.
+
+Validation: formatting, the complete workspace suite (146 app tests with one
+ignored, 14 core, 23 PDF with three ignored, 6 PDF integration, and 7 storage)
+and all-target Clippy with warnings denied pass in the working checkout; the
+MuPDF migration has since landed there, so the `--locked` checks run again.
+`category_forms_confirm_with_enter` covers Enter creating a category, Enter
+renaming it, and an invalid name keeping the editor open. Native visual
+inspection of the hover colors was not performed because this session lacks
+Screen Recording permission. Windows/Linux native checks remain open.
