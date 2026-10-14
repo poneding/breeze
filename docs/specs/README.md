@@ -13,6 +13,7 @@ The user accepted the compact UI's general direction on September 29, 2026. Impl
 | [04 — UI design](04-design.md) | Accepted compact layout, appearance, and shortcuts |
 | [05 — Platform and quality](05-platform-quality.md) | Platform assumptions, performance targets, and verification gates |
 | [06 — Icons](06-icons.md) | Icon source, licensing, and function-to-icon mapping |
+| [08 — Reader performance assessment](08-performance-assessment.md) | SumatraPDF source research, current whole-page costs, local measurements, and proposed optimizations |
 
 Implementation plans belong in [docs/plans](../plans/README.md). Do not treat target behavior in a specification as already implemented. Consult [AGENTS.md](../../AGENTS.md) for language, coding, validation, and commit rules.
 

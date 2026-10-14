@@ -1,5 +1,26 @@
 # Delivery Status
 
+## October 14 performance investigation
+
+[The reader performance assessment](../specs/08-performance-assessment.md) records
+SumatraPDF release/development source research, the current whole-page rendering
+policy, a prefetch admission/eviction risk, and visible-thumbnail scheduling behind
+speculative work. The October 13 region-rendering entry below predates the vendor
+removal in [work package 20](20-upstreaming-engine-changes.md) and no longer describes
+the running code.
+
+Release worker probes on the user's 343-page, 17.78 MiB book sampled 20 spread
+pages twice per DPI. First-pass thumbnail p95 was 21.54 ms at 24 DPI; page p95 was
+34.86 / 78.43 / 243.54 ms at 144 / 288 / 432 DPI. Probe-process peak RSS was
+174.44 / 239.89 / 264.27 / 286.11 MiB respectively, excluding application caches,
+UI and GPU textures. On the bundled page at 769 DPI, one output was 210.94 MiB,
+warm rerender p95 was 468.22 ms, and probe peak RSS was 436.20 MiB. The assessment
+records hardware, sample conditions, maximum latency, input hashes and limitations.
+These are not a native same-machine comparison with SumatraPDF or application
+opening/presentation measurements. No runtime code or rendering policy changed;
+the optimizations remain proposals. Private inputs and raw research outputs are
+not committed.
+
 ## Code review remediation — October 3, 2026
 
 [Work package 13](13-review-remediation.md) tracks the authorized remediation sequence. Phase 0 registers the missing library-container test observation: formatting, workspace tests (103 passed, three existing ignored probes), Clippy and isolated macOS startup passed. No visual behavior changed.

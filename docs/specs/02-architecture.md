@@ -29,6 +29,13 @@ The initial exploratory tool is no longer part of the workspace. Do not add empt
 
 ## Prototype rendering
 
+**Historical region-path description:** the October 13 removal of the vendored
+engine replaced the region path below with whole-page rendering. See
+[work package 20](../plans/20-upstreaming-engine-changes.md) for that change and
+[the October 14 performance assessment](08-performance-assessment.md) for current
+code behavior and measurements. The tile allocation and cache figures below do
+not describe the current renderer.
+
 A single background worker owns the current engine document and renderers. At most one job is waiting: a newer request replaces the pending job. A running synchronous render is not preempted. UI generations reject stale results after navigation or a document change.
 
 The reader requests page metadata separately from pixels. Visible page surfaces request direct device-pixel regions at their actual logical size multiplied by the window scale factor. Tile interiors are 508 x 508 pixels, with up to two pixels of gutter on each edge, so the uploaded texture fits a 512-pixel atlas cell. No full-page high-resolution raster is allocated for these requests. A pinned local patch to PDF Oxide 0.3.78 translates the original page transform into the tile; source page dictionaries and streams remain unchanged. The existing whole-page API remains available for validation, not the application's page display.
