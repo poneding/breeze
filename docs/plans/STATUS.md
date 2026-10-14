@@ -668,3 +668,30 @@ placement, its toolbar fallback, the centered icon-only tabs, and the search
 toolbar sharing the right header row. Native visual inspection was not
 performed because a Breeze instance was already running (immersive fullscreen)
 during the pass; Windows/Linux native checks remain open.
+
+## October 14 unified row hover and text-only category row actions
+
+Document category rows and library rows/covers now share Kit's ghost-button hover
+fill, the theme accent at 50% opacity in dark mode, instead of the list-active
+tint; document tabs and sidebar navigation buttons already used it, and the
+selected category keeps the list-active fill. The category row's edit and delete
+buttons no longer paint a hover or active background: their icons rest at the
+muted foreground and take the panel foreground (edit) or the theme danger color
+(delete) only while that button itself is hovered. The delete action also uses a
+2 logical pixel right inset instead of the full row padding, placing its icon
+close to the panel edge near the left icon inset.
+
+Validation: in an isolated copy of the committed tree plus this change,
+formatting, the complete workspace suite (144 app tests with one ignored, 14
+core, 21 PDF with three ignored, 6 PDF integration, 3 of 4 render-integrity with
+one ignored, and 7 storage) and all-target Clippy pass, the latter with the
+pre-existing `chunks_exact_to_as_chunks` lint in `breeze-pdf/src/lib.rs` allowed.
+The working checkout's in-progress MuPDF migration does not compile
+(`mupdf::PdfPage` is unresolved, `export.rs` still calls `pdf_oxide`, and
+`PdfDocument::open` rejects `PathBuf`), so `--locked` checks cannot run there
+yet. The changed component test also asserts the tightened delete inset against
+the row's right edge. Native visual inspection was not performed because the
+session lacks Screen Recording permission (`CGPreflightScreenCaptureAccess` is
+false and `screencapture` returns only the desktop wallpaper); the isolated
+app's window and startup were confirmed, but its hover states could not be
+captured. Windows/Linux native checks remain open.

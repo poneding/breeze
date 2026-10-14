@@ -44,6 +44,18 @@ fn left_button_icon(
                 ),
         )
 }
+/// Category row actions stay text-only: no hover surface at all, a muted icon
+/// at rest, and `hover` only while that button itself is hovered.
+fn category_action_icon(p: Palette, icon: IconName, group: &'static str, hover: Hsla) -> Div {
+    div()
+        .size_full()
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_color(p.muted)
+        .group_hover(group, move |s| s.text_color(hover))
+        .child(Icon::new(icon).small())
+}
 impl Breeze {
     pub(super) fn category_name(&self, id: usize) -> String {
         self.categories
@@ -101,6 +113,7 @@ impl Breeze {
     }
     pub(super) fn category_sidebar(&self, cx: &mut Context<Self>) -> Div {
         let p = self.p(cx);
+        let hover = style::accent_hover(cx);
         column()
             .gap_1()
             .child(
@@ -145,17 +158,19 @@ impl Breeze {
                     .w_full()
                     .child(
                         Button::new(("category-nav", id))
-                            .custom(ButtonCustomVariant::new(cx).hover(p.tint).active(p.tint))
+                            .custom(ButtonCustomVariant::new(cx).hover(hover).active(hover))
                             .small()
                             .w_full()
-                            .px_2()
+                            .pl_2()
+                            // The row actions sit nearly flush with the panel edge.
+                            .pr(px(2.))
                             .selected(self.library_filter == id + 3)
                             .when(
                                 self.home_page == HomePage::Library
                                     && self.library_filter == id + 3,
                                 |d| d.bg(p.tint),
                             )
-                            .group_hover("category-row", move |s| s.bg(p.tint))
+                            .group_hover("category-row", move |s| s.bg(hover))
                             .accessibility_label(category.name.clone())
                             .tooltip(category.name.clone())
                             .on_click(cx.listener(move |this, _, _, cx| {
@@ -203,36 +218,42 @@ impl Breeze {
                                             .child(
                                                 self.category_popover(
                                                     Button::new(("rename-category", id))
-                                                        .custom(
-                                                            ButtonCustomVariant::new(cx)
-                                                                .hover(p.line)
-                                                                .active(p.line),
-                                                        )
+                                                        .custom(ButtonCustomVariant::new(cx))
+                                                        .group("category-edit")
                                                         .small()
                                                         .size(px(20.))
-                                                        .icon(IconName::Pencil)
+                                                        .p_0()
                                                         .accessibility_label(tf!("Edit category: {}",
                                                             category.name
                                                         ))
-                                                        .tooltip(tr!("Edit category")),
+                                                        .tooltip(tr!("Edit category"))
+                                                        .child(category_action_icon(
+                                                            p,
+                                                            IconName::Pencil,
+                                                            "category-edit",
+                                                            p.text,
+                                                        )),
                                                     Some(id),
                                                     cx,
                                                 ),
                                             )
                                             .child(
                                                 Button::new(("delete-category", id))
-                                                    .custom(
-                                                        ButtonCustomVariant::new(cx)
-                                                            .hover(p.line)
-                                                            .active(p.line),
-                                                    )
+                                                    .custom(ButtonCustomVariant::new(cx))
+                                                    .group("category-delete")
                                                     .small()
                                                     .size(px(20.))
-                                                    .icon(IconName::Trash)
+                                                    .p_0()
                                                     .accessibility_label(tf!("Delete category: {}",
                                                         category.name
                                                     ))
                                                     .tooltip(tr!("Delete category; keep documents and other memberships"))
+                                                    .child(category_action_icon(
+                                                        p,
+                                                        IconName::Trash,
+                                                        "category-delete",
+                                                        Theme::global(cx).danger,
+                                                    ))
                                                     .on_click(cx.listener(
                                                         move |this, _, _, cx| {
                                                             cx.stop_propagation();

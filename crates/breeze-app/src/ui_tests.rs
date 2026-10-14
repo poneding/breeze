@@ -1983,6 +1983,8 @@ fn category_colors_and_inline_hover_actions_work(cx: &mut TestAppContext) {
         assert_eq!(rename.origin.y, delete.origin.y);
         assert!(rename.origin.y >= row.origin.y && delete.bottom() <= row.bottom());
         assert!(delete.right() <= row.right());
+        // The delete action sits close to the panel edge instead of trailing the row.
+        assert!(row.right() - delete.right() <= px(4.));
         window.click(("rename-category", 1usize), cx);
         assert_eq!(view.read(cx).category_color, CategoryColor::Pink);
         view.update(cx, |view, cx| {

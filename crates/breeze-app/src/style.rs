@@ -38,6 +38,17 @@ pub fn apply(config: &Rc<ThemeConfig>, cx: &mut App) {
         theme.radius_lg = px(7.);
     });
 }
+/// The hover fill every ghost-style control shares: the theme accent, softened
+/// in dark mode exactly as Kit softens its own ghost-button hover. List rows
+/// reuse it instead of a list-specific fill so a row and a button read alike.
+pub fn accent_hover(cx: &App) -> Hsla {
+    let theme = Theme::global(cx);
+    if theme.is_dark() {
+        theme.accent.opacity(0.5)
+    } else {
+        theme.accent
+    }
+}
 pub fn row() -> Div {
     div().flex().flex_row().items_center()
 }

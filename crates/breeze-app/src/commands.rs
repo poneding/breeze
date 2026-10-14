@@ -286,11 +286,7 @@ impl Breeze {
         let active = self.screen == Screen::Reader && index == self.active;
         let p = self.p(cx);
         let theme = Theme::global(cx);
-        let tab_hover = if theme.is_dark() {
-            theme.accent.opacity(0.5)
-        } else {
-            theme.accent
-        };
+        let tab_hover = style::accent_hover(cx);
         let close_surface = p.panel.blend(tab_hover);
         let close_overlay = row()
             .id(("document-tab-close-overlay", index))

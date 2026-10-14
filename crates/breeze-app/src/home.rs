@@ -286,11 +286,12 @@ impl Breeze {
 
     fn library_row(&self, index: usize, cx: &mut Context<Self>) -> Button {
         let p = self.p(cx);
+        let hover = style::accent_hover(cx);
         let b = &self.books[index];
         Button::new(("library-open", index))
-            .custom(ButtonCustomVariant::new(cx).hover(p.tint).active(p.tint))
+            .custom(ButtonCustomVariant::new(cx).hover(hover).active(hover))
             .group("library-row")
-            .group_hover("library-row", move |s| s.bg(p.tint))
+            .group_hover("library-row", move |s| s.bg(hover))
             .small()
             .w_full()
             .accessibility_label(tf!("Read document: {}", b.title))
@@ -427,11 +428,12 @@ impl Breeze {
     }
     fn library_card(&self, index: usize, cx: &mut Context<Self>) -> Button {
         let p = self.p(cx);
+        let hover = style::accent_hover(cx);
         let book = &self.books[index];
         Button::new(("library-open", index))
-            .custom(ButtonCustomVariant::new(cx).hover(p.tint).active(p.tint))
+            .custom(ButtonCustomVariant::new(cx).hover(hover).active(hover))
             .group("library-row")
-            .group_hover("library-row", move |s| s.bg(p.tint))
+            .group_hover("library-row", move |s| s.bg(hover))
             .small()
             .w_full()
             .h(px(264.))
