@@ -28,6 +28,13 @@ these assets.
 identity assets, not replacements for the Lucide command icons. See
 [the brand asset guide](brand/README.md) for the design notes and usage rules.
 
-## Pinned PDF renderer patch
+## MuPDF reader
 
-`vendor/pdf_oxide/BREEZE-PATCH.md` documents the local 0.3.78 device-region patch. Its MIT/Apache licenses, NOTICE, trademark notice, and bundled-font license texts are also included in `assets/licenses/` for review/release packaging. These notices do not complete the broader transitive-dependency license audit.
+The selected PDF reader is `mupdf 0.8.0` through `mupdf-rs`; the dependency
+migration is tracked in [work package 22](../docs/plans/22-mupdf-migration.md).
+The target feature set is
+`base14-fonts` and `system-fonts` features. `assets/licenses/COPYING-MUPDF.txt`
+preserves the MuPDF AGPL text and `assets/licenses/NOTICE-MUPDF.md` records the
+binding, engine source and feature provenance. `LICENSE` at the repository root
+applies AGPL-3.0-only to Breeze. Preserve these files and the corresponding
+source/build scripts in every release path.

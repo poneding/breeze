@@ -6,6 +6,11 @@ Initial targets are macOS 15+ (ARM64/x64), Windows 10+ (x64/MSVC), and Ubuntu 24
 
 Use native GPUI Kit platform paths. Windows requires the MSVC/SDK build toolchain; Linux requires its font/window-system libraries and a working Vulkan driver. One Rust codebase does not mean zero system dependencies.
 
+The MuPDF reader is compiled through `mupdf-sys` and requires a C/C++ toolchain
+and libclang for bindgen. Linux builds also enable MuPDF system-font discovery
+through Fontconfig. Verify these prerequisites in native CI for macOS, Windows,
+and Linux and include AGPL notices/source location in every installer.
+
 The repository's CI defines build, test, lint, and formatting checks. A workflow file is not evidence of a successful remote run, and cross-target compilation is not proof of GPU/window/IME behavior. Native acceptance is required on every release platform.
 
 Default-file association must follow OS-supported user-choice flows. Update checking, installer packaging, signing/notarization, and update authenticity are separate platform/release gates, not a checkbox-only implementation.

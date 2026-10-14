@@ -1,6 +1,6 @@
 # Implementation Roadmap
 
-Implementation was authorized on September 29, 2026, after acceptance of the compact UI direction. This authorizes product work, not weaker fidelity/performance requirements or a non-Rust PDF engine.
+Implementation was authorized on September 29, 2026, after acceptance of the compact UI direction. On October 14, 2026, the user selected MuPDF via `mupdf-rs` and accepted AGPL-compatible source distribution. This authorizes that engine migration, not weaker fidelity/performance requirements.
 
 ## Delivery order
 
@@ -48,3 +48,5 @@ These work-package documents were written before the corresponding code changes.
 9. [21 — Manual annotation saving](21-manual-annotation-save.md): sidecars are written only when the user saves, with close/quit/tab/library guards for pending work.
 
 10. [16 — Page-turn presentation](16-page-turn-presentation.md): one device region per viewport and two predicted pages ahead, replacing the per-cell arrival that made page turns assemble block by block. Proposal, implementation, and measurements; the retained display list and native visual check remain open.
+
+11. [22 — MuPDF migration](22-mupdf-migration.md): publish the AGPL source/notice path, replace the PDF adapter while preserving app boundaries, add clipped device-region rendering, then verify fidelity and performance on all release platforms.

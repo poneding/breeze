@@ -10,6 +10,16 @@ cargo build --locked -p breeze-app
 bundle="$PWD/target/Breeze.app"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources"
 cp assets/brand/Breeze.icns "$bundle/Contents/Resources/Breeze.icns"
+cp LICENSE "$bundle/Contents/Resources/LICENSE"
+cp Cargo.lock README.md docs/releases.md "$bundle/Contents/Resources/"
+mkdir -p "$bundle/Contents/Resources/licenses"
+cp assets/licenses/COPYING-MUPDF.txt assets/licenses/NOTICE-MUPDF.md "$bundle/Contents/Resources/licenses/"
+cat > "$bundle/Contents/Resources/SOURCE-CODE.txt" <<'SOURCE'
+Breeze is licensed under AGPL-3.0-only. The matching source revision and locked
+Cargo dependencies are available from the Breeze repository used to build this
+local review bundle. Published versions include a vendored corresponding-source
+archive alongside their installers.
+SOURCE
 cp target/debug/breeze-app "$bundle/Contents/MacOS/Breeze.next"
 mv "$bundle/Contents/MacOS/Breeze.next" "$bundle/Contents/MacOS/Breeze"
 cat > "$bundle/Contents/Info.plist" <<'PLIST'

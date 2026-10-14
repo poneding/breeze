@@ -4,13 +4,13 @@
 
 ```text
 breeze-app -> breeze-core
-           -> breeze-pdf -> pdf_oxide (reading)
+           -> breeze-pdf -> mupdf (reading/rendering)
                          -> lopdf (annotation-copy export)
            -> breeze-storage -> breeze-core
 ```
 
 - `breeze-core` owns navigation, zoom, and mode state without UI or PDF-engine types.
-- `breeze-pdf` owns reading, rasterization, outlines, thumbnails, and the worker queue, plus a separate protected annotation-copy exporter. PDF content editing is not part of the product.
+- `breeze-pdf` owns the `mupdf-rs` adapter, reading, clipped rasterization, outlines, thumbnails, text geometry, and the worker queue, plus a separate protected `lopdf` annotation-copy exporter. PDF content editing is not part of the product.
 - `breeze-storage` owns background state writes, process locking, atomic JSON, fingerprints, and optimistic sidecar revision checks.
 - `breeze-app` owns the native window, document sessions, Home/Reader/Settings views, appearance preferences, command dispatch, and component tests.
 
@@ -27,24 +27,32 @@ The initial exploratory tool is no longer part of the workspace. Do not add empt
 - Extract a common document interface when a second real backend reveals the shared requirements; avoid a speculative all-format `render_page` abstraction.
 - Unsupported formats produce a visible error rather than being treated as renamed PDFs.
 
-## Prototype rendering
+## Historical PDF Oxide prototype rendering
 
-**Historical region-path description:** the October 13 removal of the vendored
-engine replaced the region path below with whole-page rendering. See
-[work package 20](../plans/20-upstreaming-engine-changes.md) for that change and
-[the October 14 performance assessment](08-performance-assessment.md) for current
-code behavior and measurements. The tile allocation and cache figures below do
-not describe the current renderer.
+The current runtime still uses PDF Oxide and returns whole-page pixmaps. The
+details below describe the earlier PDF Oxide tile prototype; they do not
+describe the running adapter.
 
 A single background worker owns the current engine document and renderers. At most one job is waiting: a newer request replaces the pending job. A running synchronous render is not preempted. UI generations reject stale results after navigation or a document change.
 
-The reader requests page metadata separately from pixels. Visible page surfaces request direct device-pixel regions at their actual logical size multiplied by the window scale factor. Tile interiors are 508 x 508 pixels, with up to two pixels of gutter on each edge, so the uploaded texture fits a 512-pixel atlas cell. No full-page high-resolution raster is allocated for these requests. A pinned local patch to PDF Oxide 0.3.78 translates the original page transform into the tile; source page dictionaries and streams remain unchanged. The existing whole-page API remains available for validation, not the application's page display.
+The historical PDF Oxide prototype requested device-pixel regions at native surface size. Its 508-pixel tile interiors and two-pixel gutters fit GPUI's 512-pixel atlas cell. These cache and scheduler details do not describe the running whole-page renderer or the MuPDF target.
 
-Thumbnails remain independent 24-DPI requests capped at 120,000 pixels and do not extract glyphs. The worker retains one running/one replaceable pending job and a 32 MiB accounted result cache; tiles are not duplicated in that cache. The UI retains up to 8 MiB/eight metadata results, 56 MiB of page tiles, and 8 MiB/64 thumbnails. Visible work takes priority over bounded lookahead and thumbnails. Up to 16 MiB of the existing tile budget is used to prepare the region around the viewport and adjacent page edges; this work continues without another scroll event. Nearby metadata is prepared without changing navigation. Cache identities include page, exact device scale, and region, with document fingerprint/generation checks and source-change invalidation. During a resolution change, previously visible pixels remain underneath incoming tiles. An old tile is retired only after its visible area is covered, with replacement requests ordered to free covered tiles within the existing byte budget. Offscreen/prefetch entries yield to visible and presentation-bridge tiles. Image eviction and source changes explicitly remove GPU atlas entries as well as CPU references; dropping an Arc alone does not release GPUI's atlas allocation. These accounting limits exclude engine internals, transient frame references, GPU atlas fragmentation, and window swapchain surfaces, and are not an RSS bound.
+The previous prototype used a 32 MiB worker result cache, 8 MiB/eight metadata results, 56 MiB of UI tiles, and 8 MiB/64 thumbnails. It prioritized visible work over bounded lookahead and explicitly retired GPU atlas images. Those are historical budgets, not bounds on current process or target MuPDF memory.
 
 The engine returns premultiplied RGBA. The adapter swaps red/blue channels in the worker for GPUI's BGRA `RenderImage`. The display path avoids PNG encoding/decoding, and rendering the UI must not allocate a new page texture on every frame.
 
-Zoom and display-density changes request new pixels. Each page canvas derives its visible rectangle from the native content mask during prepaint; layout measurement cannot enqueue work. Requests are coalesced per frame, stale viewport results are discarded, and cached tiles are painted without re-rendering. Actual Size and custom percentages use semantic scale identities rather than rounded canvas widths. Fit modes reserve the density needed with the outline collapsed when the estimated pixel cost leaves budget headroom; otherwise they prepare the exact native density while retaining the previous picture. Cached pixels are mapped to current page geometry, and continuous layouts preserve their scroll anchor during width/height changes. Newly exposed content can use prefetched pixels; unprepared regions still require background work. Final pixels remain at or above native display density. Reading layouts construct visible page surfaces, while outline/thumbnail navigation remains virtualized. True tile allocation is implemented; retained operator/display-list preparation and broad engine fidelity/platform acceptance remain future work.
+The MuPDF target derives requests from the visible content mask, coalesces demand, discards stale results, and retains display lists and pixel regions within separate budgets. Effective device density, scroll anchors, page rotation, and crop transforms remain explicit. These behaviors are not implemented in the running renderer; see [work package 22](../plans/22-mupdf-migration.md).
+
+## MuPDF target rendering
+
+Work package 22 replaces the PDF Oxide prototype with `mupdf-rs`. The target
+adapter records page display lists on the PDF worker, replays only visible
+device-space clips into bounded pixmaps, and returns owned pixel regions to the
+UI. Display-list and MuPDF store limits, tile keys, cancellation, device origin,
+rotation, CropBox/UserUnit mapping, RGBA/BGRA and alpha representation must be
+measured and validated before their budgets or behavior are described as
+implemented. The UI paints cached regions at their corresponding page bounds;
+sidecar annotations remain a separate overlay.
 
 ## Geometry
 

@@ -4,6 +4,7 @@
 
 - Breeze is a native, cross-format reading application. PDF is the first backend, not the application-wide document model.
 - The user accepted the compact prototype's general UI direction on September 29, 2026. This is design acceptance, not approval of production rendering or annotations.
+- On October 14, 2026, the user selected MuPDF through `mupdf-rs` and accepted AGPL-compatible source distribution. The decision supersedes the former Rust-only/PDF Oxide engine constraint. AGPL compliance, source availability, licenses, and native build prerequisites are now release requirements.
 - Implementation of the planned product was authorized on September 29, 2026. The repository now includes a local reader, persistence, and sidecar annotations; Restricted annotation export and opening-window policies have since been implemented; PDF page content is read-only, and production acceptance remains gated. Track implemented behavior in `docs/plans/STATUS.md`. Do not restore historical artifacts without a concrete need.
 - Read `docs/specs/README.md`, `00-product.md`, and `01-validation.md` before changing architecture. Read `docs/plans/README.md` before beginning a new implementation phase.
 - Keep technical specifications in `docs/specs/` and implementation plans in `docs/plans/`. Separate confirmed requirements, proposals, implemented behavior, and unverified assumptions.
@@ -19,16 +20,16 @@
 ## Non-negotiable product constraints
 
 - Target macOS, Windows, and Linux. Rust bindings to system windowing, GPU, fonts, and input methods are allowed.
-- Keep application logic, UI, and document processing in Rust. Do not introduce PDFium, MuPDF, Poppler, or a WebView/JavaScript reader as an application document engine.
+- Keep application logic and UI in Rust. PDF reading/rendering uses the pinned `mupdf` Rust bindings to MuPDF C/C++; do not introduce PDFium, Poppler, or a WebView/JavaScript document engine.
 - Annotations default to a sidecar file with explicit export to a new PDF. Page content remains read-only.
 - Defer OCR, encrypted/password documents, forms, digital signatures, and DRM. Do not bypass restrictions.
 - Report performance or fidelity failures with measurements, impact, and options before changing architecture or lowering quality targets. No unapproved fallback engine.
 
 ## Stack and structure
 
-- Rust 2024, a Cargo workspace, and GPUI Kit native components. Pin critical dependencies and commit `Cargo.lock`.
+- Rust 2024, a Cargo workspace, and GPUI Kit native components. Pin critical dependencies and commit `Cargo.lock`. The distributed Breeze application is AGPL-3.0-only; carry `LICENSE`, MuPDF's `COPYING`, and corresponding-source location in release packages.
 - `crates/breeze-core`: format-independent navigation, reading layouts, user categories, modes, and zoom state; no GPUI or PDF-engine dependency.
-- `crates/breeze-pdf`: bounded PDF reading, glyphs/cache/search, and explicit annotation-copy export. `export.rs` verifies original-object signatures and publishes only to a new destination; it never edits the source file. Keep engine types out of the UI.
+- `crates/breeze-pdf`: bounded MuPDF reading, glyphs/cache/search, clipped region rendering, and explicit annotation-copy export. Keep MuPDF objects inside its worker/adapter. `export.rs` uses `lopdf`, verifies original-object signatures, and publishes only to a new destination; it never edits the source file. Keep engine types out of the UI.
 - `crates/breeze-storage`: background application-state persistence, process locks, atomic writes, fingerprints, and conflict-checked annotation sidecars. Never write to a source PDF through this crate.
 - `crates/breeze-app`: application entry point and native UI. `appearance.rs` owns theme preferences and GPUI Kit registry choices; `commands.rs` owns bindings and command dispatch; `reading.rs` owns visible-range scheduling/virtualized layouts; `categories.rs` owns user category management; `ui_tests.rs` exercises real components. `persistence.rs`, `search.rs`, and `annotations.rs` own state/search/annotations; `export.rs` owns export UI jobs and `window_policy.rs` owns native opening policies.
 - `assets/samples`: the bundled project-authored sample used by the prototype and tests. Preserve required assets and third-party license notices.

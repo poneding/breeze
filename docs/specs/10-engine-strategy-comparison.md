@@ -1,16 +1,16 @@
 # PDF engine strategy comparison
 
-Date: October 14, 2026. Status: decision support; no engine or license decision has been made.
+Date: October 14, 2026. Status: decision recorded. The user selected MuPDF through `mupdf-rs` and accepted AGPL-compatible distribution; implementation is tracked in [work package 22](../plans/22-mupdf-migration.md).
 
 ## Recommendation
 
-For the stated goal of high performance, low resource use, and a polished reading experience, **make MuPDF through `mupdf-rs` the target architecture**, subject to choosing an AGPL-compatible release model and passing a focused adapter/corpus gate. Its display-list plus clipped-pixmap path directly addresses the current whole-page allocation and can reuse page preparation across zoom levels.
+For the stated goal of high performance, low resource use, and a polished reading experience, **use MuPDF through `mupdf-rs` as the target architecture**, subject to completing the accepted AGPL source path and passing adapter/corpus gates. Its display-list plus clipped-pixmap path directly addresses whole-page allocation and can reuse page preparation across zoom levels.
 
 Implement the scheduler fixes shared by both options first: prioritize currently visible pixels, give visible thumbnails bounded service, admit prefetch by estimated bytes before rendering, and prevent predictions that cannot remain resident from being retried indefinitely. These changes survive either backend choice and improve the current reader while the engine decision is tested.
 
-Keep PDF Oxide as the long-term engine only if Breeze decides that permissive licensing and Rust-only document processing outweigh the time and risk of building region rendering. Borrowing SumatraPDF's queue/cache ideas alone improves responsiveness, but does not put a hard bound on the current full-page raster. Achieving the same high-DPI memory ceiling under option 2 requires a maintained PDF Oxide renderer change or fork.
+Keep PDF Oxide only if the migration fails its fidelity/build gates or AGPL distribution becomes infeasible. Borrowing SumatraPDF's queue/cache ideas alone improves responsiveness, but does not put a hard bound on the current full-page raster. Achieving the same high-DPI memory ceiling under option 2 requires a maintained PDF Oxide renderer change or fork.
 
-This recommends an outcome, not an immediate full application rewrite. Keep the UI, core navigation, persistence, sidecars, and protected `lopdf` export. Replace the PDF reader behind `breeze-pdf` if the gate passes.
+This decision does not imply a full application rewrite. Keep the UI, core navigation, persistence, sidecars, and protected `lopdf` export. Replace only the PDF reader behind `breeze-pdf`.
 
 ## Comparison
 
@@ -34,19 +34,22 @@ The two options share fixes that do not decide the engine: reserve memory before
 
 ## License readiness
 
-The current Breeze workspace does not declare a project license in `Cargo.toml`, and the repository has no top-level `LICENSE` file. Before adopting option 1, decide and record the product license, add the required notices/source offer to the source tree and binary release flow, and audit all bundled/runtime dependencies and assets.
+The user accepted AGPL-compatible distribution. The workspace now declares
+`AGPL-3.0-only` and includes the license texts. The remaining gate is to verify
+the source archive, installer notices, and enabled-feature dependency notices in
+the release flow.
 
 Because Breeze distributes installers, AGPL source-distribution terms apply to conveying object code. AGPL section 13 adds a source-offer requirement for users interacting remotely when the program supports that interaction; the current local desktop app does not appear to have that service model. Artifex describes MuPDF as available under AGPL or commercial terms and advises that AGPL use must comply with its obligations. Whether linking and the exact package make Breeze a single covered work, and the exact corresponding-source scope, are questions for legal review. Do not treat `mupdf-rs` being a safe Rust crate as removing MuPDF's license obligations.
 
-## Decision gates
+## Migration gates
 
-1. Confirm the intended project license. If Breeze will not publish the complete corresponding source under terms compatible with the MuPDF distribution, option 1 requires an Artifex commercial license or is unavailable.
+1. Verify each installer points to the matching corresponding-source archive; retain the Artifex commercial path as a contingency if the product license changes.
 2. Build the smallest adapter around the existing `breeze-pdf` contract: document open, page geometry, outline, text quads/search, thumbnail, clipped visible-region rendering, cancellation, and source-change invalidation. Keep all MuPDF objects on the PDF worker.
 3. Compare both engines on the same fixed corpus: the user's PDF locally, the bundled sample, and redistributable scans, CJK/subset fonts, transparency/ICC, JPEG2000/JBIG2, rotation, CropBox, and malformed inputs. Compare geometry/text as well as pixels.
 4. Integrate GPUI and measure open-to-first-frame, visible-thumbnail p50/p95, page-turn p50/p95/max, private/RSS memory, GPU residency, cache plateau, and 400% zoom on macOS, Windows, and Linux Release builds.
 5. Switch only if fidelity gates pass and end-to-end memory/latency improve without making normal page interaction less responsive. Retain `lopdf` export and Breeze's read-only page-content rule as separate boundaries.
 
-If the license gate rejects option 1, deliver the shared scheduling fixes and run a scoped PDF Oxide region-render prototype before committing to option 2. A prototype must establish that it can allocate and paint a clipped rectangle through image masks, transparency, and ICC without rendering the full page internally. If it cannot, option 2 can still improve responsiveness but must record the unresolved whole-page memory ceiling as a release limitation.
+If adapter, fidelity, or native-build gates reject option 1, deliver the shared scheduling fixes and run a scoped PDF Oxide region-render prototype before considering a fallback. A prototype must establish clipped allocation and painting through images/masks, transparency, and ICC without rendering the full page internally.
 
 ## References
 

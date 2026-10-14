@@ -3,7 +3,8 @@
 ## Confirmed requirements
 
 - Breeze is a local, cross-format reading workspace. PDF comes first; EPUB and Markdown may be added later.
-- Use Rust for application logic, UI, and document processing. System API bindings are allowed; C/C++ PDF engines and WebView-based document rendering are not.
+- Use Rust for application logic and UI, with the `mupdf-rs` Rust API over MuPDF's C/C++ implementation for PDF processing. PDFium, Poppler, and WebView-based document rendering are not product engines.
+- Distribute Breeze and the corresponding source under AGPL-3.0-only, including required MuPDF notices and build/installation scripts.
 - Support macOS, Windows, and Linux, with native validation on each platform before release.
 - Default annotation persistence is a sidecar file, with explicit export to a new PDF.
 - PDF page content is read-only. Breeze does not expose original text or image editing, and annotations are stored separately from the source document.

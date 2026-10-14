@@ -14,8 +14,9 @@ None of these tools are application runtime dependencies, and none of them sign
 or notarize the result. Every artifact is an unsigned development package.
 
 The installers carry the same payload the archives used to: the executable (or
-`Breeze.app`), `VERSION`, `Cargo.lock`, the repository README, these release
-notes, and the maintained third-party notices under `licenses/`.
+`Breeze.app`), `VERSION`, `LICENSE`, `Cargo.lock`, the repository README, these
+release notes, a corresponding-source pointer, and the maintained third-party
+notices under `licenses/`.
 """
 
 import argparse
@@ -173,9 +174,18 @@ def _copy(path: Path, destination: Path, executable: bool = False) -> None:
 def _write_documents(destination: Path, version: str) -> None:
     """Write the provenance files every installer carries."""
     _write_bytes(destination / "VERSION", (version + "\n").encode("utf-8"))
+    _copy(ROOT / "LICENSE", destination / "LICENSE")
     _copy(ROOT / "Cargo.lock", destination / "Cargo.lock")
     _copy(ROOT / "README.md", destination / "README.md")
     _copy(ROOT / "docs/releases.md", destination / "RELEASE-NOTES.md")
+    source_info = (
+        f"Corresponding source for Breeze {version} is published with this version's release at:\n"
+        "https://github.com/poneding/breeze/releases\n\n"
+        f"Download Breeze-{version}-source.tar.gz. It contains the exact Breeze source, Cargo.lock,\n"
+        "build/release scripts, and vendored locked Cargo source packages. The archive can be\n"
+        "built offline with the Rust, C/C++, and libclang toolchains documented in README.md.\n"
+    )
+    _write_bytes(destination / "SOURCE-CODE.txt", source_info.encode("utf-8"))
     licenses = destination / "licenses"
     if licenses.exists():
         shutil.rmtree(licenses)

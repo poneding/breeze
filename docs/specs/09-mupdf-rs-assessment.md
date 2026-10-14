@@ -1,14 +1,14 @@
 # MuPDF Rust binding assessment
 
-Date: October 14, 2026. Status: feasibility assessment and isolated probe, not an engine replacement decision.
+Date: October 14, 2026. Status: feasibility assessment, isolated probe, and migration input. The user subsequently selected this backend and accepted AGPL-compatible distribution; see [work package 22](../plans/22-mupdf-migration.md).
 
 ## Verdict
 
 `mupdf-rs` is technically capable of replacing the current PDF reading backend, and it offers the missing primitive needed for the memory problem: record a page once as a display list, then replay only the requested device rectangle into a clipped pixmap. The smallest viable migration keeps `breeze-pdf` as the adapter, keeps `lopdf` for the restricted annotation-copy exporter, and keeps all MuPDF types behind that crate boundary.
 
-The replacement is **not admissible under the current product constraints**. `mupdf-rs` is a safe Rust wrapper around `mupdf-sys`, which compiles MuPDF's C/C++ source. The crate and MuPDF are AGPL-3.0. The contributor guide currently forbids MuPDF and C/C++ PDF engines. Adopting this path therefore requires an explicit product and licensing decision before implementation.
+`mupdf-rs` is a safe Rust wrapper around `mupdf-sys`, which compiles MuPDF's C/C++ source. The user accepted AGPL-compatible distribution and authorized migration. Release/source obligations and adapter gates are tracked in work package 22.
 
-If that decision changes, this is the most direct path to true region rendering without waiting for a PDF Oxide upstream API. It is a backend migration, not a dependency rename.
+It is a backend migration, not a dependency rename; the adapter, coordinates, fidelity tests, and release builds remain to be implemented.
 
 ## Evidence inspected
 
@@ -76,7 +76,10 @@ Display lists are marked `Send` and `Sync` in the wrapper, but they retain a con
 
 ### Product and license
 
-The repository explicitly forbids MuPDF and C/C++ PDF engines. `mupdf` and `mupdf-sys` declare AGPL-3.0. A distributable Breeze binary would need a licensing review covering the application license, source-offer obligations, dynamic/static linkage, bundled MuPDF source, notices, and whether an Artifex commercial license is required. This is a release blocker, not a Cargo detail.
+The user accepted AGPL-compatible distribution and the workspace now declares
+AGPL-3.0-only. Each release still needs the exact source bundle, notices, build
+scripts, and a dependency/license inventory. Revisit Artifex commercial terms
+only if the product's distribution model changes.
 
 ### Build and packaging
 
@@ -92,13 +95,13 @@ The current `breeze-pdf` adapter depends directly on PDF Oxide types for page ge
 
 ## Recommended migration sequence if constraints change
 
-1. Record the license decision and update the product/architecture specifications before adding the dependency.
-2. Add a feature-gated, isolated MuPDF adapter inside `breeze-pdf`; do not add a runtime fallback engine or expose MuPDF types to `breeze-app`.
+1. Finish AGPL source archives, package notices and native build prerequisites before producing a release.
+2. Replace the `breeze-pdf` adapter; do not add a runtime fallback engine or expose MuPDF types to `breeze-app`.
 3. Implement metadata, outlines, text quads, page rotation/CropBox, thumbnails and whole-page rendering first. Keep annotations and export on the existing paths.
-4. Add display-list caching and clipped region replay. Use a byte budget for pixmaps and a separate budget for retained display lists. Make visible work outrank prediction and thumbnails according to the performance assessment.
-5. Add cancellation, source-revision checks, cache invalidation and worker-store limits. Verify all stale-result and close-document paths.
-6. Run pixel and semantic corpus comparisons against the current engine and an independent validator. Run the user's 343-page book in Release on macOS, Windows and Linux, recording open-to-first-frame, page-turn p50/p95/max, thumbnail arrival, private/RSS memory, GPU allocation and idle plateau.
-7. Only after those gates pass, remove PDF Oxide and update the lockfile, packaging, notices, contributor guide and release documentation.
+4. Add display-list caching and clipped region replay. Budget output pixmaps and retained display lists separately. Make visible work outrank prediction and thumbnails.
+5. Add cancellation, source-revision checks, cache invalidation and a measured MuPDF store policy. Verify stale-result and close-document paths.
+6. Run pixel and semantic corpus comparisons against the prior adapter and independent validators. Run the user's 343-page book in Release on macOS, Windows and Linux, recording open-to-first-frame, page-turn p50/p95/max, thumbnail arrival, private/RSS memory, GPU allocation and idle plateau.
+7. Remove PDF Oxide and historical reader code only after adapter parity, release-source packaging, and platform gates pass.
 
 ## Decision table
 
@@ -109,4 +112,4 @@ The current `breeze-pdf` adapter depends directly on PDF Oxide types for page ge
 | Is it a drop-in replacement? | No. `breeze-pdf` needs a substantial adapter rewrite and new fidelity tests. |
 | Does it preserve the current Rust-only engine constraint? | No. It brings MuPDF C/C++ through `mupdf-sys`. |
 | Is it license-neutral? | No. AGPL-3.0 requires a legal/product decision. |
-| Should Breeze adopt it immediately? | Only after the constraint and license decisions are changed. Otherwise keep the current engine and implement scheduler/memory fixes that do not require an engine swap. |
+| Is adoption authorized? | Yes. The user selected MuPDF and accepted AGPL-compatible distribution on October 14, 2026. Runtime migration and release gates remain in work package 22. |

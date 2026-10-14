@@ -1,16 +1,27 @@
 # Delivery Status
 
+## October 14 MuPDF migration authorized
+
+The user accepted AGPL-compatible source distribution and selected MuPDF through
+`mupdf-rs`. Phase 0 now declares `AGPL-3.0-only`, carries the root and MuPDF
+license texts into installer payloads, and builds a corresponding-source archive
+with vendored Cargo dependencies. Release CI is configured to upload and verify
+that archive. Local release tooling tests pass; the hosted workflow has not run.
+The committed runtime still uses PDF Oxide until phase 1 of
+[work package 22](22-mupdf-migration.md) is implemented.
+
 ## October 14 PDF engine strategy comparison
 
 [The strategy comparison](../specs/10-engine-strategy-comparison.md) recommends
-MuPDF via `mupdf-rs` as the long-term performance target, conditional on an explicit
-AGPL-compatible product license and a passing adapter/corpus/platform gate. Keep
+MuPDF via `mupdf-rs` as the selected backend, conditional on the migration's
+adapter/corpus/platform gates. The user explicitly accepted AGPL-compatible
+distribution. Keep
 the existing UI, core, storage and `lopdf` export boundaries. The option-2 scheduler
 improvements (visible-first service, byte admission, prediction backoff) are shared
 work and remain valuable under either engine. Sumatra-inspired scheduling alone
 does not bound PDF Oxide's whole-page output raster; a maintained region renderer
 would still be required for the same high-DPI memory objective. No product license
-or backend selection has been changed.
+or runtime dependency switch is complete yet.
 
 ## October 14 MuPDF Rust binding assessment
 

@@ -18,7 +18,14 @@ WIX = {"w": "http://schemas.microsoft.com/wix/2006/wi"}
 APPLE = "aarch64-apple-darwin"
 WINDOWS = "x86_64-pc-windows-msvc"
 LINUX = "x86_64-unknown-linux-gnu"
-DOCUMENTS = ("VERSION", "Cargo.lock", "README.md", "RELEASE-NOTES.md")
+DOCUMENTS = (
+    "VERSION",
+    "LICENSE",
+    "Cargo.lock",
+    "README.md",
+    "RELEASE-NOTES.md",
+    "SOURCE-CODE.txt",
+)
 
 
 class ReleaseTests(unittest.TestCase):
@@ -183,6 +190,8 @@ class ReleaseTests(unittest.TestCase):
                 for name in DOCUMENTS:
                     self.assertIn(f"{documents}/{name}".lstrip("./"), files)
                 self.assertIn(f"{documents}/licenses/LICENSE-LUCIDE.txt".lstrip("./"), files)
+                self.assertIn(f"{documents}/licenses/COPYING-MUPDF.txt".lstrip("./"), files)
+                self.assertIn(f"{documents}/licenses/NOTICE-MUPDF.md".lstrip("./"), files)
                 self.assertEqual(
                     (payload / documents / "VERSION").read_text(encoding="utf-8"),
                     version + "\n",

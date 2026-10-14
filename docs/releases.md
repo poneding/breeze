@@ -1,5 +1,13 @@
 # Release automation
 
+## AGPL source
+
+Breeze is licensed under AGPL-3.0-only. Installers include the application
+license, MuPDF's license text, and a corresponding-source pointer. Each tagged
+release also publishes `Breeze-<version>-source.tar.gz`, containing the exact
+source revision, `Cargo.lock`, build/release scripts, and vendored locked Cargo
+source packages, with a SHA-256 checksum.
+
 ## Scope and limitations
 
 Tag pushes build **unsigned development installers**, not production-accepted

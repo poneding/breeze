@@ -5,17 +5,18 @@
 | Component | Decision |
 |---|---|
 | GPUI Kit 0.7.0 / GPUI snapshot 0.3.7 | Adopted for the native prototype |
-| `pdf_oxide` 0.3.78 | Provisional read-only parser/renderer, not a production fidelity approval |
+| `mupdf` 0.8.0 / MuPDF | Selected October 14, 2026; native rendering backend under migration and validation |
 | `office_oxide` 0.1.9 | Keep the verified transitive version in `Cargo.lock` |
 | PDF page content | Read-only; content editing is not a product capability |
 | `lopdf` 0.45.0 | Adopted for restricted annotation-copy export |
-| Alternative native PDF engines | Not authorized |
+| Alternative native PDF engines | PDFium and Poppler are not authorized |
 
-The October 14, 2026 `mupdf-rs` assessment is a feasibility record only. It
-found a viable clipped display-list API and lower isolated region-rendering cost,
-but did not change the decision above. MuPDF adoption remains blocked by the
-Rust-only/C++ engine constraint, AGPL-3.0 licensing, and unperformed three-platform
-fidelity/build acceptance. See [the detailed assessment](09-mupdf-rs-assessment.md).
+The user selected MuPDF through `mupdf-rs` on October 14, 2026 and accepted
+AGPL-compatible source distribution. The earlier feasibility measurements are
+not production acceptance. Native three-platform builds, PDF corpus fidelity,
+memory budgets, installer notices/source availability, and the application
+adapter migration remain gates. See the [migration plan](../plans/22-mupdf-migration.md)
+and [strategy assessment](10-engine-strategy-comparison.md).
 
 The exploratory executable, raw reports, screenshots, and temporary fixtures were removed during repository cleanup. The observations below are retained as a **historical decision record**, not as a currently reproducible benchmark suite. Recreate focused, versioned tests before relying on them for a production decision.
 

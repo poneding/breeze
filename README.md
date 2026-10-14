@@ -2,6 +2,11 @@
 
 A compact, native Rust reading application built with GPUI Kit. PDF is the first backend, not the product's format boundary.
 
+Breeze is distributed under the GNU Affero General Public License v3.0 only;
+see [LICENSE](LICENSE). The project selected MuPDF through `mupdf-rs`, which is
+also AGPL-licensed; the backend migration is in progress. Release packages will
+include MuPDF's license notice and the corresponding-source archive location.
+
 **Current delivery:** a local reader with durable library/settings, search, glyph-based rectangular selection, and fingerprinted sidecar annotations. Restricted standard-annotation export and opening-window policies are implemented; original-content PDF editing and production acceptance remain gated. See the [implementation roadmap](docs/plans/README.md) and [delivery status](docs/plans/STATUS.md).
 
 ## Run
@@ -17,8 +22,8 @@ The bundled eight-page sample is available from Home. The UI currently uses Chin
 
 - Rust 1.97 or newer; CI specifies 1.97.1.
 - macOS 15+ with Xcode Command Line Tools.
-- Windows 10+ with MSVC Rust, Visual Studio C++ Build Tools, Windows SDK, and CMake.
-- Ubuntu 24.04 is the initial Linux baseline; install the libraries in [CI](.github/workflows/ci.yml), use a graphical Wayland/X11 session, and provide a working Vulkan driver.
+- Windows 10+ with MSVC Rust, Visual Studio C++ Build Tools, Windows SDK, CMake, LLVM/libclang, and MSVC-compatible native build tools.
+- Ubuntu 24.04 is the initial Linux baseline; install the libraries in [CI](.github/workflows/ci.yml), including a C/C++ toolchain, libclang, Fontconfig and FreeType development files; use a graphical Wayland/X11 session and provide a working Vulkan driver.
 
 Native development checks have run on an Apple M1 Pro with macOS 15.7.9. Windows/Linux runtime acceptance is still pending. No WebView, Node.js, or Python runtime is required.
 
@@ -27,7 +32,7 @@ Native development checks have run on an Apple M1 Pro with macOS 15.7.9. Windows
 Use GNU Make from the repository root (`make` shows help). On Windows, run it in a POSIX environment such as Git Bash with GNU Make installed and the MSVC Rust toolchain available; the Cargo commands above remain usable directly in PowerShell.
 
 | Command | Purpose |
-|---|---|
+| --- | --- |
 | `make check` | Check formatting and compile all workspace targets |
 | `make lint` | Run Clippy with warnings treated as errors |
 | `make test` | Run Rust tests and the Python 3.11+ release-tool tests |
@@ -125,18 +130,17 @@ open target/Breeze.app
 
 ## Automated releases
 
-Pushing a SemVer tag (for example `v0.1.0` or `v0.2.0-rc.1`) triggers the [release workflow](.github/workflows/release.yml). The tag version must exactly match the workspace version in `Cargo.toml`. After checks and all four builds succeed, it publishes a macOS `.dmg` for Apple Silicon and Intel, Windows `.msi` and setup `.exe`, and Linux `.deb` and `.AppImage`, each with a SHA-256 checksum; prerelease tags are marked accordingly. A manual run of the same workflow builds and verifies every installer without publishing.
+Pushing a SemVer tag (for example `v0.1.0` or `v0.2.0-rc.1`) triggers the [release workflow](.github/workflows/release.yml). The tag version must exactly match the workspace version in `Cargo.toml`. After checks, all four builds, and source-bundle creation succeed, it publishes a macOS `.dmg` for Apple Silicon and Intel, Windows `.msi` and setup `.exe`, Linux `.deb` and `.AppImage`, plus the AGPL corresponding-source archive, each with a SHA-256 checksum. A manual run builds and verifies installers and source without publishing a release.
 
 These are unsigned development installers, not production acceptance: macOS packages are neither Developer ID signed nor notarized and Windows packages are not code-signed, so Gatekeeper and SmartScreen warn before installation. See [release instructions and limitations](docs/releases.md) for versioning, prerequisites, installed layout, per-platform install steps, and safe reruns. Python 3.11+ is used only for development/CI packaging and its tests, not by the application.
 
 ## Dependency constraints
 
-GPUI Kit is pinned to 0.7.0, PDF Oxide to 0.3.78, and the annotation writer (`lopdf`) to 0.45.0. Other previously locked dependency versions were retained. Keep the lockfile's `office_oxide` at 0.1.9 until its pairing is revalidated. Do not blanket-update dependencies, patch the Cargo registry, or replace the pure Rust engine to hide a fidelity/performance failure. The high-level PDF DOM editor is not an approved structural-editing path.
+GPUI Kit is pinned to 0.7.1, the selected MuPDF Rust bindings are 0.8.0, and the annotation writer (`lopdf`) is 0.45.0. The MuPDF dependency switch is in progress; consult [work package 22](docs/plans/22-mupdf-migration.md) for phase status. Other previously locked dependency versions are retained. Keep `office_oxide` at 0.1.9 until its pairing is revalidated. Use MuPDF only through the `mupdf` safe API inside `breeze-pdf`; do not add a fallback PDF engine. The high-level PDF DOM editor is not an approved structural-editing path.
 
 PDF Oxide's high-level annotation Contents decoder has a known UTF-16 issue. Exported Unicode notes were independently verified with pypdf and PDFKit; standard encoding is not changed to hide that reader defect. External verification tools (Poppler, PDFKit, and pypdf) are not application dependencies.
 
 Generated screenshots, reports, bundles, and test state belong under ignored `target/`, not in version control.
-
 
 ## Publishing update metadata
 

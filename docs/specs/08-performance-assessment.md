@@ -1,12 +1,12 @@
 # Reader performance assessment: lessons from SumatraPDF
 
-Date: October 14, 2026. Status: research and local measurements, not an implemented optimization or production acceptance.
+Date: October 14, 2026. Status: research and local measurements. The subsequent engine decision and migration status are tracked in [work package 22](../plans/22-mupdf-migration.md).
 
 ## Recommendation
 
 Start with **prefetch admission and scheduling fairness**, then measure and reduce document/resource ownership costs. Pursue **true region rendering in the published Rust engine** as the structural remedy for memory growth at large display sizes and zoom levels. Retained page preparation is a separate improvement for repeated rendering.
 
-SumatraPDF provides useful examples of doing less work, retaining useful results, and abandoning obsolete work. Its MuPDF backend is not an authorized dependency for Breeze. Nothing in this assessment proposes restoring the retired vendor tree, lowering final page resolution, or changing PDF content.
+SumatraPDF provides useful examples of doing less work, retaining useful results, and abandoning obsolete work. The user subsequently selected MuPDF through `mupdf-rs`; this assessment is conceptual guidance and does not authorize copying SumatraPDF's GPL implementation.
 
 ## Scope and evidence
 
@@ -150,7 +150,14 @@ Verification for this documentation-only investigation: the locked Release probe
 
 The stock `render_page_region` is explicitly a full-page render followed by decoding/cropping/re-encoding; it cannot deliver the region-memory improvement. Do not replace the current path with that function and call it tiling. A hard bound on the visible page's pixels while preserving arbitrary zoom requires genuine engine support. App-side prefetch fixes can reduce waste in the meantime, but cannot provide that guarantee.
 
-Do not begin with more rendering threads, a larger cache, lower final DPI, removal of ICC/antialiasing, or an engine replacement. A bounded display-list cache and thumbnail lane also need memory budgets; caching everything would recreate the original problem. Sumatra's GPLv3 C++ implementation is a reference for mechanisms, not code to transplant into the Rust application.
+This assessment originally left engine choice open. The user subsequently
+selected MuPDF via `mupdf-rs`; see [the strategy decision](10-engine-strategy-comparison.md)
+and [migration plan](../plans/22-mupdf-migration.md). More rendering threads, a
+larger cache, lower final DPI, or removal of ICC/antialiasing are not substitutes
+for measured region rendering. A bounded display-list cache and thumbnail lane
+also need memory budgets; caching everything would recreate the original
+problem. Sumatra's GPLv3 C++ implementation is a reference for mechanisms, not
+code to transplant into Breeze.
 
 For the next application benchmark, use an isolated `BREEZE_DATA_DIR` and a local copy/reference of the user's input, plus redistributable text/CJK/image/scan/complex-vector fixtures. Record build identity, hardware/OS, logical and device viewport sizes, scale factor, fit mode, sidebar state and exact page sequence. Measure launch/open-to-first-readable-frame, thumbnail-first/all-visible arrival, page-turn p50/p95/max, cache hits, wasted/aborted work, idle CPU, process private/RSS memory, GPU allocations and close-after-idle behavior. Run an equivalent native Windows workload in SumatraPDF before promising its 120 MB figure as an attainable Breeze target.
 
