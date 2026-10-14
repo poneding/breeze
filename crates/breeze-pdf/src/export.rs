@@ -6,6 +6,7 @@ use super::{Source, read_source};
 use anyhow::{Context, Result, bail, ensure};
 use breeze_core::annotations::{Annotation, Kind, Rect};
 use lopdf::{Dictionary, Document, Object, ObjectId, StringFormat, dictionary};
+use mupdf::pdf::PdfDocument as MuPdfDocument;
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -179,15 +180,26 @@ pub fn export_annotations(request: ExportRequest) -> Result<ExportReceipt> {
         }
     }
     // Independently parse page/annotation structure with the reader engine, not just the writer.
-    let reader = pdf_oxide::PdfDocument::open(staged.path())?;
+    let reader = MuPdfDocument::open(staged.path())?;
     ensure!(
-        reader.page_count()? == pages.len(),
+        usize::try_from(reader.page_count()?)? == pages.len(),
         "Independent parser rejected page count"
     );
     for (&number, ids) in &additions {
+        let page = reader.load_pdf_page(number as i32 - 1)?;
+        let annots = page.object().get_dict("Annots")?;
+        let annotation_count = if let Some(annots) = annots {
+            let annots = annots.resolve()?.unwrap_or(annots);
+            ensure!(
+                annots.is_array()?,
+                "Independent parser found invalid Annots"
+            );
+            annots.len()?
+        } else {
+            0
+        };
         ensure!(
-            reader.get_annotations(number as usize - 1)?.len()
-                == original_annots[&number].len() + ids.len(),
+            annotation_count == original_annots[&number].len() + ids.len(),
             "Independent parser did not read exported annotations"
         );
     }

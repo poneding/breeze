@@ -25,9 +25,9 @@ dirs = "7.0.0"
 breeze-storage = { path = "crates/breeze-storage" }
 gpui-kit = "=0.7.1"
 lopdf = { version = "=0.45.0", default-features = false }
-pdf_oxide = { version = "=0.3.78", default-features = false, features = [
-    "rendering",
-    "icc",
+mupdf = { version = "=0.8.0", default-features = false, features = [
+    "base14-fonts",
+    "system-fonts",
 ] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"

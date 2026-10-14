@@ -46,32 +46,39 @@ is feasibility evidence, not application acceptance.
 
 ### 1. MuPDF adapter compatibility
 
-- [ ] Replace `pdf_oxide` calls inside `breeze-pdf` while preserving the
+- [x] Replace `pdf_oxide` calls inside `breeze-pdf` while preserving the
   application-facing `PdfWorker`, `Page`, `Glyph`, `Outline`, `Pixels`, search,
   and fingerprint contracts.
 - [ ] Open external documents file-backed in MuPDF. Stream the source SHA-256
   and recheck file identity around open to avoid duplicate full-source buffers.
-- [ ] Map page count, MediaBox/CropBox, rotation, UserUnit policy, outline
+- [x] Map page count, MediaBox/CropBox, rotation, UserUnit policy, outline
   destinations, text quads, thumbnails, and whole-page output.
-- [ ] Keep document/page/display-list objects on the worker thread. Convert
+- [x] Keep document/page objects on the worker thread. Convert
   samples to owned pixels before returning through the bounded job queue.
 - [ ] Add focused regressions for open errors, geometry, outline flattening,
   password rejection, stale generations, cancellation, BGRA/alpha, and source
-  modification during open.
+  modification during open. Existing tests cover geometry, outlines, stale
+  generations, cancellation, and channel conversion; encrypted-document and
+  deterministic source-mutation-during-open tests are still missing.
 
 ### 2. Clipped device-region rendering
 
-- [ ] Record page display lists on demand and cache them with a strict entry/byte
-  policy. Invalidate them on source identity change.
-- [ ] Change page-raster results to carry device regions, origins, page-space
+- [x] Render clipped page regions on demand into byte-bounded pixmaps. The
+  current adapter replays the page directly through MuPDF's clipped device; it
+  does not retain display lists. Region keys include the source page-space
+  origin and view rotation.
+- [x] Return page-raster results with device regions, page-space
   clips, effective scale, rotation, source fingerprint, and owned pixel data.
-- [ ] Schedule viewport/adjacent regions with visible work first, byte admission
+- [x] Schedule viewport/adjacent regions with visible work first, byte admission
   before lookahead, stale-request cancellation, and stable prediction admission.
-- [ ] Paint region textures at matching page bounds, preserving annotation,
+- [x] Paint region textures at matching page bounds, preserving annotation,
   selection, search, scroll anchoring, and rotation transforms.
-- [ ] Test all view rotations, PDF `/Rotate`, CropBox/nonzero origins, fractional
-  DPI, zoom replacement, tile seams, images/masks/transparency/ICC, source
-  changes, and GPU atlas eviction.
+- [x] Verify region stitching against whole-page output for four view rotations,
+  PDF `/Rotate`, a nonzero CropBox, fractional-DPI whole-page output, zoom
+  replacement, tile seams at 72 DPI, and GPU atlas eviction.
+- [ ] Verify image/mask/transparency/ICC fidelity across a representative corpus
+  and source changes. A damaged JPEG is currently omitted by MuPDF 0.8.0 without
+  a reported Cookie error; the incomplete-page test remains a release gate.
 - [ ] Establish an effective MuPDF resource-store bound. Published `mupdf 0.8.0`
   does not expose the newer safe store-size setter found in its repository
   branch. If measurements exceed the budget, evaluate a narrowly scoped wrapper
@@ -79,12 +86,14 @@ is feasibility evidence, not application acceptance.
 
 ### 3. Search and fidelity parity
 
-- [ ] Move search extraction to MuPDF structured text or display-list search;
-  preserve the 300-result limit and cancellation behavior.
+- [x] Move search extraction to MuPDF structured text.
+- [ ] Add regressions for the 300-result cap and cancellation contract. The
+  cancellation test passes; the cap is present in code but has no focused test.
 - [ ] Compare semantic text and glyph quads on the existing corpus before
   switching annotation/selection geometry to the new adapter.
 - [ ] Keep rendering errors visible. Do not turn unsupported or malformed
-  drawing operations into successful blank/partial pages.
+  drawing operations into successful blank/partial pages. MuPDF's damaged-JPEG
+  behavior currently fails this gate.
 - [ ] Verify CJK/subset/Type 3 fonts, scans, JPEG2000/JBIG2, ICC/transparency,
   cropped/rotated pages, large page boxes, and malformed documents.
 
@@ -104,6 +113,10 @@ is feasibility evidence, not application acceptance.
 
 ## Current gate
 
-Phase 0 policy and license files are in progress. Runtime dependency and
-rendering code remain on PDF Oxide. Do not claim MuPDF is the active engine or
-that clipped regions are implemented until the corresponding phases pass.
+The source tree now selects MuPDF for the `breeze-pdf` reader adapter, and the
+viewport region path is implemented and covered by deterministic geometry and
+stitching tests. This is not production acceptance: the damaged-JPEG partial
+render, missing encrypted/source-race regressions, unbounded MuPDF store, broad
+fidelity corpus, Release same-workload benchmark, and native platform checks
+remain open. Do not mark a phase complete while its listed regressions or gates
+are outstanding.

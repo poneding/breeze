@@ -170,6 +170,8 @@ catalog! {
     "Theme unavailable: {}" => ("主题不可用：{}", "主題不可用：{}"),
     "Follow system" => ("跟随系统", "跟隨系統"),
     "Page tiles exceed the memory budget" => ("页面分块超过内存预算", "頁面分塊超過記憶體預算"),
+    "Page region exceeds the raster memory budget" => ("页面区域超过栅格内存预算", "頁面區域超過點陣圖記憶體預算"),
+    "Visible page regions exceed the raster memory budget" => ("可见页面区域超过栅格内存预算", "可見頁面區域超過點陣圖記憶體預算"),
     "The visible region exceeds the display memory budget" => ("当前可见区域超过清晰显示内存预算", "目前可見區域超過清晰顯示記憶體預算"),
     "Rendered region size mismatch" => ("渲染区域大小不一致", "渲染區域大小不一致"),
     "Unsupported page zoom" => ("不支持的页面缩放", "不支援的頁面縮放"),

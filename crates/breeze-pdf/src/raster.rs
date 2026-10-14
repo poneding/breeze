@@ -64,7 +64,13 @@ mod tests {
     }
 
     fn first_bytes(pixels: &Pixels) -> Vec<u8> {
-        pixels.bgra.chunks_exact(4).map(|pixel| pixel[0]).collect()
+        pixels
+            .bgra
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|pixel| pixel[0])
+            .collect()
     }
 
     #[test]

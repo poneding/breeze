@@ -24,7 +24,7 @@ pub(super) fn brand_logo() -> Option<Arc<RenderImage>> {
         .to_rgba8();
     let (width, height) = resized.dimensions();
     let mut pixels = resized.into_raw();
-    for pixel in pixels.chunks_exact_mut(4) {
+    for pixel in pixels.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     let buffer = image::RgbaImage::from_raw(width, height, pixels)?;

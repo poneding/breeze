@@ -30,13 +30,9 @@ fn damaged_image_pdf() -> Vec<u8> {
     bytes
 }
 
-/// The stock engine logs a failed image draw and returns a successful raster with
-/// that content missing, so the reader cannot tell an incomplete page from a
-/// complete one. This test states the requirement it does not currently meet: it
-/// passed against the retired `vendor/pdf_oxide` copy, whose rendering-integrity
-/// change made those draws fail. Re-enable it when that change reaches an
-/// upstream release.
-#[ignore = "requires the retired engine patch that propagates draw failures"]
+/// MuPDF 0.8.0 can omit a damaged JPEG without reporting an error through Cookie.
+/// Keep this end-to-end case as a release gate until that behavior is resolved.
+#[ignore = "MuPDF 0.8.0 can publish a page with a damaged JPEG omitted"]
 #[gpui_kit::test]
 async fn damaged_image_shows_a_real_page_error_and_navigation_recovers(cx: &mut TestAppContext) {
     let folder = tempfile::tempdir().unwrap();

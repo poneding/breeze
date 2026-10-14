@@ -1,44 +1,48 @@
-//! Page scheduling: whole-page rasters at the density the reader's surface
-//! needs, with the pages a reader is about to reach prepared ahead.
-//!
-//! A page is rendered as one raster because the engine exposes no way to
-//! rasterize a sub-region; the trade is that a page's cost grows with its size
-//! and zoom rather than being bounded by the viewport. The visible page is
-//! therefore never refused and never evicted, while the cache ceiling applies to
-//! the pages that are only being predicted.
+//! Schedule clipped MuPDF page regions at the reader surface's device density.
 use crate::*;
 use breeze_core::Rotation;
 use breeze_core::annotations::ViewGeometry;
 use std::collections::{HashMap, VecDeque};
 
-// Ceiling on rasters whose pages are not currently visible. The visible page is
-// always resident: a deep zoom costs memory rather than being refused.
+// Byte ceiling on retained page-region textures.
 const BUDGET: usize = 96 * 1024 * 1024;
+const MAX_PREDICTED_BYTES: usize = 56 * 1024 * 1024;
 
-/// Identity of one rendered page: the same page turned the other way, or asked
-/// for at another density, is another raster.
+/// Identity of one rendered page region and density.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct Key {
     page: usize,
     rotation: Rotation,
     scale_bits: u32,
+    region_bits: [u32; 4],
 }
 impl Key {
-    fn new(page: usize, rotation: Rotation, scale: f32) -> Self {
+    fn new(page: usize, rotation: Rotation, scale: f32, region: [f32; 4]) -> Self {
         Self {
             page,
             rotation,
             scale_bits: scale.to_bits(),
+            region_bits: region.map(f32::to_bits),
         }
     }
     fn scale(self) -> f32 {
         f32::from_bits(self.scale_bits)
     }
-    /// Whole-DPI density to ask the engine for. It takes an integer DPI, so the
-    /// request rounds up: the result carries at or just above the density the
-    /// surface asked for, and painting scales that small difference back out.
-    fn requested_dpi(self) -> u32 {
-        (f64::from(self.scale()) * 72.).ceil() as u32
+    fn region(self) -> [f32; 4] {
+        self.region_bits.map(f32::from_bits)
+    }
+    fn region_rect(self) -> breeze_core::annotations::Rect {
+        let region = self.region();
+        breeze_core::annotations::Rect {
+            x: region[0],
+            y: region[1],
+            width: region[2] - region[0],
+            height: region[3] - region[1],
+        }
+    }
+    fn intersects(self, rect: [f32; 4]) -> bool {
+        let region = self.region();
+        region[0] < rect[2] && region[2] > rect[0] && region[1] < rect[3] && region[3] > rect[1]
     }
 }
 
@@ -124,9 +128,20 @@ impl RasterView {
         self.views.iter().any(|view| {
             view.page == key.page
                 && view.rotation == key.rotation
+                && key.intersects(view.rect)
                 && view.scale != key.scale()
-                && !self.contains(Key::new(view.page, view.rotation, view.scale))
-                && !self.errors.contains_key(&key)
+                && {
+                    let replacements = self.wanted.iter().filter(|wanted| {
+                        wanted.page == key.page
+                            && wanted.rotation == key.rotation
+                            && wanted.scale() == view.scale
+                            && wanted.intersects(key.region())
+                            && wanted.intersects(view.rect)
+                    });
+                    let mut replacements = replacements.peekable();
+                    replacements.peek().is_none()
+                        || replacements.any(|wanted| !self.contains(*wanted))
+                }
         })
     }
     /// Drop rasters that are neither wanted, predicted, nor bridging a visible
@@ -154,17 +169,29 @@ impl RasterView {
     fn commit(&mut self, demand: Demand, cx: &mut App) -> Result<()> {
         let mut wanted = Vec::new();
         for view in &demand.views {
-            let key = Key::new(view.page, view.rotation, view.scale);
-            if !wanted.contains(&key) {
-                wanted.push(key);
+            for key in keys(*view)? {
+                if !wanted.contains(&key) {
+                    wanted.push(key);
+                }
             }
         }
-        // Prediction is bounded by how many pages lookahead asks for, not by a
-        // byte estimate: the ceiling is applied when a raster is resident, and
-        // the visible page is never subject to it.
         let mut prefetch = Vec::new();
         for key in demand.prefetch {
             if !wanted.contains(&key) && !prefetch.contains(&key) {
+                let (width, height) = region_pixel_dimensions(key);
+                let bytes = width.saturating_mul(height).saturating_mul(4);
+                let admitted = prefetch
+                    .iter()
+                    .map(|key| {
+                        let (width, height) = region_pixel_dimensions(*key);
+                        width.saturating_mul(height).saturating_mul(4)
+                    })
+                    .sum::<usize>();
+                if bytes > MAX_PREDICTED_BYTES
+                    || admitted.saturating_add(bytes) > MAX_PREDICTED_BYTES
+                {
+                    continue;
+                }
                 prefetch.push(key);
             }
         }
@@ -187,12 +214,17 @@ impl RasterView {
     }
     fn insert(&mut self, key: Key, pixels: Pixels, cx: &mut App) -> Result<()> {
         let bytes = pixels.bgra.len();
-        let image = texture(pixels)?;
+        anyhow::ensure!(
+            bytes <= BUDGET,
+            tr!("Page region exceeds the raster memory budget")
+        );
         self.retire_obsolete(cx);
-        // Evict predicted or obsolete rasters before this one, oldest first, and
-        // never the visible page. When there is nothing left to evict the cache
-        // grows instead of refusing the page the reader is looking at.
-        while self.cache.iter().map(|e| e.2).sum::<usize>() + bytes > BUDGET {
+        if let Some(index) = self.cache.iter().position(|entry| entry.0 == key)
+            && let Some((_, image, _)) = self.cache.remove(index)
+        {
+            cx.defer(move |cx| cx.drop_image(image, None));
+        }
+        while self.cache.iter().map(|entry| entry.2).sum::<usize>() + bytes > BUDGET {
             match self
                 .cache
                 .iter()
@@ -203,14 +235,11 @@ impl RasterView {
                         cx.defer(move |cx| cx.drop_image(image, None));
                     }
                 }
-                None => break,
+                None => anyhow::bail!(tr!("Visible page regions exceed the raster memory budget")),
             }
         }
-        self.cache.retain(|(existing, _, _)| *existing != key);
+        let image = texture(pixels)?;
         self.cache.push_back((key, image, bytes));
-        // The density this one replaces has just stopped being the only picture a
-        // visible page has, so it is retired in the same update instead of waiting
-        // for the next scheduling pass.
         self.retire_obsolete(cx);
         Ok(())
     }
@@ -233,11 +262,19 @@ impl RasterView {
             self.errors.insert(key, message);
         }
     }
-    fn images(&self, view: Viewport) -> Vec<(Key, Arc<RenderImage>)> {
+    fn images(&self, view: Viewport) -> Vec<(Key, Arc<RenderImage>, [f32; 4])> {
         let mut images = Vec::new();
-        // A raster of another density stays under the new one while it is being
-        // prepared. This is presentation only: the final pixels still match the
-        // density the surface asked for.
+        let visible_tiles = self
+            .wanted
+            .iter()
+            .filter(|key| {
+                key.page == view.page && key.rotation == view.rotation && key.intersects(view.rect)
+            })
+            .collect::<Vec<_>>();
+        let visible_ready =
+            !visible_tiles.is_empty() && visible_tiles.iter().all(|key| self.contains(**key));
+        // Keep older tiles underneath the new ones until all currently visible
+        // tiles are ready at their requested scale.
         for exact in [false, true] {
             images.extend(
                 self.cache
@@ -246,22 +283,71 @@ impl RasterView {
                         key.page == view.page
                             && key.rotation == view.rotation
                             && (key.scale() == view.scale) == exact
+                            && key.intersects(view.rect)
                             && !self.errors.contains_key(key)
+                            && (exact || !visible_ready)
                     })
-                    .map(|(key, image, _)| (*key, image.clone())),
+                    .map(|(key, image, _)| (*key, image.clone(), key.region())),
             );
         }
         images
     }
 }
 
-/// One raster per visible page at the density the surface asked for.
+/// Grid-aligned clipped rasters intersecting one page viewport.
 fn keys(view: Viewport) -> Result<Vec<Key>> {
     anyhow::ensure!(
         view.scale.is_finite() && view.scale > 0. && view.scale <= 64.,
         tr!("Unsupported page zoom")
     );
-    Ok(vec![Key::new(view.page, view.rotation, view.scale)])
+    let visible = breeze_core::annotations::Rect {
+        x: view.rect[0],
+        y: view.rect[1],
+        width: view.rect[2] - view.rect[0],
+        height: view.rect[3] - view.rect[1],
+    };
+    let mut keys = breeze_pdf::page_region_tiles(view.points, view.scale, visible)?
+        .into_iter()
+        .map(|region| {
+            Key::new(
+                view.page,
+                view.rotation,
+                view.scale,
+                [
+                    region.x,
+                    region.y,
+                    region.x + region.width,
+                    region.y + region.height,
+                ],
+            )
+        })
+        .collect::<Vec<_>>();
+    let center = (
+        (view.rect[0] + view.rect[2]) / 2.,
+        (view.rect[1] + view.rect[3]) / 2.,
+    );
+    keys.sort_by(|left, right| {
+        let distance = |key: &Key| {
+            let region = key.region();
+            let dx = (region[0] + region[2]) / 2. - center.0;
+            let dy = (region[1] + region[3]) / 2. - center.1;
+            dx.mul_add(dx, dy * dy)
+        };
+        distance(left).total_cmp(&distance(right))
+    });
+    Ok(keys)
+}
+
+fn region_pixel_dimensions(key: Key) -> (usize, usize) {
+    let region = key.region();
+    (
+        (f64::from(region[2] - region[0]) * f64::from(key.scale()))
+            .ceil()
+            .max(1.) as usize,
+        (f64::from(region[3] - region[1]) * f64::from(key.scale()))
+            .ceil()
+            .max(1.) as usize,
+    )
 }
 impl Breeze {
     fn lookahead(&self, view: Viewport, display: f32, window: &Window) -> Result<Vec<Key>> {
@@ -346,8 +432,7 @@ impl Breeze {
             }
         }
         result.sort_by(|a, b| {
-            // One raster covers a whole page, so the only useful order is by page:
-            // nearest first, in the direction the reader is already moving.
+            // Prepare nearby tiles before predicted pages in the current direction.
             let score = |key: &Key| {
                 let forward = key.page >= view.page;
                 let distance = key.page.abs_diff(view.page) as f32;
@@ -443,13 +528,24 @@ impl Breeze {
                         })
                     },
                     move |bounds, images, window, cx| {
-                        // The raster covers the whole page, including when it was
-                        // prepared at another density, so it is painted across the
-                        // page surface and the density difference becomes a scale.
-                        for (key, image) in images {
+                        let (page_width, page_height) = geometry.size();
+                        let scale_x = f32::from(bounds.size.width) / page_width;
+                        let scale_y = f32::from(bounds.size.height) / page_height;
+                        for (key, image, region) in images {
+                            let image_bounds = Bounds {
+                                origin: point(
+                                    bounds.origin.x + px(region[0] * scale_x),
+                                    bounds.origin.y + px(region[1] * scale_y),
+                                ),
+                                size: size(
+                                    px((region[2] - region[0]) * scale_x),
+                                    px((region[3] - region[1]) * scale_y),
+                                ),
+                            };
+                            let (destination, mapped) = region_paint_rects(image_bounds);
                             if let Err(error) = window.paint_image(
-                                bounds,
-                                bounds,
+                                destination,
+                                mapped,
                                 Corners::default(),
                                 image,
                                 0,
@@ -501,11 +597,12 @@ impl Breeze {
             return false;
         };
         let generation = self.generation;
-        let receiver = match self.worker.request_page(
+        let receiver = match self.worker.request_region(
             self.books[self.active].source.clone(),
             key.page,
             key.rotation,
             key.scale(),
+            key.region_rect(),
         ) {
             Ok(receiver) => receiver,
             Err(error) => {
@@ -533,29 +630,18 @@ impl Breeze {
                         let pixels = page
                             .pixels
                             .ok_or_else(|| anyhow::anyhow!(tr!("Page pixels are missing")))?;
-                        // The engine can round the density up to whole DPI, and can
-                        // also reduce it to fit its own budget. Only the first is
-                        // acceptable: the surface asked for this density and the
-                        // raster is cached under it.
                         let resolution =
                             tr!("The renderer did not return the requested resolution");
-                        // The engine rounds the density up to whole DPI, and can also
-                        // reduce it to fit its own budget. Both sides compare that
-                        // DPI integer, so only rounding up is accepted here.
-                        let dpi = key.requested_dpi();
+                        let dpi = (f64::from(key.scale()) * 72.).ceil() as u32;
                         anyhow::ensure!(page.rendered_dpi == Some(dpi), resolution);
-                        // The surface asked for this page at this density in this
-                        // orientation, so the returned raster has to cover exactly
-                        // that. One pixel of slack absorbs the engine's rounding.
-                        let rendered = dpi as f32 / 72.;
-                        let view = key.rotation.apply(this.reading.sizes[key.page]);
-                        let expected = (
-                            (f64::from(view.0) * f64::from(rendered)).ceil() as u32,
-                            (f64::from(view.1) * f64::from(rendered)).ceil() as u32,
-                        );
+                        let expected = region_pixel_dimensions(key);
+                        let Some(region) = page.region else {
+                            anyhow::bail!(resolution);
+                        };
+                        anyhow::ensure!(region == key.region_rect(), resolution);
                         anyhow::ensure!(
-                            pixels.width.abs_diff(expected.0) <= 1
-                                && pixels.height.abs_diff(expected.1) <= 1,
+                            pixels.width.abs_diff(u32::try_from(expected.0)?) <= 1
+                                && pixels.height.abs_diff(u32::try_from(expected.1)?) <= 1,
                             resolution
                         );
                         this.raster.insert(key, pixels, cx)
@@ -571,12 +657,68 @@ impl Breeze {
         true
     }
 }
+
+/// Rects handed to [`Window::paint_image`] for one region raster.
+///
+/// That API takes the on-screen destination and the rect the texture is mapped
+/// onto, then samples the part of the texture under their intersection. A region
+/// raster is the entire texture for its tile, so the tile is both rects: the
+/// whole texture is sampled and drawn across the tile. Passing the page surface
+/// as the mapping rect instead samples the tile's fraction of the page and
+/// stretches that crop over the tile, which shows up as enlarged region blocks
+/// overlapping each other.
+fn region_paint_rects(
+    tile: Bounds<gpui_kit::Pixels>,
+) -> (Bounds<gpui_kit::Pixels>, Bounds<gpui_kit::Pixels>) {
+    (tile, tile)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// The slice of a texture `Window::paint_image` samples, as fractions of the
+    /// texture: the destination rect expressed relative to the mapping rect.
+    fn sampled_fraction(
+        destination: Bounds<gpui_kit::Pixels>,
+        mapped: Bounds<gpui_kit::Pixels>,
+    ) -> [f32; 4] {
+        let x = (f32::from(destination.origin.x) - f32::from(mapped.origin.x))
+            / f32::from(mapped.size.width);
+        let y = (f32::from(destination.origin.y) - f32::from(mapped.origin.y))
+            / f32::from(mapped.size.height);
+        [
+            x,
+            y,
+            x + f32::from(destination.size.width) / f32::from(mapped.size.width),
+            y + f32::from(destination.size.height) / f32::from(mapped.size.height),
+        ]
+    }
+
     #[test]
-    fn a_viewport_maps_to_one_raster_at_the_density_it_asks_for() {
+    fn a_region_raster_samples_its_whole_texture_across_its_tile() {
+        let surface = Bounds {
+            origin: point(px(40.), px(20.)),
+            size: size(px(600.), px(800.)),
+        };
+        let tile = Bounds {
+            origin: point(px(140.), px(220.)),
+            size: size(px(200.), px(240.)),
+        };
+        let (destination, mapped) = region_paint_rects(tile);
+        assert_eq!(destination, tile, "the raster is scaled into its tile");
+        assert_eq!(
+            sampled_fraction(destination, mapped),
+            [0., 0., 1., 1.],
+            "the whole tile raster must be sampled"
+        );
+        // Mapping the texture onto the page surface would sample this tile's
+        // slice of the raster and stretch it over the tile.
+        assert_ne!(sampled_fraction(destination, surface), [0., 0., 1., 1.]);
+    }
+
+    #[test]
+    fn viewport_maps_to_stable_grid_regions_at_the_requested_density() {
         let view = Viewport {
             page: 4,
             rotation: Rotation::None,
@@ -585,32 +727,41 @@ mod tests {
             rect: [0., 0., 600., 300.],
         };
         let once = keys(view).unwrap();
-        assert_eq!(once.len(), 1, "one raster covers the visible page");
-        assert_eq!(once[0].page, 4);
-        assert_eq!(once[0].scale(), 2.3466);
-        // Whole DPI only: the engine rounds the density up, never down, and the
-        // surface caches the raster under the density it asked for.
-        assert_eq!(once[0].requested_dpi(), (2.3466f64 * 72.).ceil() as u32);
-        assert!(once[0].requested_dpi() as f32 / 72. >= once[0].scale());
-        // Orientation is part of the identity: the same page turned holds other
-        // pixels, so it is another raster.
+        assert!(once.len() > 1, "large visible areas are split into regions");
+        assert!(
+            once.iter()
+                .all(|key| key.page == 4 && key.scale() == view.scale)
+        );
+        assert!(once.iter().all(|key| key.intersects(view.rect)));
+        assert_eq!(once, keys(view).unwrap(), "tile order is deterministic");
+        let shifted = keys(Viewport {
+            rect: [100., 0., 600., 300.],
+            ..view
+        })
+        .unwrap();
+        assert!(once.iter().any(|key| shifted.contains(key)));
         let turned = keys(Viewport {
             rotation: Rotation::Right,
             ..view
         })
         .unwrap();
+        assert!(turned.iter().all(|key| key.rotation == Rotation::Right));
         assert_ne!(turned[0], once[0]);
         assert!(keys(Viewport { scale: 0., ..view }).is_err());
         assert!(keys(Viewport { scale: 1e6, ..view }).is_err());
     }
 
     #[test]
-    fn a_page_key_is_distinct_per_page_density_and_orientation() {
-        let base = Key::new(2, Rotation::None, 2.);
-        assert_eq!(base, Key::new(2, Rotation::None, 2.));
-        assert_ne!(base, Key::new(2, Rotation::Right, 2.));
-        assert_ne!(base, Key::new(2, Rotation::None, 2.5));
-        assert_ne!(base, Key::new(3, Rotation::None, 2.));
+    fn a_region_key_is_distinct_per_page_density_orientation_and_region() {
+        let base = Key::new(2, Rotation::None, 2., [0., 0., 256., 256.]);
+        assert_eq!(base, Key::new(2, Rotation::None, 2., [0., 0., 256., 256.]));
+        assert_ne!(base, Key::new(2, Rotation::Right, 2., [0., 0., 256., 256.]));
+        assert_ne!(base, Key::new(2, Rotation::None, 2.5, [0., 0., 256., 256.]));
+        assert_ne!(base, Key::new(3, Rotation::None, 2., [0., 0., 256., 256.]));
+        assert_ne!(
+            base,
+            Key::new(2, Rotation::None, 2., [256., 0., 512., 256.])
+        );
     }
 }
 
@@ -867,7 +1018,7 @@ mod continuity_tests {
                         rect: [0., 0., 600., 800.],
                     };
                     let new = Viewport { scale, ..old };
-                    let old_key = Key::new(0, Rotation::None, old_scale);
+                    let old_key = keys(old).unwrap()[0];
                     let mut raster = RasterView {
                         cache: [(old_key, marker.clone(), 4)].into_iter().collect(),
                         ..RasterView::default()
@@ -881,6 +1032,11 @@ mod continuity_tests {
                             cx,
                         )
                         .unwrap();
+                    let replacements = raster
+                        .wanted
+                        .iter()
+                        .filter(|key| key.intersects(old_key.region()) && key.intersects(new.rect))
+                        .count();
                     assert!(
                         !raster.images(new).is_empty(),
                         "{old_scale} -> {scale}: the previous density must bridge the change"
@@ -889,12 +1045,27 @@ mod continuity_tests {
                         .next_key(false)
                         .expect("the new density is requested");
                     raster.insert(fresh, pixels(fresh), cx).unwrap();
+                    if raster.wanted.len() > 1 {
+                        assert!(!raster.visible_ready());
+                    }
+                    if replacements > 1 && !raster.visible_ready() {
+                        assert!(
+                            raster
+                                .images(new)
+                                .iter()
+                                .any(|(key, _, _)| key.scale() == old_scale),
+                            "old pixels remain under partial replacement tiles"
+                        );
+                    }
+                    while let Some(fresh) = raster.next_key(false) {
+                        raster.insert(fresh, pixels(fresh), cx).unwrap();
+                    }
                     assert!(raster.visible_ready());
                     assert!(
                         raster
                             .images(new)
                             .iter()
-                            .all(|(key, _)| key.scale() == scale),
+                            .all(|(key, _, _)| key.scale() == scale),
                         "once the requested density is resident it is the only picture"
                     );
                     assert!(

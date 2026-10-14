@@ -1,16 +1,13 @@
 use breeze_core::{
     Rotation,
-    annotations::{Annotation, Kind, Point},
+    annotations::{Annotation, Kind, Point, Rect},
 };
 use breeze_pdf::{
     PdfWorker, Source,
     export::{ExportRequest, export_annotations},
 };
 use lopdf::{Document, Object, Stream, dictionary};
-use pdf_oxide::{
-    PdfDocument,
-    rendering::{PageRenderer, RenderOptions},
-};
+use mupdf::pdf::PdfDocument as MuPdfDocument;
 
 fn fixture(kind: &str) -> Document {
     let mut doc = Document::with_version("1.7");
@@ -116,20 +113,81 @@ fn request(worker: &PdfWorker, source: Source, kind: usize) -> anyhow::Result<br
         0 => worker.request(source, 0),
         1 => worker.request_thumbnail(source, 0, Rotation::None),
         2 => worker.request_page(source, 0, Rotation::None, 1.),
-        _ => worker.request_metadata(source, 0),
+        3 => worker.request_metadata(source, 0),
+        4 => worker.request_region(
+            source,
+            0,
+            Rotation::None,
+            1.,
+            Rect {
+                x: 0.,
+                y: 0.,
+                width: 100.,
+                height: 100.,
+            },
+        ),
+        _ => unreachable!(),
     }
     .unwrap();
     futures::executor::block_on(receiver).unwrap()
 }
 
-/// The engine a stock dependency gives us logs a failed image, mask, Form or
-/// shading draw and returns a successful raster with that content missing, so a
-/// page request cannot detect it. This test states the requirement it does not
-/// currently meet: it passed against the retired `vendor/pdf_oxide` copy, whose
-/// rendering-integrity change made those draws fail loudly. Re-enable it when
-/// that change reaches an upstream release, or when the page path can tell an
-/// incomplete raster from a complete one.
-#[ignore = "requires the retired engine patch that propagates draw failures"]
+fn assert_region_matches_full_page(
+    worker: &PdfWorker,
+    source: Source,
+    page_index: usize,
+    base_points: (f32, f32),
+) {
+    for rotation in [
+        Rotation::None,
+        Rotation::Right,
+        Rotation::Half,
+        Rotation::Left,
+    ] {
+        let points = rotation.apply(base_points);
+        let whole = futures::executor::block_on(
+            worker
+                .request_page(source.clone(), page_index, rotation, 1.)
+                .unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        let whole = whole.pixels.unwrap();
+        let region = Rect {
+            x: 5.,
+            y: 7.,
+            width: (points.0 - 10.).min(32.),
+            height: (points.1 - 14.).min(30.),
+        };
+        let clipped = futures::executor::block_on(
+            worker
+                .request_region(source.clone(), page_index, rotation, 1., region)
+                .unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(clipped.region, Some(region));
+        let clipped = clipped.pixels.unwrap();
+        assert_eq!(
+            (clipped.width, clipped.height),
+            (region.width as u32, region.height as u32)
+        );
+        for row in 0..clipped.height as usize {
+            let source_start =
+                ((region.y as usize + row) * whole.width as usize + region.x as usize) * 4;
+            let target_start = row * clipped.width as usize * 4;
+            let row_bytes = clipped.width as usize * 4;
+            assert_eq!(
+                &clipped.bgra[target_start..target_start + row_bytes],
+                &whole.bgra[source_start..source_start + row_bytes],
+                "cropped region differs at rotation {rotation:?}, row {row}"
+            );
+        }
+    }
+}
+
+/// Incomplete output must not be returned as a successful page or region.
+#[ignore = "MuPDF 0.8.0 can omit a damaged JPEG without reporting it through Cookie"]
 #[test]
 fn drawing_failures_never_return_successful_pixels_and_do_not_poison_next_page() {
     let root = tempfile::tempdir().unwrap();
@@ -155,7 +213,7 @@ fn drawing_failures_never_return_successful_pixels_and_do_not_poison_next_page()
             request(&worker, source.clone(), 3).is_ok(),
             "{kind}: metadata remains available"
         );
-        for mode in 0..3 {
+        for mode in 0..=2 {
             match request(&worker, source.clone(), mode) {
                 Ok(_) => panic!("{kind}/{mode}: published incomplete pixels"),
                 Err(error) => assert!(
@@ -163,6 +221,9 @@ fn drawing_failures_never_return_successful_pixels_and_do_not_poison_next_page()
                     "{kind}: {error:#}"
                 ),
             }
+        }
+        if request(&worker, source.clone(), 4).is_ok() {
+            panic!("{kind}/region: published incomplete pixels");
         }
         let good = futures::executor::block_on(worker.request(source, 1).unwrap())
             .unwrap()
@@ -187,14 +248,20 @@ fn valid_masks_and_default_geometry_still_render_and_export() {
         fixture
             .get_dictionary_mut(page)
             .unwrap()
-            .set("CropBox", vec![10.into(), 10.into(), 90.into(), 90.into()]);
+            .set("CropBox", vec![10.into(), 20.into(), 90.into(), 70.into()]);
         fixture.get_dictionary_mut(page).unwrap().set("Rotate", 90);
         fixture.get_dictionary_mut(page).unwrap().set("UserUnit", 1);
         fixture.save(&path).unwrap();
         let worker = PdfWorker::new().unwrap();
         let source = Source::File(path.clone());
         let page = request(&worker, source.clone(), 0).unwrap();
-        assert_eq!(page.points, (80., 80.));
+        assert_eq!(page.points, (50., 80.));
+        if kind == "valid" {
+            assert_region_matches_full_page(&worker, source.clone(), 1, page.points);
+        }
+        let rendered = request(&worker, source.clone(), 2).unwrap();
+        let pixels = rendered.pixels.expect("cropped/rotated page raster");
+        assert_eq!((pixels.width, pixels.height), (50, 80));
         let before = breeze_storage::fingerprint(&path).unwrap();
         let destination = root.path().join(format!("{kind}-export.pdf"));
         export_annotations(ExportRequest {
@@ -204,10 +271,15 @@ fn valid_masks_and_default_geometry_still_render_and_export() {
             annotations: vec![note()],
         })
         .unwrap();
-        let result = PdfDocument::open(&destination).unwrap();
-        PageRenderer::new(RenderOptions::with_dpi(72).as_raw())
-            .render_page(&result, 0)
-            .unwrap();
+        let reader = MuPdfDocument::open(destination.as_path()).unwrap();
+        assert_eq!(reader.page_count().unwrap(), 2);
+        let rendered = request(
+            &PdfWorker::new().unwrap(),
+            Source::File(destination.clone()),
+            0,
+        )
+        .unwrap();
+        assert!(rendered.pixels.is_some());
         assert_eq!(breeze_storage::fingerprint(&path).unwrap(), before);
         if let Some(dir) = std::env::var_os("BREEZE_RENDER_REVIEW_DIR") {
             std::fs::create_dir_all(&dir).unwrap();

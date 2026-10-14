@@ -11,7 +11,7 @@ sha2.workspace = true
 breeze-core.workspace = true
 breeze-storage.workspace = true
 anyhow.workspace = true
-pdf_oxide.workspace = true
+mupdf.workspace = true
 futures.workspace = true
 [lints]
 workspace = true

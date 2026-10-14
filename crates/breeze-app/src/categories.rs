@@ -46,7 +46,7 @@ fn left_button_icon(
         )
 }
 /// Category row actions stay text-only: no hover surface at all, a muted icon
-/// at rest, and `hover` only while that button itself is hovered.
+/// at rest, and the panel foreground only while that button itself is hovered.
 fn category_action_icon(p: Palette, icon: IconName, group: &'static str, hover: Hsla) -> Div {
     div()
         .size_full()

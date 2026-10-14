@@ -1,5 +1,9 @@
 use super::*;
 use breeze_core::annotations::{Point, Rect};
+use mupdf::{
+    Colorspace, Matrix, TextExtractOptions,
+    pdf::{PdfAnnotationType, PdfDocument as MuPdfDocument},
+};
 use std::sync::{Arc, atomic::AtomicBool};
 
 fn sample_request(destination: PathBuf, annotations: Vec<Annotation>) -> ExportRequest {
@@ -152,35 +156,44 @@ fn all_annotation_kinds_preserve_original_content_and_unicode() {
         .unwrap();
     assert_eq!(&note[..2], &[0xfe, 0xff]);
     let units: Vec<_> = note[2..]
-        .chunks_exact(2)
-        .map(|p| u16::from_be_bytes([p[0], p[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| u16::from_be_bytes(*pair))
         .collect();
     assert_eq!(
         String::from_utf16(&units).unwrap(),
         items.last().unwrap().text
     );
-    let reader = pdf_oxide::PdfDocument::open(&output).unwrap();
-    let original =
-        pdf_oxide::PdfDocument::from_bytes(read_source(&Source::Sample).unwrap()).unwrap();
-    assert_eq!(
-        reader.extract_text(0).unwrap(),
-        original.extract_text(0).unwrap()
-    );
-    // The current reader decodes annotation Contents as UTF-8 even for UTF-16 PDF strings.
-    // Keep the standard encoding; exact Unicode is checked above and by an external parser.
+    let reader = MuPdfDocument::open(output.as_path()).unwrap();
+    let original = MuPdfDocument::from_bytes(&read_source(&Source::Sample).unwrap()).unwrap();
     assert_eq!(
         reader
-            .get_annotations(0)
+            .load_pdf_page(0)
             .unwrap()
+            .text(TextExtractOptions::default())
+            .unwrap(),
+        original
+            .load_pdf_page(0)
+            .unwrap()
+            .text(TextExtractOptions::default())
+            .unwrap()
+    );
+    // The PDF object above pins the standard UTF-16BE encoding; verify MuPDF reads the note subtype.
+    assert_eq!(
+        reader
+            .load_pdf_page(0)
+            .unwrap()
+            .annotations()
             .last()
             .unwrap()
-            .subtype
-            .as_deref(),
-        Some("Text")
+            .r#type()
+            .unwrap(),
+        PdfAnnotationType::Text
     );
     assert_eq!(
-        reader.get_outline().unwrap().unwrap()[0].title,
-        original.get_outline().unwrap().unwrap()[0].title
+        reader.outlines().unwrap()[0].title,
+        original.outlines().unwrap()[0].title
     );
     let results = super::super::search(
         Source::File(output),
@@ -364,14 +377,23 @@ fn write_visual_export_fixtures() {
     let receipt = export_annotations(sample_request(output.clone(), all_kinds())).unwrap();
     let source = folder.join("source.pdf");
     fs::write(&source, read_source(&Source::Sample).unwrap()).unwrap();
-    let doc = pdf_oxide::PdfDocument::open(&output).unwrap();
-    let mut renderer =
-        pdf_oxide::rendering::PageRenderer::new(pdf_oxide::rendering::RenderOptions::with_dpi(144));
-    renderer
-        .render_page(&doc, 0)
-        .unwrap()
-        .save(folder.join("oxide-annotated.png"))
-        .unwrap();
+    let doc = MuPdfDocument::open(output.as_path()).unwrap();
+    let page = doc.load_pdf_page(0).unwrap();
+    page.to_pixmap(
+        &Matrix::new_scale(2., 2.),
+        &Colorspace::device_rgb(),
+        false,
+        true,
+    )
+    .unwrap()
+    .save_as(
+        folder
+            .join("mupdf-annotated.png")
+            .to_string_lossy()
+            .as_ref(),
+        mupdf::ImageFormat::PNG,
+    )
+    .unwrap();
     println!(
         "FIXTURE_DIRECTORY={} bytes={} elapsed_ms={:.2}",
         folder.display(),
@@ -449,9 +471,11 @@ fn old_pdf_header_is_upgraded_for_transparent_appearances() {
     assert_eq!(Document::load(&destination).unwrap().version, "1.7");
     assert_eq!(breeze_storage::fingerprint(&source).unwrap(), original);
     assert!(
-        pdf_oxide::PdfDocument::open(&destination)
+        MuPdfDocument::open(destination.as_path())
             .unwrap()
-            .extract_text(0)
+            .load_pdf_page(0)
+            .unwrap()
+            .text(TextExtractOptions::default())
             .unwrap()
             .contains("Old PDF")
     );

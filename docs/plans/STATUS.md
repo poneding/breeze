@@ -1,5 +1,53 @@
 # Delivery Status
 
+## MuPDF Migration: Current Working-Tree State — October 14, 2026
+
+This section is authoritative for the current checkout. Earlier October 14
+migration and strategy entries below preserve decisions and measurements as
+they were recorded at that point; they are not current implementation status.
+The runtime migration is in the working tree and has not been committed as a
+complete phase.
+
+The application-facing `breeze-pdf` adapter now uses `mupdf 0.8.0` for PDF
+metadata, outlines, glyph quads, search, thumbnails, whole-page requests, and
+clipped region requests; `lopdf` remains the separate annotation-copy exporter.
+External PDFs open file-backed, with size/mtime and streaming fingerprint
+checks before and after MuPDF opens them. Page geometry, CropBox, `/Rotate`,
+UserUnit policy, owned BGRA pixels, and worker-thread ownership are covered by
+the current test suite. The race guard itself still lacks a deterministic
+source-mutation-during-open regression, and password rejection lacks a focused
+fixture.
+
+The reader requests grid-aligned viewport regions, draws each texture at its
+page-space bounds, admits visible regions before predicted work, and bounds
+resident UI rasters to 96 MiB with a 56 MiB prefetch allowance. MuPDF renders
+each request directly through a clipped page device; display lists are not
+retained. Region stitching matches whole-page output for four reader rotations,
+and fixtures cover PDF `/Rotate`, a nonzero CropBox, zoom replacement, and GPU
+atlas eviction. These tests establish the region mapping and output allocation
+bound, not a complete process-memory bound.
+
+Validation on this macOS checkout: `cargo fmt --all -- --check` passes;
+`cargo test --workspace --locked` passes 199 tests with 5 ignored; and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` passes with no
+lint exceptions. The three fixed-width `chunks_exact` uses in
+`breeze-app/src/about.rs`, `breeze-pdf/src/export/tests.rs`, and
+`breeze-pdf/src/raster.rs` now use `as_chunks`, so Clippy 1.99 accepts them.
+`cargo run --locked -p breeze-app` reached the
+running application with `BREEZE_DATA_DIR` under `target/mupdf-migration-smoke`
+and was then manually stopped. This was a startup smoke test, not visual
+acceptance.
+
+Production gates remain open: MuPDF can omit a damaged JPEG while returning a
+successful page and a Cookie with no reported error, so the page-integrity UI
+and PDF fixture tests remain ignored. The adapter also has no verified
+MuPDF store-size cap; ICC/transparency and broad font/image corpus parity,
+Release same-workload latency/RSS/GPU measurements, and native Windows/Linux
+validation remain outstanding. macOS visual acceptance was not performed in
+this pass. See [work package 22](22-mupdf-migration.md) for item-level status.
+Do not describe the migration as production accepted or claim measured
+memory/latency wins from the standalone probe.
+
 ## October 14 MuPDF migration authorized
 
 The user accepted AGPL-compatible source distribution and selected MuPDF through
@@ -11,7 +59,8 @@ verified, and its contents checked for `LICENSE`, `Cargo.lock`, `.cargo/config.t
 and the source builder. Package payload tests, formatting, workspace tests (144
 app, 14 core, 21 PDF, 6 PDF integration, 7 storage; three existing probes
 ignored), and Clippy with warnings denied on Rust 1.97.1 pass. The hosted workflow
-remains unrun. The runtime dependency switch is phase 1 and is not yet implemented.
+remains unrun. This initial snapshot preceded the runtime adapter work; see the
+current status above.
 
 ## October 14 PDF engine strategy comparison
 
@@ -23,8 +72,9 @@ the existing UI, core, storage and `lopdf` export boundaries. The option-2 sched
 improvements (visible-first service, byte admission, prediction backoff) are shared
 work and remain valuable under either engine. Sumatra-inspired scheduling alone
 does not bound PDF Oxide's whole-page output raster; a maintained region renderer
-would still be required for the same high-DPI memory objective. No product license
-or runtime dependency switch is complete yet.
+would still be required for the same high-DPI memory objective. This assessment
+snapshot preceded the user's AGPL acceptance and runtime migration; see the
+current status above.
 
 ## October 14 MuPDF Rust binding assessment
 
@@ -34,13 +84,14 @@ probe built `mupdf 0.8.0`/`mupdf-sys 0.8.0` on macOS and rendered the user's 343
 17.78 MiB book through MuPDF display lists: whole-page p95 44.86 ms with 77.4 MiB
 probe RSS, versus a 512 × 512 clipped replay p95 17.76 ms with 26.1 MiB probe RSS.
 These figures exclude Breeze UI, GPU, scheduling and fidelity checks. The wrapper
-requires MuPDF C/C++ sources and declares AGPL-3.0, so the current contributor
-constraint still rejects adoption; no runtime dependency or policy changed.
+requires MuPDF C/C++ sources and declares AGPL-3.0. At the time of this
+assessment, the contributor constraint still rejected adoption; the user's
+subsequent decision and runtime work supersede that snapshot.
 
 ## October 14 performance investigation
 
 [The reader performance assessment](../specs/08-performance-assessment.md) records
-SumatraPDF release/development source research, the current whole-page rendering
+SumatraPDF release/development source research, the then-current whole-page rendering
 policy, a prefetch admission/eviction risk, and visible-thumbnail scheduling behind
 speculative work. The October 13 region-rendering entry below predates the vendor
 removal in [work package 20](20-upstreaming-engine-changes.md) and no longer describes
@@ -54,9 +105,9 @@ UI and GPU textures. On the bundled page at 769 DPI, one output was 210.94 MiB,
 warm rerender p95 was 468.22 ms, and probe peak RSS was 436.20 MiB. The assessment
 records hardware, sample conditions, maximum latency, input hashes and limitations.
 These are not a native same-machine comparison with SumatraPDF or application
-opening/presentation measurements. No runtime code or rendering policy changed;
-the optimizations remain proposals. Private inputs and raw research outputs are
-not committed.
+opening/presentation measurements. No runtime code or rendering policy changed
+at that measurement snapshot; the later MuPDF region path is tracked above.
+Private inputs and raw research outputs are not committed.
 
 ## Code review remediation — October 3, 2026
 
@@ -659,11 +710,13 @@ header.
 
 Validation: in an isolated copy of the committed tree plus this change,
 formatting, the complete app suite (144 passed, one existing probe ignored) and
-all-target Clippy pass. The working checkout's in-progress MuPDF migration keeps
-`Cargo.lock` inconsistent, so `--locked` checks cannot run there yet; the
-pre-existing `chunks_exact_to_as_chunks` lint in `breeze-pdf/src/lib.rs` also
-fails all-target Clippy under the local 1.99 toolchain, independently of this
-change. New and updated component tests cover the toggle's panel-header
+all-target Clippy passed. At that initial check, the working checkout's MuPDF
+adapter did not compile (`mupdf::PdfPage` was unresolved, `export.rs` still
+called `pdf_oxide`, and `PdfDocument::open` rejected `PathBuf`), so locked
+checks could not run there; those migration diagnostics were resolved later,
+as recorded in the current status at the top of this file. The current local
+Rust 1.99 Clippy exception is also recorded there. New and updated component
+tests cover the toggle's panel-header
 placement, its toolbar fallback, the centered icon-only tabs, and the search
 toolbar sharing the right header row. Native visual inspection was not
 performed because a Breeze instance was already running (immersive fullscreen)
