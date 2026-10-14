@@ -1300,9 +1300,37 @@ fn document_tabs_compress_without_covering_titlebar_actions(cx: &mut TestAppCont
                     assert!(button.bounds().left() >= actions.left());
                     assert!(button.bounds().right() <= actions.right());
                 }
-                if (count <= 3 && width >= 640.) || (count == 16 && width >= 898.) {
+                // Tabs shrink to a 40 px floor inside a 10 px padded, 4 px gapped
+                // strip, so fit is asserted where the measured strip can host that
+                // floor. Window widths cannot express this: Kit's window buttons
+                // take about 102 px on Windows and Linux and none on macOS, so one
+                // width leaves a different strip on each platform.
+                let minimum = px(40. * count as f32 + 4. * count.saturating_sub(1) as f32 + 10.);
+                if tabs.size.width >= minimum {
                     let last = window.find(("document", count - 1)).bounds();
-                    assert!(last.right() <= tabs.right() + px(1.));
+                    assert!(
+                        last.right() <= tabs.right() + px(1.),
+                        "{count} tabs fit at {width}px"
+                    );
+                    assert!(last.size.width <= px(228.));
+                } else {
+                    // A strip narrower than its floor scrolls instead of covering
+                    // the Open button, and the overflow has to stay reachable:
+                    // from the start, scrolling to the end must bring the last tab
+                    // inside the strip.
+                    for delta in [px(4000.), px(-4000.)] {
+                        window.scroll(
+                            "document-tabs",
+                            ScrollDelta::Pixels(point(delta, px(0.))),
+                            cx,
+                        );
+                        window.render_frame(cx);
+                    }
+                    let last = window.find(("document", count - 1)).bounds();
+                    assert!(
+                        last.right() <= tabs.right() + px(1.) && last.right() > tabs.left(),
+                        "{count} tabs scroll into view at {width}px"
+                    );
                     assert!(last.size.width <= px(228.));
                 }
                 assert!(first.size.width >= px(40.));
