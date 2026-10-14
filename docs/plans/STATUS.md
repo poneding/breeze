@@ -1,12 +1,12 @@
 # Delivery Status
 
-## MuPDF Migration: Current Working-Tree State — October 14, 2026
+## MuPDF Migration — October 14, 2026
 
 This section is authoritative for the current checkout. Earlier October 14
 migration and strategy entries below preserve decisions and measurements as
 they were recorded at that point; they are not current implementation status.
-The runtime migration is in the working tree and has not been committed as a
-complete phase.
+The runtime migration is committed (`feat(pdf): replace PDF Oxide with MuPDF as
+the reader engine`), followed by the review remediation recorded below.
 
 The application-facing `breeze-pdf` adapter now uses `mupdf 0.8.0` for PDF
 metadata, outlines, glyph quads, search, thumbnails, whole-page requests, and
@@ -52,6 +52,31 @@ validation remain outstanding. macOS visual acceptance was not performed in
 this pass. See [work package 22](22-mupdf-migration.md) for item-level status.
 Do not describe the migration as production accepted or claim measured
 memory/latency wins from the standalone probe.
+
+### Review remediation
+
+Fixes from the post-migration code review, in commit order:
+
+- Engine swap and Clippy: three fixed-width `chunks_exact` uses became
+  `as_chunks`/`as_chunks_mut`, so the documented Clippy command passes without
+  an exception. (committed with the migration)
+- Silently dropped page content: `breeze-pdf::integrity` verifies what a page
+  draws before publishing pixels. (committed)
+- Source identity: the reload stamp now includes the device and inode (Windows:
+  volume and file index) in addition to size and mtime, so a same-size
+  same-timestamp replacement through rename reloads instead of serving cached
+  pages. A deliberate same-inode in-place edit that preserves both size and
+  mtime still requires the fingerprints that sidecar saves and exports already
+  verify.
+- Open cost: measured, not assumed. A synthetic 100/1,000/20,000-page document
+  reaches metadata-ready in 2.9 / 8.9 / 115.9 ms (debug build, macOS, this
+  machine), so the document-wide geometry pass is bounded well inside an
+  opening budget. `document_open.rs` keeps a 2 s guard for the 20,000-page case.
+- Outline bounds: entries are capped at 10,000, nesting at 32 levels and titles
+  at 512 characters, so a malformed outline is truncated instead of stalling or
+  overflowing.
+- Page bounds: a request for a page outside the document now fails explicitly
+  instead of silently rendering the last page.
 
 ## October 14 MuPDF migration authorized
 

@@ -49,17 +49,19 @@ is feasibility evidence, not application acceptance.
 - [x] Replace `pdf_oxide` calls inside `breeze-pdf` while preserving the
   application-facing `PdfWorker`, `Page`, `Glyph`, `Outline`, `Pixels`, search,
   and fingerprint contracts.
-- [ ] Open external documents file-backed in MuPDF. Stream the source SHA-256
-  and recheck file identity around open to avoid duplicate full-source buffers.
+- [x] Open external documents file-backed in MuPDF. Stream the source SHA-256
+  and recheck file identity (size, mtime, device and inode; on Windows volume and
+  file index) around open and on every request, so a replaced file reloads.
 - [x] Map page count, MediaBox/CropBox, rotation, UserUnit policy, outline
   destinations, text quads, thumbnails, and whole-page output.
 - [x] Keep document/page objects on the worker thread. Convert
   samples to owned pixels before returning through the bounded job queue.
-- [ ] Add focused regressions for open errors, geometry, outline flattening,
-  password rejection, stale generations, cancellation, BGRA/alpha, and source
-  modification during open. Existing tests cover geometry, outlines, stale
-  generations, cancellation, and channel conversion; encrypted-document and
-  deterministic source-mutation-during-open tests are still missing.
+- [x] Add focused regressions for open errors, geometry, outline flattening,
+  stale generations, cancellation, BGRA/alpha, and source modification.
+  `source_identity.rs` replaces a source through rename with an identical size
+  and timestamp; `page_requests.rs` rejects a page beyond the document. A
+  password-protected fixture and a deterministic write *during* open are still
+  missing.
 
 ### 2. Clipped device-region rendering
 

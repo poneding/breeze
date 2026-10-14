@@ -148,3 +148,36 @@ fn an_unsupported_scale_is_rejected() {
         assert!(result.is_err(), "scale {scale} must be refused");
     }
 }
+
+#[test]
+fn a_page_beyond_the_document_is_rejected() {
+    let worker = PdfWorker::new().unwrap();
+    for (mode, result) in [
+        (
+            "render",
+            futures::executor::block_on(
+                worker
+                    .request(Source::Sample, 99)
+                    .expect("the worker accepts the request"),
+            )
+            .expect("the request completes"),
+        ),
+        (
+            "metadata",
+            futures::executor::block_on(
+                worker
+                    .request_metadata(Source::Sample, 99)
+                    .expect("the worker accepts the request"),
+            )
+            .expect("the request completes"),
+        ),
+    ] {
+        match result {
+            Ok(page) => panic!("{mode}: page 100 was served as page {}", page.page + 1),
+            Err(error) => assert!(
+                format!("{error:#}").contains("超出文档范围"),
+                "{mode}: unexpected error: {error:#}"
+            ),
+        }
+    }
+}

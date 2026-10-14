@@ -261,7 +261,29 @@ struct Loaded {
     integrity: RefCell<integrity::IntegrityCache>,
 }
 const MAX_PDF_BYTES: u64 = 256 * 1024 * 1024;
-type SourceStamp = (u64, SystemTime);
+
+/// Cheap identity of a source file.
+///
+/// Size and modification time alone cannot see a same-size rewrite that
+/// preserves the timestamp, which is exactly what an in-place editor or a
+/// coarse-timestamp filesystem can produce. The device and inode (or the
+/// Windows file index) change when a file is replaced by rename, so a reload is
+/// triggered for that case too. A deliberate same-inode, same-size,
+/// same-timestamp in-place edit still needs a full fingerprint, which is why
+/// saving a sidecar and exporting re-hash the source before publishing.
+#[derive(PartialEq, Eq)]
+struct SourceStamp {
+    len: u64,
+    modified: SystemTime,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+    #[cfg(windows)]
+    volume: u32,
+    #[cfg(windows)]
+    index: u64,
+}
 
 struct OpenedDocument {
     doc: PdfDocument,
@@ -296,7 +318,33 @@ fn read_source(source: &Source) -> Result<Vec<u8>> {
 fn source_stamp(path: &std::path::Path) -> Result<SourceStamp> {
     let metadata =
         std::fs::metadata(path).with_context(|| format!("无法读取 {}", path.display()))?;
-    Ok((metadata.len(), metadata.modified()?))
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(SourceStamp {
+            len: metadata.len(),
+            modified: metadata.modified()?,
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        })
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        Ok(SourceStamp {
+            len: metadata.len(),
+            modified: metadata.modified()?,
+            volume: metadata.volume_serial_number().unwrap_or_default(),
+            index: metadata.file_index().unwrap_or_default(),
+        })
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Ok(SourceStamp {
+            len: metadata.len(),
+            modified: metadata.modified()?,
+        })
+    }
 }
 
 fn open_document(source: &Source) -> Result<OpenedDocument> {
@@ -319,7 +367,10 @@ fn open_document(source: &Source) -> Result<OpenedDocument> {
                 bail!("当前仅支持 PDF；其他格式尚未接入");
             }
             let before = source_stamp(path)?;
-            anyhow::ensure!(before.0 <= MAX_PDF_BYTES, "当前版本限制 PDF 文件为 256 MiB");
+            anyhow::ensure!(
+                before.len <= MAX_PDF_BYTES,
+                "当前版本限制 PDF 文件为 256 MiB"
+            );
             let fingerprint = breeze_storage::fingerprint(path)
                 .with_context(|| format!("无法校验 {}", path.display()))?;
             let document = PdfDocument::open(path.as_path())
@@ -404,7 +455,13 @@ fn render(
     if total == 0 {
         bail!("文档没有可阅读的页面");
     }
-    let page = job.page.min(total - 1);
+    anyhow::ensure!(
+        job.page < total,
+        "请求的第 {} 页超出文档范围（共 {} 页）",
+        job.page + 1,
+        total
+    );
+    let page = job.page;
     if let Some(index) = cache.iter().position(|(rotation, p)| {
         job.scale.is_none()
             && job.region.is_none()
@@ -718,13 +775,27 @@ fn quad_bounds(quad: mupdf::Quad, transform: &Matrix) -> Rect {
         height: top - bottom,
     }
 }
+/// Bound on outline entries retained for one document. A malformed outline is an
+/// auxiliary structure, so it is truncated instead of failing the whole document.
+const MAX_OUTLINE_ENTRIES: usize = 10_000;
+/// Bound on nesting depth, so a pathological tree cannot exhaust the stack here.
+const MAX_OUTLINE_DEPTH: usize = 32;
+/// Bound on a single retained title.
+const MAX_OUTLINE_TITLE_CHARS: usize = 512;
+
 fn flatten(items: &[MuPdfOutline], depth: usize, out: &mut Vec<Outline>) {
+    if depth > MAX_OUTLINE_DEPTH {
+        return;
+    }
     for item in items {
+        if out.len() >= MAX_OUTLINE_ENTRIES {
+            return;
+        }
         let page = item
             .dest
             .map(|destination| destination.loc.page_number as usize);
         out.push(Outline {
-            title: item.title.clone(),
+            title: item.title.chars().take(MAX_OUTLINE_TITLE_CHARS).collect(),
             page,
             depth,
         });
