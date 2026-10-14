@@ -173,7 +173,13 @@ class ReleaseTests(unittest.TestCase):
                     )
                     documents = "usr/share/doc/breeze"
                 self.assertEqual(executable.read_bytes(), binary.read_bytes())
-                self.assertTrue(executable.stat().st_mode & stat.S_IXUSR)
+                if sys.platform == "win32":
+                    # Windows marks executability by extension, so only the .exe
+                    # payload reports an execute bit there.
+                    if target.endswith("windows-msvc"):
+                        self.assertTrue(executable.stat().st_mode & stat.S_IXUSR)
+                else:
+                    self.assertTrue(executable.stat().st_mode & stat.S_IXUSR)
                 for name in DOCUMENTS:
                     self.assertIn(f"{documents}/{name}".lstrip("./"), files)
                 self.assertIn(f"{documents}/licenses/LICENSE-LUCIDE.txt".lstrip("./"), files)
@@ -214,6 +220,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(shortcut.get("Target"), "[INSTALLFOLDER]breeze-app.exe")
 
         script = release.inno_script(version, WINDOWS, payload, icon, self.root)
+        self.assertIn("AppId={{", script, "Inno needs an escaped literal brace")
         self.assertIn("AppVersion=1.2.3-rc.1", script)
         self.assertIn("VersionInfoVersion=1.2.3", script)
         self.assertIn("DefaultDirName={autopf}\\Breeze", script)
