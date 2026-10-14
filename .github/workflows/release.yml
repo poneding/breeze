@@ -138,18 +138,29 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           set -eu
+          ls -l target/dist
           deb=$(ls target/dist/*.deb)
           dpkg-deb --info "$deb"
           # Read the listing once: `dpkg-deb --contents | grep -q` would close the
           # pipe at the first match and fail the step under GitHub's pipefail.
           contents=$(dpkg-deb --contents "$deb")
-          grep -q 'usr/bin/breeze-app' <<< "$contents"
-          grep -q 'usr/share/icons/hicolor/256x256/apps/breeze.png' <<< "$contents"
+          for path in usr/bin/breeze-app usr/share/applications/breeze.desktop \
+                      usr/share/icons/hicolor/256x256/apps/breeze.png \
+                      usr/share/doc/breeze/VERSION; do
+            if ! grep -q -- "$path" <<< "$contents"; then
+              echo "$path is missing from the Debian package" >&2
+              exit 1
+            fi
+          done
           appimage=$(ls target/dist/*.AppImage)
-          # Type-2 AppImage magic; running it needs FUSE, so only the container
-          # is verified here.
-          test "$(head -c 3 "$appimage" | od -An -tx1 | tr -d ' \n')" = "414902"
-          ls -l target/dist
+          # AppImage's own magic; running one needs FUSE, so only the container is
+          # verified here.
+          magic=$(head -c 3 "$appimage" | od -An -tx1 | tr -d ' \n')
+          echo "AppImage magic: $magic"
+          if [ "${magic:0:4}" != "4149" ]; then
+            echo "unexpected AppImage magic: $magic" >&2
+            exit 1
+          fi
       - name: Verify Windows installers
         if: runner.os == 'Windows'
         shell: pwsh
