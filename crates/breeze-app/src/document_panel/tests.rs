@@ -138,9 +138,13 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         assert!(window.find("document-panel-search-toolbar").visible());
         assert!(window.try_find("document-panel-information").is_none());
         let search_toolbar = window.find("document-panel-search-toolbar").bounds();
+        let toggle = window.find("document-panel-toggle").bounds();
         let panel = window.find("document-panel").bounds();
-        assert_eq!(search_toolbar.size.width, panel.size.width - px(16.));
-        assert!(search_toolbar.size.width >= px(240.));
+        assert!(search_toolbar.right() <= toggle.left());
+        // The toggle is pinned to the header's right edge, within fractional
+        // control rounding of the Small icon button.
+        assert!(toggle.right() <= panel.right() - px(7.));
+        assert!(search_toolbar.size.width >= px(200.));
         window.press("escape", cx);
         assert!(!view.read(cx).search_open);
         assert!(view.read(cx).search_notice.is_empty());

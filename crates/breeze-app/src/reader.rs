@@ -87,16 +87,18 @@ impl Breeze {
                     .gap_2()
                     .border_b_1()
                     .border_color(p.line)
-                    .child(
-                        self.command(
+                    // Each panel toggle lives in the header of the panel it
+                    // controls; the toolbar shows the toggle only while that
+                    // panel is collapsed, so it stays pinned to the window edge.
+                    .when(!self.sidebar, |toolbar| {
+                        toolbar.child(self.command(
                             "collapse",
                             IconName::PanelLeft,
                             tr!("Navigation panel"),
                             &ToggleSidebar,
                             cx,
-                        )
-                        .selected(self.sidebar),
-                    )
+                        ))
+                    })
                     .child(
                         TabBar::new("reader-modes")
                             .segmented()
@@ -154,16 +156,15 @@ impl Breeze {
                             },
                         ),
                     )
-                    .child(
-                        self.command(
+                    .when(!self.document_panel.open, |toolbar| {
+                        toolbar.child(self.command(
                             "document-panel-toggle",
                             IconName::PanelRight,
                             tr!("Document sidebar"),
                             &ToggleDocumentPanel,
                             cx,
-                        )
-                        .selected(self.document_panel.open),
-                    ),
+                        ))
+                    }),
             )
             .child(
                 row()
@@ -239,11 +240,30 @@ impl Breeze {
                     .id("navigation-header")
                     .test_support()
                     .h(px(38.))
-                    .justify_start()
                     .flex_shrink_0()
                     .px(px(8.))
                     .border_b_1()
                     .border_color(p.line)
+                    // Two equal flex slots flank the tabs so the tab group stays
+                    // centered however wide the side controls become.
+                    .child(
+                        row()
+                            .id("navigation-header-leading")
+                            .test_support()
+                            .flex_1()
+                            .min_w_0()
+                            .justify_start()
+                            .child(
+                                self.command(
+                                    "collapse",
+                                    IconName::PanelLeft,
+                                    tr!("Navigation panel"),
+                                    &ToggleSidebar,
+                                    cx,
+                                )
+                                .selected(true),
+                            ),
+                    )
                     .child(
                         TabBar::new("nav-tabs")
                             .segmented()
@@ -256,41 +276,58 @@ impl Breeze {
                                 cx.notify()
                             }))
                             .when(has_outline, |tabs| {
-                                tabs.child(Tab::new().label(tr!("Outline")).tooltip(
-                                    |window, cx| {
-                                        Tooltip::new(tr!("Outline"))
-                                            .action(&ShowOutline, Some("Breeze"))
-                                            .build(window, cx)
-                                    },
-                                ))
-                            })
-                            .child(Tab::new().label(tr!("Thumbnails")).tooltip(|window, cx| {
-                                Tooltip::new(tr!("Thumbnails"))
-                                    .action(&ShowThumbnails, Some("Breeze"))
-                                    .build(window, cx)
-                            })),
-                    )
-                    .child(div().flex_1().min_w(px(4.)))
-                    .when(outline_selected, |header| {
-                        header.child(
-                            row()
-                                .gap(px(4.))
-                                .flex_shrink_0()
-                                .child(
-                                    Button::new("outline-search")
-                                        .ghost()
-                                        .small()
-                                        .icon(IconName::Search)
-                                        .selected(self.outline_search_open())
-                                        .accessibility_label(tr!("Search outline titles"))
-                                        .tooltip(tr!("Search outline titles"))
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.toggle_outline_search(window, cx);
-                                        })),
+                                tabs.child(
+                                    Tab::new()
+                                        .icon(IconName::TableOfContents)
+                                        .aria_label(tr!("Outline"))
+                                        .tooltip(|window, cx| {
+                                            Tooltip::new(tr!("Outline"))
+                                                .action(&ShowOutline, Some("Breeze"))
+                                                .build(window, cx)
+                                        }),
                                 )
-                                .when(nested, |actions| actions.child(self.outline_menu(cx))),
-                        )
-                    }),
+                            })
+                            .child(
+                                Tab::new()
+                                    .icon(IconName::Images)
+                                    .aria_label(tr!("Thumbnails"))
+                                    .tooltip(|window, cx| {
+                                        Tooltip::new(tr!("Thumbnails"))
+                                            .action(&ShowThumbnails, Some("Breeze"))
+                                            .build(window, cx)
+                                    }),
+                            ),
+                    )
+                    .child(
+                        row()
+                            .id("navigation-header-trailing")
+                            .test_support()
+                            .flex_1()
+                            .min_w_0()
+                            .justify_end()
+                            .when(outline_selected, |slot| {
+                                slot.child(
+                                    row()
+                                        .gap(px(4.))
+                                        .flex_shrink_0()
+                                        .child(
+                                            Button::new("outline-search")
+                                                .ghost()
+                                                .small()
+                                                .icon(IconName::Search)
+                                                .selected(self.outline_search_open())
+                                                .accessibility_label(tr!("Search outline titles"))
+                                                .tooltip(tr!("Search outline titles"))
+                                                .on_click(cx.listener(|this, _, window, cx| {
+                                                    this.toggle_outline_search(window, cx);
+                                                })),
+                                        )
+                                        .when(nested, |actions| {
+                                            actions.child(self.outline_menu(cx))
+                                        }),
+                                )
+                            }),
+                    ),
             )
             .when(outline_selected, |panel| {
                 panel.children(self.outline_search_bar(cx))

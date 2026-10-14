@@ -876,6 +876,48 @@ fn chrome_heights_and_left_navigation_are_preserved(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn panel_toggles_live_in_their_expanded_headers(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        // Navigation is open by default, so its toggle belongs to its header.
+        assert!(view.read(cx).sidebar);
+        let header = window.find("navigation-header").bounds();
+        let collapse = window.find("collapse").bounds();
+        assert!(collapse.left() - header.left() < px(12.));
+        // The closed document panel keeps its toggle at the toolbar's right end.
+        let toolbar = window.find("reader-toolbar").bounds();
+        let toggle = window.find("document-panel-toggle").bounds();
+        assert!(toggle.right() <= toolbar.right() - px(4.));
+        assert!(window.try_find("document-panel").is_none());
+
+        // Collapsing navigation returns its toggle to the toolbar's left end.
+        window.click("collapse", cx);
+        window.render_frame(cx);
+        assert!(!view.read(cx).sidebar);
+        assert!(window.try_find("navigation-header").is_none());
+        let toolbar = window.find("reader-toolbar").bounds();
+        let collapse = window.find("collapse").bounds();
+        assert!(collapse.left() - toolbar.left() < px(12.));
+
+        // Opening the document panel moves the toggle to that header's right.
+        window.click("document-panel-toggle", cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).document_panel.open);
+        let panel_header = window.find("document-panel-header").bounds();
+        let toggle = window.find("document-panel-toggle").bounds();
+        // Pinned to the header's right edge, within fractional control rounding.
+        let inset = panel_header.right() - toggle.right();
+        assert!(
+            inset >= px(7.) && inset <= px(9.),
+            "toggle inset {inset:?}, header {panel_header:?}, toggle {toggle:?}"
+        );
+        assert!(window.find("reader-toolbar").visible());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn spread_second_page_gesture_targets_its_own_surface(cx: &mut TestAppContext) {
     let worker = PdfWorker::new().unwrap();
     let first = futures::executor::block_on(worker.request(Source::Sample, 0).unwrap())

@@ -1487,10 +1487,17 @@ mod tests {
             let last_tab = window.within("nav-tabs").find(1usize).bounds();
             let search = window.find("outline-search").bounds();
             let more = window.find("outline-more").bounds();
+            let collapse = window.find("collapse").bounds();
             assert_eq!(header.size.height, px(38.));
             assert!((view.read(cx).navigation_width - reader::NAVIGATION_MIN_WIDTH).abs() < 1.);
             assert!(header.right() <= window.find("navigation-content").bounds().right());
-            assert!(first_tab.left() - header.left() < px(12.));
+            assert!(collapse.left() - header.left() < px(12.));
+            // Two equal flex slots keep the icon tabs centered in the header.
+            let tabs_center = (first_tab.left() + last_tab.right()) * 0.5;
+            assert!(
+                (tabs_center - header.center().x).abs() <= px(1.),
+                "tabs {first_tab:?}..{last_tab:?}, header {header:?}"
+            );
             assert!(
                 last_tab.right() + px(4.) <= search.left(),
                 "tabs {last_tab:?}, search {search:?}"
@@ -1534,7 +1541,10 @@ mod tests {
             assert!(window.try_find("outline-more").is_none());
             let only_tab = window.within("nav-tabs").find(0usize).bounds();
             let header = window.find("navigation-header").bounds();
-            assert!(only_tab.left() - header.left() < px(12.));
+            assert!(
+                (only_tab.center().x - header.center().x).abs() <= px(1.),
+                "tab {only_tab:?}, header {header:?}"
+            );
         })
         .unwrap();
     }

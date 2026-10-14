@@ -642,3 +642,29 @@ pins the new behavior: after an edit and an advanced clock the sidecar still
 holds the previous snapshot, the document stays dirty and `allow_close` refuses,
 and only an explicit save writes both annotations. Native visual inspection was
 not performed for this pass; Windows/Linux checks remain open.
+
+## October 14 panel toggles move into their panel headers
+
+The reader toolbar now carries each panel toggle only while that panel is
+collapsed. Opening the left navigation panel moves `panel-left` into the
+navigation header's left edge, and opening the document sidebar moves
+`panel-right` into that header's right edge, so each toggle keeps the window
+edge it occupies while its panel is collapsed; collapsing a panel returns its
+toggle to the toolbar. The Outline/Thumbnails tabs are now icon-only Kit
+Segmented tabs (`table-of-contents` / `images`) with accessible labels and
+action tooltips. Two equal-width header slots center the tab group regardless
+of how wide the Outline-only search and fold controls become, and the same
+right-edge toggle placement holds while document search occupies the sidebar
+header.
+
+Validation: in an isolated copy of the committed tree plus this change,
+formatting, the complete app suite (144 passed, one existing probe ignored) and
+all-target Clippy pass. The working checkout's in-progress MuPDF migration keeps
+`Cargo.lock` inconsistent, so `--locked` checks cannot run there yet; the
+pre-existing `chunks_exact_to_as_chunks` lint in `breeze-pdf/src/lib.rs` also
+fails all-target Clippy under the local 1.99 toolchain, independently of this
+change. New and updated component tests cover the toggle's panel-header
+placement, its toolbar fallback, the centered icon-only tabs, and the search
+toolbar sharing the right header row. Native visual inspection was not
+performed because a Breeze instance was already running (immersive fullscreen)
+during the pass; Windows/Linux native checks remain open.

@@ -136,7 +136,19 @@ impl Breeze {
                                         cx.notify();
                                     })),
                             )
-                    }),
+                            // Push the panel toggle to the header's right edge.
+                            .child(div().flex_1())
+                    })
+                    .child(
+                        self.command(
+                            "document-panel-toggle",
+                            IconName::PanelRight,
+                            tr!("Document sidebar"),
+                            &ToggleDocumentPanel,
+                            cx,
+                        )
+                        .selected(true),
+                    ),
             )
             .child(if self.search_open {
                 self.search_results(cx).into_any_element()

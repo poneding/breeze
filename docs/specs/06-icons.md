@@ -30,6 +30,7 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Category group / category | `tags` / `tag` | `Tags` / `Tag` |
 | Favorite | `bookmark` / filled derivative | `Bookmark` / local SVG |
 | Toggle navigation | `panel-left` | `PanelLeft` |
+| Outline / Thumbnails navigation tabs | `table-of-contents` / `images` | `TableOfContents` / `Images` |
 | Toggle document sidebar | `panel-right` | `PanelRight` |
 | Document information / annotations | `info` / `highlighter` | `Info` / `Highlighter` |
 | Annotation type filter | `list-filter` | `ListFilter` |
