@@ -2037,6 +2037,47 @@ fn category_popover_dismisses_and_keeps_invalid_input_open(cx: &mut TestAppConte
 }
 
 #[gpui_kit::test]
+fn category_forms_confirm_with_enter(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| view.show_home(cx));
+        window.render_frame(cx);
+        window.click("new-category", cx);
+        window.render_frame(cx);
+        window.input("Keyboard", cx);
+        // The Popover's own Enter binding closes the popover before the input's
+        // submit event, so the editor must confirm the form itself.
+        window.press("enter", cx);
+        assert_eq!(view.read(cx).categories.len(), 1);
+        assert_eq!(view.read(cx).categories[0].name, "Keyboard");
+        assert!(!view.read(cx).category_form);
+        window.hover(("category-row", 1usize), cx);
+        window.click(("rename-category", 1usize), cx);
+        window.render_frame(cx);
+        window.input("Renamed", cx);
+        window.press("enter", cx);
+        assert_eq!(view.read(cx).categories.len(), 1);
+        assert_eq!(view.read(cx).categories[0].name, "Renamed");
+        assert!(!view.read(cx).category_form);
+        // An invalid name keeps the editor open with its message rather than
+        // dismissing an unsaved form.
+        window.hover(("category-row", 1usize), cx);
+        window.click(("rename-category", 1usize), cx);
+        window.render_frame(cx);
+        view.update(cx, |view, cx| {
+            view.category_input
+                .update(cx, |input, cx| input.set_value("", window, cx));
+        });
+        window.render_frame(cx);
+        window.press("enter", cx);
+        assert!(view.read(cx).category_form);
+        assert!(!view.read(cx).message.is_empty());
+        assert_eq!(view.read(cx).categories[0].name, "Renamed");
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn category_secondary_actions_do_not_select_the_row(cx: &mut TestAppContext) {
     let (handle, view) = app(cx);
     cx.update_window(handle, |_, window, cx| {

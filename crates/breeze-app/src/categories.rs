@@ -4,6 +4,7 @@ use breeze_core::library::{Category, CategoryColor, validate_name};
 use gpui_kit::component::{
     Icon,
     button::ButtonCustomVariant,
+    dialog::Confirm,
     menu::{DropdownMenu, PopupMenuItem},
     popover::Popover,
 };
@@ -307,6 +308,15 @@ impl Breeze {
             .test_support()
             .w(px(232.))
             .gap_2()
+            // The Popover binds Enter to Confirm and consumes it before the input's
+            // own submit, so the form confirms here. An invalid name leaves the
+            // editor open with its message instead of dismissing it unsaved.
+            .on_action(cx.listener(|this, _: &Confirm, _, cx| {
+                if this.category_form {
+                    cx.stop_propagation();
+                    this.save_category(cx);
+                }
+            }))
             .child(Input::new(&self.category_input).small())
             .child(
                 row()

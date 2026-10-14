@@ -242,11 +242,6 @@ impl Breeze {
         let library_observer = cx.observe(&library_input, |_, _, cx| cx.notify());
         let category_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(tr!("Category name")));
-        let category_submission = cx.subscribe(&category_input, |this, _, event, cx| {
-            if this.category_form && matches!(event, InputEvent::PressEnter { .. }) {
-                this.save_category(cx);
-            }
-        });
         let window_bounds_observer = cx.observe_window_bounds(window, |this, window, cx| {
             this.on_native_window_bounds(window, cx)
         });
@@ -323,7 +318,6 @@ impl Breeze {
                 window_bounds_observer,
                 search_subscription,
                 library_observer,
-                category_submission,
                 theme_subscription,
                 language_subscription,
             ],
