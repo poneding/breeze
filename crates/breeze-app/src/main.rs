@@ -26,6 +26,7 @@ mod home;
 mod raster;
 mod reader;
 mod reading;
+mod reveal;
 mod settings;
 mod shortcuts;
 mod style;
@@ -535,6 +536,33 @@ impl Breeze {
             self.active = self.active.saturating_sub(1);
         }
         self.show_home(cx);
+    }
+    /// Show a library document in the platform's file manager. The document is
+    /// never opened, moved or edited by this action.
+    fn reveal_book(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Source::File(path) = &self.books[index].source else {
+            return;
+        };
+        let path = path.clone();
+        let title = self.books[index].title.clone();
+        let work = cx.background_spawn(async move { reveal::reveal(&path) });
+        cx.spawn(async move |this, cx| {
+            let failure = match work.await {
+                Ok(()) => None,
+                Err(reveal::Error::Missing) => Some(tf!(
+                    "Cannot show {}: the file is missing from its saved location",
+                    title
+                )),
+                Err(reveal::Error::Launch(error)) => Some(tf!("Cannot show {}: {}", title, error)),
+            };
+            if let Some(message) = failure {
+                let _ = this.update(cx, |this, cx| {
+                    this.message = message;
+                    cx.notify();
+                });
+            }
+        })
+        .detach();
     }
     fn next_page(&mut self, delta: i32, cx: &mut Context<Self>) {
         if self.screen != Screen::Reader {

@@ -1877,6 +1877,48 @@ fn library_row_opens_and_secondary_controls_do_not(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn library_reveal_follows_the_platform_and_replaces_the_open_button(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| view.show_home(cx));
+        window.render_frame(cx);
+        // The row itself opens the document, so its explicit Open action is gone.
+        assert!(window.try_find(("open-item", 0usize)).is_none());
+        // The bundled sample lives inside the binary; there is no folder to show.
+        assert!(matches!(view.read(cx).books[0].source, Source::Sample));
+        assert!(window.try_find(("reveal-item", 0usize)).is_none());
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(PathBuf::from("breeze-reveal-fixture.pdf"));
+            cx.notify();
+        });
+        window.render_frame(cx);
+        let button = window.find(("reveal-item", 0usize));
+        assert!(button.visible());
+        assert_eq!(button.label(), Some(i18n::text(crate::reveal::label())));
+    })
+    .unwrap();
+    // A path that no longer exists cannot be revealed, and the failure reaches
+    // the library instead of disappearing silently.
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            let path = std::env::temp_dir().join("breeze-missing-reveal-fixture.pdf");
+            let _ = std::fs::remove_file(&path);
+            view.books[0].source = Source::File(path);
+            view.books[0].title = "Removed.pdf".into();
+            view.reveal_book(0, cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, _, cx| {
+        let message = view.read(cx).message.clone();
+        assert!(message.contains("Removed.pdf"), "{message}");
+        assert!(message.contains("文件已不在保存的位置"), "{message}");
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn library_columns_align_and_empty_state_stays_empty(cx: &mut TestAppContext) {
     let (handle, view) = app(cx);
     cx.update_window(handle, |_, window, cx| {

@@ -852,3 +852,30 @@ MuPDF migration has since landed there, so the `--locked` checks run again.
 renaming it, and an invalid name keeping the editor open. Native visual
 inspection of the hover colors was not performed because this session lacks
 Screen Recording permission. Windows/Linux native checks remain open.
+
+## October 15 reveal documents in the platform file manager
+
+Library list rows and grid cards drop the explicit “阅读文档” action — the row
+and card themselves still open the document — and gain a folder-open action that
+reveals a file-backed document in the platform file manager. The label is
+resolved per platform: “在访达中显示” on macOS, “在文件资源管理器中显示” on
+Windows, and “在文件管理器中显示” elsewhere. macOS runs `open -R`, Windows runs
+`explorer /select,<path>`, and other systems open the containing folder with
+`xdg-open`; the launcher runs on a background thread and its stdout is not
+consumed. The in-binary sample has no file to reveal, so the action is omitted
+for it rather than shown disabled. A missing file or a failed launcher reports
+“无法显示 …” in the library message area instead of failing silently.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked`
+(passed; app suite 153 passed with the new suite) and `cargo clippy
+--workspace --all-targets --locked -- -D warnings` pass. Component tests assert
+that the old Open button is gone, that the reveal button appears only for
+file-backed documents, that its accessible label is the platform term, and that
+a document whose file disappeared reports the failure in the library message
+area. Unit tests pin the per-platform command line and the catalog entries for
+all three labels. A native macOS screenshot of an isolated data directory
+confirmed the list row now carries favorite, folder-open, and remove only, with
+no “阅读文档” action and no layout change to the category/location columns. The
+Finder hand-off itself was not clicked from the running application, so the
+launcher is verified by its command line and by the failure path rather than by
+an observed Finder selection; Windows/Linux stay unverified.

@@ -372,18 +372,20 @@ impl Breeze {
                         cx.notify()
                     })),
             )
-            .child(
-                Button::new(("open-item", index))
-                    .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
-                    .small()
-                    .icon(IconName::ArrowUpRight)
-                    .accessibility_label(tr!("Read document"))
-                    .tooltip(tr!("Read document"))
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        cx.stop_propagation();
-                        this.open_book(index, cx)
-                    })),
-            )
+            .when(matches!(&b.source, Source::File(_)), |d| {
+                d.child(
+                    Button::new(("reveal-item", index))
+                        .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))
+                        .small()
+                        .icon(IconName::FolderOpen)
+                        .accessibility_label(tr!(reveal::label()))
+                        .tooltip(tr!(reveal::label()))
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            cx.stop_propagation();
+                            this.reveal_book(index, cx)
+                        })),
+                )
+            })
             .child(
                 Button::new(("forget", index))
                     .custom(ButtonCustomVariant::new(cx).hover(p.line).active(p.line))

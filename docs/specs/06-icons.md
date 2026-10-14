@@ -29,6 +29,7 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | All documents | `library-big` | `LibraryBig` |
 | Category group / category | `tags` / `tag` | `Tags` / `Tag` |
 | Favorite | `bookmark` / filled derivative | `Bookmark` / local SVG |
+| Reveal document in the file manager | `folder-open` | `FolderOpen` |
 | Toggle navigation | `panel-left` | `PanelLeft` |
 | Outline / Thumbnails navigation tabs | `table-of-contents` / `images` | `TableOfContents` / `Images` |
 | Toggle document sidebar | `panel-right` | `PanelRight` |
