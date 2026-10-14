@@ -47,14 +47,14 @@ fn left_button_icon(
 }
 /// Category row actions stay text-only: no hover surface at all, a muted icon
 /// at rest, and the panel foreground only while that button itself is hovered.
-fn category_action_icon(p: Palette, icon: IconName, group: &'static str, hover: Hsla) -> Div {
+fn category_action_icon(p: Palette, icon: IconName, group: &'static str) -> Div {
     div()
         .size_full()
         .flex()
         .items_center()
         .justify_center()
         .text_color(p.muted)
-        .group_hover(group, move |s| s.text_color(hover))
+        .group_hover(group, move |s| s.text_color(p.text))
         .child(Icon::new(icon).small())
 }
 impl Breeze {
@@ -232,7 +232,6 @@ impl Breeze {
                                                             p,
                                                             IconName::Pencil,
                                                             "category-edit",
-                                                            p.text,
                                                         )),
                                                     Some(id),
                                                     cx,
@@ -253,7 +252,6 @@ impl Breeze {
                                                         p,
                                                         IconName::Trash,
                                                         "category-delete",
-                                                        Theme::global(cx).danger,
                                                     ))
                                                     .on_click(cx.listener(
                                                         move |this, _, _, cx| {
