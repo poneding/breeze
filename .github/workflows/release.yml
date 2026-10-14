@@ -4,6 +4,12 @@ on:
   push:
     # GitHub tag filters are globs, not regexes. Validate SemVer before building.
     tags: ['*']
+  # Manual dry run: builds and verifies every installer without publishing one.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to package; must match the workspace version in Cargo.toml
+        required: true
 
 permissions:
   contents: read
@@ -31,7 +37,7 @@ jobs:
       - name: Validate tag and workspace version
         id: version
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.version || github.ref_name }}
         run: python scripts/release.py validate --tag "$RELEASE_TAG" --github-output "$GITHUB_OUTPUT"
 
   build:
@@ -61,6 +67,9 @@ jobs:
     env:
       MACOSX_DEPLOYMENT_TARGET: '15.0'
       RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      TARGET: ${{ matrix.target }}
+      # appimagetool is itself an AppImage and the runners have no FUSE.
+      APPIMAGE_EXTRACT_AND_RUN: '1'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -81,6 +90,22 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential clang cmake pkg-config libfontconfig-dev libfreetype-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev libvulkan-dev libasound2-dev libudev-dev libglib2.0-dev libwebkit2gtk-4.1-dev
+      - name: Install installer tooling
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            # dpkg-deb ships with the runner; AppImage needs appimagetool and
+            # squashfs-tools, and the tool is an AppImage without FUSE here.
+            sudo apt-get install -y squashfs-tools
+            url=https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+            sudo curl -fsSL -o /usr/local/bin/appimagetool-x86_64.AppImage "$url"
+            sudo chmod +x /usr/local/bin/appimagetool-x86_64.AppImage
+            sudo ln -sf /usr/local/bin/appimagetool-x86_64.AppImage /usr/local/bin/appimagetool
+          elif [ "$RUNNER_OS" = "Windows" ]; then
+            choco install innosetup --no-progress -y
+            if [ ! -x "/c/Program Files (x86)/WiX Toolset v3.14/bin/candle.exe" ]; then
+              choco install wixtoolset --no-progress -y
+            fi
+          fi
       - name: Verify
         run: |
           cargo fmt --all -- --check
@@ -89,21 +114,76 @@ jobs:
           python -B -m unittest discover -s scripts -p 'test_*.py' -v
       - name: Build release binary
         run: cargo build --release --locked -p breeze-app --target '${{ matrix.target }}'
-      - name: Package archive and checksum
+      - name: Build installers
         run: |
           python scripts/release.py package \
             --version "$RELEASE_VERSION" \
-            --target '${{ matrix.target }}' \
+            --target "$TARGET" \
             --binary 'target/${{ matrix.target }}/release/${{ matrix.binary }}'
+      - name: Verify macOS disk image
+        if: runner.os == 'macOS'
+        run: |
+          set -eu
+          artifact=$(ls target/dist/*.dmg)
+          mount=$(mktemp -d)
+          hdiutil attach -nobrowse -readonly -mountpoint "$mount" "$artifact" > /dev/null
+          test -x "$mount/Breeze.app/Contents/MacOS/Breeze"
+          test -f "$mount/Breeze.app/Contents/Resources/Breeze.icns"
+          test -f "$mount/Breeze.app/Contents/Resources/RELEASE-NOTES.md"
+          test "$(cat "$mount/Breeze.app/Contents/Resources/VERSION")" = "$RELEASE_VERSION"
+          test -L "$mount/Applications"
+          hdiutil detach "$mount" > /dev/null
+          ls -l target/dist
+      - name: Verify Linux packages
+        if: runner.os == 'Linux'
+        run: |
+          set -eu
+          deb=$(ls target/dist/*.deb)
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb" | grep -q 'usr/bin/breeze-app'
+          dpkg-deb --contents "$deb" | grep -q 'usr/share/icons/hicolor/256x256/apps/breeze.png'
+          appimage=$(ls target/dist/*.AppImage)
+          # Type-2 AppImage magic; running it needs FUSE, so only the container
+          # is verified here.
+          test "$(head -c 3 "$appimage" | od -An -tx1 | tr -d ' \n')" = "414902"
+          ls -l target/dist
+      - name: Verify Windows installers
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $msi = Get-ChildItem target/dist/*.msi | Select-Object -First 1
+          $exe = Get-ChildItem target/dist/*.exe | Select-Object -First 1
+          foreach ($item in @($msi, $exe)) {
+            if ($item.Length -lt 1MB) { throw "$($item.Name) is implausibly small" }
+          }
+          $msiBytes = [IO.File]::ReadAllBytes($msi.FullName)
+          $magic = ($msiBytes[0..7] | ForEach-Object { $_.ToString('x2') }) -join ''
+          if ($magic -ne 'd0cf11e0a1b11ae1') { throw "MSI is not a compound file: $magic" }
+          # The installer database must reference the payload we packaged.
+          $database = [Text.Encoding]::Unicode.GetString($msiBytes)
+          if ($database -notmatch 'breeze-app\.exe') { throw 'MSI does not reference breeze-app.exe' }
+          if ($database -notmatch [regex]::Escape($env:RELEASE_VERSION)) { throw 'MSI does not carry the release version' }
+          $exeBytes = [IO.File]::ReadAllBytes($exe.FullName)
+          if (([Text.Encoding]::ASCII.GetString($exeBytes[0..1])) -ne 'MZ') { throw 'Setup executable is not a PE file' }
+          Get-ChildItem target/dist | Format-Table Name, Length
       - uses: actions/upload-artifact@v4
         with:
           name: breeze-${{ matrix.target }}
-          path: target/dist/*
+          path: |
+            target/dist/*.dmg
+            target/dist/*.msi
+            target/dist/*.exe
+            target/dist/*.deb
+            target/dist/*.AppImage
+            target/dist/*.sha256
           if-no-files-found: error
           retention-days: 7
 
   publish:
     needs: [validate, build]
+    # Manual runs build and verify installers without publishing a release.
+    if: github.event_name == 'push'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -118,10 +198,16 @@ jobs:
           pattern: breeze-*
           path: dist
           merge-multiple: true
-      - name: Verify all four packages
+      - name: Verify checksums cover every installer
         working-directory: dist
         run: |
-          test "$(find . -maxdepth 1 -name '*.sha256' | wc -l)" -eq 4
+          installers=$(find . -maxdepth 1 -type f ! -name '*.sha256' | wc -l)
+          checksums=$(find . -maxdepth 1 -name '*.sha256' | wc -l)
+          test "$installers" -gt 0 || { echo 'no installers were uploaded' >&2; exit 1; }
+          test "$installers" -eq "$checksums" || {
+            echo "every installer needs exactly one checksum: $installers vs $checksums" >&2
+            exit 1
+          }
           sha256sum --check ./*.sha256
       - name: Publish complete release
         run: |
@@ -137,7 +223,7 @@ jobs:
             if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
             gh release create "$RELEASE_TAG" --verify-tag --draft \
               --title "Breeze $RELEASE_TAG" --generate-notes "${flags[@]}" \
-              --notes 'Automated, unsigned development packages; macOS is not notarized. Native Windows/Linux runtime acceptance, full dependency-license audit, and production fidelity/performance gates remain pending. See RELEASE-NOTES.md inside each archive. SHA-256 checksums accompany the downloads.'
+              --notes 'Unsigned development installers: macOS packages are not Developer ID signed or notarized and Windows packages are not code-signed, so Gatekeeper and SmartScreen will warn before installation. Native Windows/Linux runtime acceptance, the complete dependency-license audit, and the production fidelity/performance gates remain pending. See RELEASE-NOTES.md inside each package. SHA-256 checksums accompany the downloads.'
           fi
           gh release upload "$RELEASE_TAG" dist/* --clobber
           gh release edit "$RELEASE_TAG" --draft=false --prerelease="$PRERELEASE"
