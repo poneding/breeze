@@ -77,6 +77,28 @@ Fixes from the post-migration code review, in commit order:
   overflowing.
 - Page bounds: a request for a page outside the document now fails explicitly
   instead of silently rendering the last page.
+- Search reuse: extracted page text is retained per source revision (64 MiB
+  budget) and handed back to the next query, so a repeat search over an unchanged
+  document is an in-memory scan instead of a reopen. The 300-hit cap and cached
+  cancellation have focused tests.
+- Whole-page budget: the QA whole-page path now enforces a 16.7 Mpx (64 MiB)
+  ceiling instead of accepting any scaled request, matching the order of
+  magnitude of the reader's own 12 Mpx region budget.
+- MuPDF store: the pinned binding creates its context with `FZ_STORE_DEFAULT`
+  (256 MiB, `mupdf-sys/mupdf/include/mupdf/fitz/context.h`), which is the
+  effective resource-store bound; no safe API changes it, so a smaller bound
+  needs an upstream binding API. The ignored Release probe now reports
+  `peak_rss_kib` and `mupdf_store_limit_bytes` alongside latency.
+- Save and export I/O: a sidecar save hashes the source once and then re-checks
+  the file identity before publishing, instead of hashing the whole document
+  twice; annotation export streams the source fingerprint and loads the document
+  file-backed instead of reading the entire PDF into an extra buffer.
+
+Release probe on the bundled sample (this machine, macOS, debug-independent
+Release build, 20 samples, excludes GPU residency): whole-page
+document-cold p50 15.35 ms / p95 20.44 ms, warm p50 0.71 ms, thumbnail cold
+p50 8.83 ms / p95 9.61 ms, peak RSS about 195 MiB including the test harness.
+These are sample-only numbers and do not replace the release gates above.
 
 ## October 14 MuPDF migration authorized
 

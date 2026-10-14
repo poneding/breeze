@@ -22,19 +22,25 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Condvar, Mutex},
     thread,
-    time::{Instant, SystemTime},
+    time::Instant,
 };
 
-/// Output budget for a page rendered at the reader's requested density.
+/// Output budget for one whole-page raster: 16.7 Mpx, 64 MiB as RGBA.
 ///
-/// This is not a quality limit. The engine takes integer DPI and reduces the
-/// scale when a request exceeds its budget, so this has to sit above any page the
-/// reader may ask for, and a reduced result is refused rather than displayed. It
-/// exists only so a pathological page box cannot ask the host for an unbounded
-/// allocation: 268 Mpx is 1 GiB of RGBA, above a large-format sheet at 2x display
-/// scale and far above an ordinary page.
-const MAX_PAGE_PIXELS: u64 = 268_435_456;
+/// The reader draws clipped regions, each bounded by [`MAX_REGION_PIXELS`], so
+/// this only applies to the whole-page QA path. It is deliberately the same
+/// order of magnitude as the reader's own raster budget: a page box large enough
+/// to exceed it must be read through region requests rather than by asking the
+/// host for a gigabyte of pixels.
+const MAX_PAGE_PIXELS: u64 = 16_777_216;
 const MAX_REGION_PIXELS: u64 = 12_000_000;
+
+/// MuPDF's resource-store ceiling. The pinned binding creates its context with
+/// `FZ_STORE_DEFAULT`, which the bundled MuPDF source defines as `256 << 20`, and
+/// `mupdf 0.8.0` exposes no setter for it. Held here so the bound is stated in
+/// one place and reported by the Release probe; changing it needs an upstream
+/// binding API rather than first-party unsafe code.
+pub const FZ_STORE_DEFAULT_BYTES: u64 = 256 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Source {
@@ -262,28 +268,7 @@ struct Loaded {
 }
 const MAX_PDF_BYTES: u64 = 256 * 1024 * 1024;
 
-/// Cheap identity of a source file.
-///
-/// Size and modification time alone cannot see a same-size rewrite that
-/// preserves the timestamp, which is exactly what an in-place editor or a
-/// coarse-timestamp filesystem can produce. The device and inode (or the
-/// Windows file index) change when a file is replaced by rename, so a reload is
-/// triggered for that case too. A deliberate same-inode, same-size,
-/// same-timestamp in-place edit still needs a full fingerprint, which is why
-/// saving a sidecar and exporting re-hash the source before publishing.
-#[derive(PartialEq, Eq)]
-struct SourceStamp {
-    len: u64,
-    modified: SystemTime,
-    #[cfg(unix)]
-    device: u64,
-    #[cfg(unix)]
-    inode: u64,
-    #[cfg(windows)]
-    volume: u32,
-    #[cfg(windows)]
-    index: u64,
-}
+type SourceStamp = breeze_storage::SourceIdentity;
 
 struct OpenedDocument {
     doc: PdfDocument,
@@ -316,35 +301,7 @@ fn read_source(source: &Source) -> Result<Vec<u8>> {
 }
 
 fn source_stamp(path: &std::path::Path) -> Result<SourceStamp> {
-    let metadata =
-        std::fs::metadata(path).with_context(|| format!("无法读取 {}", path.display()))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        Ok(SourceStamp {
-            len: metadata.len(),
-            modified: metadata.modified()?,
-            device: metadata.dev(),
-            inode: metadata.ino(),
-        })
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        Ok(SourceStamp {
-            len: metadata.len(),
-            modified: metadata.modified()?,
-            volume: metadata.volume_serial_number().unwrap_or_default(),
-            index: metadata.file_index().unwrap_or_default(),
-        })
-    }
-    #[cfg(not(any(unix, windows)))]
-    {
-        Ok(SourceStamp {
-            len: metadata.len(),
-            modified: metadata.modified()?,
-        })
-    }
+    breeze_storage::source_identity(path).with_context(|| format!("无法读取 {}", path.display()))
 }
 
 fn open_document(source: &Source) -> Result<OpenedDocument> {
@@ -368,7 +325,7 @@ fn open_document(source: &Source) -> Result<OpenedDocument> {
             }
             let before = source_stamp(path)?;
             anyhow::ensure!(
-                before.len <= MAX_PDF_BYTES,
+                before.len() <= MAX_PDF_BYTES,
                 "当前版本限制 PDF 文件为 256 MiB"
             );
             let fingerprint = breeze_storage::fingerprint(path)
@@ -524,10 +481,9 @@ fn render(
                     .max(1);
                 expected = raster_dimensions(points, dpi);
             }
-        } else if job.region.is_none() {
+        } else {
             anyhow::ensure!(
-                u64::from(expected.0) * u64::from(expected.1) <= pixel_budget
-                    || job.scale.is_some(),
+                u64::from(expected.0) * u64::from(expected.1) <= pixel_budget,
                 "页面像素数超出当前渲染预算"
             );
         }
@@ -994,38 +950,141 @@ pub struct SearchHit {
     pub page: usize,
     pub snippet: String,
 }
-pub fn search(source: Source, query: String, cancel: Arc<AtomicBool>) -> Result<Vec<SearchHit>> {
+
+/// Retained page text for one source revision.
+///
+/// Extracting text is the expensive part of a search, so the app keeps this and
+/// hands it back on the next query. The revision is identified by the same
+/// source stamp the reader uses, which makes a repeat query over an unchanged
+/// document a pure in-memory scan.
+pub struct SearchCache {
+    source: Source,
+    stamp: Option<SourceStamp>,
+    fingerprint: String,
+    pages: Vec<String>,
+}
+
+impl SearchCache {
+    /// Fingerprint of the revision this cache was extracted from.
+    pub fn fingerprint(&self) -> &str {
+        &self.fingerprint
+    }
+}
+
+pub struct SearchOutcome {
+    pub hits: Vec<SearchHit>,
+    /// Text retained for the next query, when the document fits the budget.
+    pub cache: Option<Arc<SearchCache>>,
+}
+
+/// Retained page text for one document. Larger documents are searched without
+/// being cached instead of holding an unbounded copy.
+const MAX_SEARCH_CACHE_BYTES: usize = 64 * 1024 * 1024;
+/// Maximum number of reported matches; the search stops collecting here.
+const MAX_SEARCH_HITS: usize = 300;
+
+pub fn search(
+    source: Source,
+    query: String,
+    cancel: Arc<AtomicBool>,
+    cache: Option<Arc<SearchCache>>,
+) -> Result<SearchOutcome> {
     anyhow::ensure!(
         !query.trim().is_empty() && query.len() <= 256,
         "请输入 1–256 字节的搜索词"
     );
-    let OpenedDocument { doc, .. } = open_document(&source)?;
+    let stamp = match &source {
+        Source::Sample => None,
+        Source::File(path) => Some(source_stamp(path)?),
+    };
+    if let Some(reused) = cache.filter(|cache| cache.source == source && cache.stamp == stamp) {
+        let hits = scan_pages(&reused.pages, &query, cancel.as_ref())?;
+        return Ok(SearchOutcome {
+            hits,
+            cache: Some(reused),
+        });
+    }
+
+    let OpenedDocument {
+        doc, fingerprint, ..
+    } = open_document(&source)?;
     anyhow::ensure!(!doc.needs_password()?, "不支持加密文档搜索");
     let trailer = doc.trailer()?;
     anyhow::ensure!(trailer.get_dict("Encrypt")?.is_none(), "不支持加密文档搜索");
     let needle = query.to_lowercase();
-    let mut hits = Vec::new();
     let page_count = usize::try_from(doc.page_count()?)?;
+    let mut pages = Vec::new();
+    let mut retained = 0usize;
+    let mut cacheable = true;
+    let mut hits = Vec::new();
     for page_index in 0..page_count {
         if cancel.load(Ordering::Relaxed) {
             bail!("搜索已取消");
         }
         let page = doc.load_pdf_page(i32::try_from(page_index)?)?;
         let text = page.text(mupdf::TextExtractOptions::default())?;
-        for line in text.lines() {
-            if line.to_lowercase().contains(&needle) {
-                hits.push(SearchHit {
-                    page: page_index,
-                    snippet: line.chars().take(160).collect(),
-                });
-                if hits.len() >= 300 {
-                    return Ok(hits);
-                }
+        if hits.len() < MAX_SEARCH_HITS {
+            collect_hits(&text, page_index, &needle, &mut hits);
+        }
+        if cacheable {
+            retained = retained.saturating_add(text.len());
+            if retained > MAX_SEARCH_CACHE_BYTES {
+                // Too large to keep; finish the scan without retaining text.
+                cacheable = false;
+                pages = Vec::new();
+            } else {
+                pages.push(text);
             }
+        } else if hits.len() >= MAX_SEARCH_HITS {
+            // Nothing more will be retained, so the remaining pages matter only
+            // for matches, and the cap is already reached.
+            break;
         }
     }
+    hits.truncate(MAX_SEARCH_HITS);
+    Ok(SearchOutcome {
+        hits,
+        cache: cacheable.then(|| {
+            Arc::new(SearchCache {
+                source,
+                stamp,
+                fingerprint,
+                pages,
+            })
+        }),
+    })
+}
+
+fn scan_pages(pages: &[String], query: &str, cancel: &AtomicBool) -> Result<Vec<SearchHit>> {
+    let needle = query.to_lowercase();
+    let mut hits = Vec::new();
+    for (page_index, text) in pages.iter().enumerate() {
+        if cancel.load(Ordering::Relaxed) {
+            bail!("搜索已取消");
+        }
+        collect_hits(text, page_index, &needle, &mut hits);
+        if hits.len() >= MAX_SEARCH_HITS {
+            break;
+        }
+    }
+    hits.truncate(MAX_SEARCH_HITS);
     Ok(hits)
 }
+
+fn collect_hits(text: &str, page: usize, needle: &str, hits: &mut Vec<SearchHit>) {
+    for line in text.lines() {
+        if hits.len() >= MAX_SEARCH_HITS {
+            return;
+        }
+        if line.to_lowercase().contains(needle) {
+            hits.push(SearchHit {
+                page,
+                snippet: line.chars().take(160).collect(),
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1111,8 +1170,10 @@ mod reader_tests {
             Source::Sample,
             "quiet art of focus".into(),
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .unwrap();
+        let result = result.hits;
         assert_eq!(result[0].page, 0);
         assert!(
             result[0]
@@ -1127,7 +1188,65 @@ mod reader_tests {
             search(
                 Source::Sample,
                 "focus".into(),
-                Arc::new(AtomicBool::new(true))
+                Arc::new(AtomicBool::new(true)),
+                None,
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn search_stops_collecting_at_the_hit_cap() {
+        let text: String = (0..350)
+            .map(|line| format!("line {line} carries the needle\n"))
+            .collect();
+        let mut hits = Vec::new();
+        collect_hits(&text, 0, "needle", &mut hits);
+        assert_eq!(hits.len(), MAX_SEARCH_HITS);
+        assert!(hits.iter().all(|hit| hit.snippet.contains("needle")));
+    }
+    #[test]
+    fn a_reused_search_cache_answers_without_reopening_the_document() {
+        let first = search(
+            Source::Sample,
+            "quiet".into(),
+            Arc::new(AtomicBool::new(false)),
+            None,
+        )
+        .unwrap();
+        let cache = first
+            .cache
+            .expect("the sample fits the search cache budget");
+        assert_eq!(
+            cache.fingerprint(),
+            breeze_storage::bytes_fingerprint(read_source(&Source::Sample).unwrap().as_slice())
+        );
+        let second = search(
+            Source::Sample,
+            "quiet".into(),
+            Arc::new(AtomicBool::new(false)),
+            Some(cache),
+        )
+        .unwrap();
+        assert_eq!(
+            second
+                .hits
+                .iter()
+                .map(|hit| (hit.page, hit.snippet.clone()))
+                .collect::<Vec<_>>(),
+            first
+                .hits
+                .iter()
+                .map(|hit| (hit.page, hit.snippet.clone()))
+                .collect::<Vec<_>>(),
+        );
+        assert!(second.cache.is_some(), "the cache survives a repeat query");
+        // Cancellation still applies to a cached scan.
+        assert!(
+            search(
+                Source::Sample,
+                "quiet".into(),
+                Arc::new(AtomicBool::new(true)),
+                second.cache,
             )
             .is_err()
         );
@@ -1311,9 +1430,25 @@ mod visible_request_tests {
         }
     }
 
+    /// Resident set of this process in KiB. Probes only: the reader never shells
+    /// out, and MuPDF's own resource store is bounded by the binding instead
+    /// (`FZ_STORE_DEFAULT`, 256 MiB, set when the context is created).
+    fn process_rss_kib() -> Option<u64> {
+        let output = std::process::Command::new("ps")
+            .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+            .output()
+            .ok()?;
+        String::from_utf8(output.stdout)
+            .ok()?
+            .trim()
+            .parse::<u64>()
+            .ok()
+    }
+
     #[test]
-    #[ignore = "Run in Release; reports worker latency and accounted result bytes, not total RSS or GPU"]
+    #[ignore = "Run in Release; reports worker latency, accounted bytes and RSS, not GPU residency"]
     fn report_visible_request_costs() {
+        let mut peak_rss_kib = 0;
         for thumbnail in [false, true] {
             let mut cold = Vec::new();
             let mut warm = Vec::new();
@@ -1336,12 +1471,15 @@ mod visible_request_tests {
                         result.pixels.as_ref().unwrap().height,
                     );
                     bytes = page_bytes(&result);
+                    if let Some(rss) = process_rss_kib() {
+                        peak_rss_kib = peak_rss_kib.max(rss);
+                    }
                 }
             }
             cold.sort_by(f64::total_cmp);
             warm.sort_by(f64::total_cmp);
             println!(
-                "profile={} thumbnail={thumbnail} n=20 document_cold_p50_ms={:.2} document_cold_p95_ms={:.2} warm_p50_ms={:.2} warm_p95_ms={:.2} dimensions={dimensions:?} last_result_bytes={bytes} excludes_gpu_and_engine_allocations=true",
+                "profile={} thumbnail={thumbnail} n=20 document_cold_p50_ms={:.2} document_cold_p95_ms={:.2} warm_p50_ms={:.2} warm_p95_ms={:.2} dimensions={dimensions:?} last_result_bytes={bytes} peak_rss_kib={peak_rss_kib} excludes_gpu=true mupdf_store_limit_bytes={}",
                 if cfg!(debug_assertions) {
                     "debug"
                 } else {
@@ -1350,7 +1488,8 @@ mod visible_request_tests {
                 cold[9],
                 cold[18],
                 warm[9],
-                warm[18]
+                warm[18],
+                FZ_STORE_DEFAULT_BYTES
             );
         }
     }

@@ -87,16 +87,19 @@ is feasibility evidence, not application acceptance.
 - [ ] Verify image/mask/transparency/ICC fidelity across a representative corpus
   and source changes. The integrity pass covers undecodable images; visual parity
   for ICC, transparency and masks beyond the current fixtures is still open.
-- [ ] Establish an effective MuPDF resource-store bound. Published `mupdf 0.8.0`
-  does not expose the newer safe store-size setter found in its repository
-  branch. If measurements exceed the budget, evaluate a narrowly scoped wrapper
-  API extension before considering raw FFI in Breeze.
+- [x] Establish an effective MuPDF resource-store bound. The pinned binding
+  creates its context with `FZ_STORE_DEFAULT`, defined as `256 << 20` in the
+  bundled MuPDF headers, and disables MuPDF's warning and error callbacks;
+  `mupdf 0.8.0` exposes no setter, so the safe-API bound is 256 MiB and the
+  Release probe reports it. A tighter bound would need an upstream API extension
+  rather than raw FFI in Breeze.
 
 ### 3. Search and fidelity parity
 
 - [x] Move search extraction to MuPDF structured text.
-- [ ] Add regressions for the 300-result cap and cancellation contract. The
-  cancellation test passes; the cap is present in code but has no focused test.
+- [x] Add regressions for the 300-result cap and cancellation contract. Extracted
+  text is cached per source revision and reused by the next query; the hit cap
+  and cached cancellation have focused tests.
 - [ ] Compare semantic text and glyph quads on the existing corpus before
   switching annotation/selection geometry to the new adapter.
 - [x] Keep rendering errors visible. Do not turn unsupported or malformed

@@ -199,8 +199,10 @@ fn all_annotation_kinds_preserve_original_content_and_unicode() {
         Source::File(output),
         "quiet art of focus".into(),
         Arc::new(AtomicBool::new(false)),
+        None,
     )
-    .unwrap();
+    .unwrap()
+    .hits;
     assert_eq!(results[0].page, 0);
 }
 #[test]

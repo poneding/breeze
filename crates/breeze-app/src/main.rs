@@ -156,6 +156,8 @@ struct Breeze {
     search_hits: Vec<breeze_pdf::SearchHit>,
     search_notice: String,
     search_cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
+    /// Page text kept between searches of the same document revision.
+    search_cache: Option<Arc<breeze_pdf::SearchCache>>,
     full_screen: bool,
     library_input: Entity<InputState>,
     _subscriptions: Vec<Subscription>,
@@ -309,6 +311,7 @@ impl Breeze {
             search_hits: Vec::new(),
             search_notice: String::new(),
             search_cancel: None,
+            search_cache: None,
             full_screen: false,
             library_input,
             _subscriptions: vec![
@@ -410,6 +413,7 @@ impl Breeze {
         if self.active != index {
             self.document_panel.reset_document();
             self.cancel_search();
+            self.search_cache = None;
             self.search_open = false;
             self.search_restore_document_panel_open = None;
         }

@@ -69,13 +69,31 @@ pub fn export_annotations(request: ExportRequest) -> Result<ExportReceipt> {
     for a in &request.annotations {
         a.validate().map_err(anyhow::Error::msg)?;
     }
-    let input = read_source(&request.source)?;
-    ensure!(
-        breeze_storage::bytes_fingerprint(&input) == request.source_fingerprint,
-        "Source changed; export refused"
-    );
-    let mut doc = Document::load_mem(&input).context("Cannot parse PDF for annotation export")?;
-    drop(input);
+    // The source is fingerprinted by streaming it and loaded file-backed: reading
+    // the whole PDF into memory duplicated a buffer the parser builds anyway.
+    let mut doc = match &request.source {
+        Source::Sample => {
+            let bytes = read_source(&request.source)?;
+            ensure!(
+                breeze_storage::bytes_fingerprint(&bytes) == request.source_fingerprint,
+                "Source changed; export refused"
+            );
+            Document::load_mem(&bytes).context("Cannot parse PDF for annotation export")?
+        }
+        Source::File(path) => {
+            let before = breeze_storage::source_identity(path)?;
+            ensure!(
+                breeze_storage::fingerprint(path)? == request.source_fingerprint,
+                "Source changed; export refused"
+            );
+            let doc = Document::load(path).context("Cannot parse PDF for annotation export")?;
+            ensure!(
+                breeze_storage::source_identity(path)? == before,
+                "Source changed during export; export refused"
+            );
+            doc
+        }
+    };
     preflight(&doc)?;
     // Explicit appearances use transparency and rectangle differences; never emit them under an older header.
     match doc.version.as_str() {

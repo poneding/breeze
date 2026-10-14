@@ -22,6 +22,68 @@ pub fn data_directory() -> Result<PathBuf> {
         .context("No OS application-data directory")?
         .join("Breeze"))
 }
+/// Cheap identity of a source file.
+///
+/// Size and modification time alone cannot see a same-size rewrite that
+/// preserves the timestamp, which is exactly what a coarse-timestamp filesystem
+/// or an in-place editor can produce. The device and inode (or the Windows
+/// volume and file index) change when a file is replaced by rename, so callers
+/// can detect that case without re-hashing the whole document.
+#[derive(PartialEq, Eq)]
+pub struct SourceIdentity {
+    len: u64,
+    modified: std::time::SystemTime,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+    #[cfg(windows)]
+    volume: u32,
+    #[cfg(windows)]
+    index: u64,
+}
+
+impl SourceIdentity {
+    pub fn len(&self) -> u64 {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+pub fn source_identity(path: &Path) -> Result<SourceIdentity> {
+    let metadata = fs::metadata(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(SourceIdentity {
+            len: metadata.len(),
+            modified: metadata.modified()?,
+            device: metadata.dev(),
+            inode: metadata.ino(),
+        })
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        Ok(SourceIdentity {
+            len: metadata.len(),
+            modified: metadata.modified()?,
+            volume: metadata.volume_serial_number().unwrap_or_default(),
+            index: metadata.file_index().unwrap_or_default(),
+        })
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        Ok(SourceIdentity {
+            len: metadata.len(),
+            modified: metadata.modified()?,
+        })
+    }
+}
+
 pub fn fingerprint(path: &Path) -> Result<String> {
     let mut file = File::open(path)?;
     let mut hash = Sha256::new();
@@ -285,11 +347,19 @@ pub fn save_annotations(
         .open(lock_path)?;
     lock.try_lock()
         .context("Another annotation writer is active")?;
-    if let Some(source) = source
-        && fingerprint(source)? != expected_fingerprint
-    {
-        return Err(AnnotationConflict::SourceChanged.into());
-    }
+    // Hash the source once here, then re-check its identity just before the
+    // atomic publish. Hashing the whole document twice doubled the cost of every
+    // save; any change a writer can make without preserving size, mtime and file
+    // identity is still caught before the sidecar is replaced.
+    let identity_before = match source {
+        Some(source) => {
+            if fingerprint(source)? != expected_fingerprint {
+                return Err(AnnotationConflict::SourceChanged.into());
+            }
+            Some(source_identity(source)?)
+        }
+        None => None,
+    };
     match (path.try_exists()?, expected_revision) {
         (true, Some(revision)) => {
             if bytes_fingerprint(&read_bounded(path, SIDECAR_LIMIT)?) != revision {
@@ -308,8 +378,8 @@ pub fn save_annotations(
         bytes.len() as u64 <= SIDECAR_LIMIT,
         "Sidecar exceeds size limit"
     );
-    if let Some(source) = source
-        && fingerprint(source)? != expected_fingerprint
+    if let (Some(source), Some(before)) = (source, identity_before.as_ref())
+        && source_identity(source)? != *before
     {
         return Err(AnnotationConflict::SourceChanged.into());
     }

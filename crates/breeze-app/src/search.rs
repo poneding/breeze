@@ -30,7 +30,11 @@ impl Breeze {
         let token = Arc::new(AtomicBool::new(false));
         self.search_cancel = Some(token.clone());
         let source = self.books[self.active].source.clone();
-        let work = cx.background_spawn(async move { breeze_pdf::search(source, query, token) });
+        // Retained text is keyed by source revision, so a cancelled query only
+        // costs the extraction it was already doing.
+        let cache = self.search_cache.clone();
+        let work =
+            cx.background_spawn(async move { breeze_pdf::search(source, query, token, cache) });
         cx.spawn(async move |this, cx| {
             let result = work.await;
             let _ = this.update(cx, |this, cx| {
@@ -40,17 +44,18 @@ impl Breeze {
                     return;
                 }
                 match result {
-                    Ok(hits) => {
+                    Ok(outcome) => {
                         this.search_notice = tf!(
                             "{} matches{}",
-                            hits.len(),
-                            if hits.len() == 300 {
+                            outcome.hits.len(),
+                            if outcome.hits.len() == 300 {
                                 tr!(" (limit reached)")
                             } else {
                                 ""
                             }
                         );
-                        this.search_hits = hits;
+                        this.search_hits = outcome.hits;
+                        this.search_cache = outcome.cache;
                     }
                     Err(e) => this.search_notice = format!("{e:#}"),
                 };
