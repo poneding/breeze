@@ -200,7 +200,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(product.get("Version"), "1.2.3")
         self.assertEqual(product.get("Manufacturer"), release.PUBLISHER)
         self.assertEqual(
-            root.find(".//w:Property[@Id='BreezeReleaseVersion']", WIX).get("Value"),
+            root.find(".//w:Property[@Id='BREEZERELEASEVERSION']", WIX).get("Value"),
             version,
         )
         install = root.find(".//w:Directory[@Id='INSTALLFOLDER']", WIX)
@@ -216,6 +216,20 @@ class ReleaseTests(unittest.TestCase):
             len(root.findall(".//w:Component", WIX)),
             "every component must be referenced by a feature",
         )
+        # A component may declare exactly one key path, so each file owns its own
+        # component; the shortcut component keys off its registry value instead.
+        components = root.findall(".//w:Component", WIX)
+        file_components = [
+            component for component in components if component.findall(".//w:File", WIX)
+        ]
+        self.assertEqual(len(file_components), len(root.findall(".//w:File", WIX)))
+        for component in file_components:
+            self.assertEqual(len(component.findall(".//w:File", WIX)), 1)
+        for component in components:
+            key_paths = len(
+                component.findall(".//w:File[@KeyPath='yes']", WIX)
+            ) + len(component.findall(".//w:RegistryValue[@KeyPath='yes']", WIX))
+            self.assertEqual(key_paths, 1, "a component needs exactly one key path")
         shortcut = root.find(".//w:Shortcut", WIX)
         self.assertEqual(shortcut.get("Target"), "[INSTALLFOLDER]breeze-app.exe")
 

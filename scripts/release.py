@@ -247,7 +247,7 @@ def wix_source(version: str, target: str, payload: Path, icon: Path) -> str:
         '    <MajorUpgrade DowngradeErrorMessage="A newer version of Breeze is '
         'already installed." />',
         '    <MediaTemplate EmbedCab="yes" />',
-        f'    <Property Id="BreezeReleaseVersion" Value={_attr(version)} Secure="yes" />',
+        f'    <Property Id="BREEZERELEASEVERSION" Value={_attr(version)} Secure="yes" />',
         f'    <Property Id="ARPCOMMENTS" Value={_attr(comments)} />',
         '    <Property Id="ARPNOMODIFY" Value="1" />',
         f'    <Icon Id="BreezeIcon" SourceFile={_attr(icon)} />',
@@ -263,24 +263,26 @@ def wix_source(version: str, target: str, payload: Path, icon: Path) -> str:
 
     def emit(directory: Path, relative: Path, depth: int) -> None:
         pad = "  " * depth
+        # One component per file: a Windows Installer component may carry exactly
+        # one key path, so a shared component could not mark every file as its
+        # own key path.
         files = sorted(
             path
             for path in directory.iterdir()
             if path.is_file() and not _is_metadata(path.name)
         )
-        if files:
-            component = _identifier("cmp", f"{target}/{relative}")
+        for file in files:
+            name = file.relative_to(payload).as_posix()
+            component = _identifier("cmp", f"{target}/{name}")
+            file_id = _identifier("fil", f"{target}/{name}")
             lines.append(
                 f"{pad}<Component Id={_attr(component)} "
-                f"Guid={_attr(_guid('component', target, str(relative)))}>"
+                f"Guid={_attr(_guid('component', target, name))}>"
             )
-            for file in files:
-                name = file.relative_to(payload).as_posix()
-                file_id = _identifier("fil", f"{target}/{name}")
-                lines.append(
-                    f"{pad}  <File Id={_attr(file_id)} Source={_attr(file)} "
-                    'KeyPath="yes" />'
-                )
+            lines.append(
+                f"{pad}  <File Id={_attr(file_id)} Source={_attr(file)} "
+                'KeyPath="yes" />'
+            )
             lines.append(f"{pad}</Component>")
             components.append(component)
         for child in sorted(path for path in directory.iterdir() if path.is_dir()):
