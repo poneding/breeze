@@ -187,7 +187,8 @@ jobs:
             $record = $view.Fetch()
             $view.Close()
             if ($null -eq $record) { return $null }
-            return $record.StringData(1)
+            # Windows Installer pads version-shaped properties, so compare trimmed.
+            return $record.StringData(1).Trim()
           }
           $productVersion = Read-MsiProperty 'ProductVersion'
           $releaseVersion = Read-MsiProperty 'BREEZERELEASEVERSION'
