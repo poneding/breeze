@@ -526,7 +526,7 @@ def _build_appimage(version: str, target: str, payload: Path, output: Path) -> P
         executable=True,
     )
     environment = {"ARCH": "x86_64"}
-    if tool.endswith(".AppImage"):
+    if tool.endswith(".AppImage") or Path(tool).resolve().name.endswith(".AppImage"):
         # appimagetool is itself an AppImage and the runners have no FUSE.
         environment["APPIMAGE_EXTRACT_AND_RUN"] = "1"
     _run([tool, "--no-appstream", str(appdir), str(artifact)], environment)
