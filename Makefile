@@ -25,7 +25,7 @@ help:
 	  'make build       Build the workspace in the development profile' \
 	  'make run         Run Breeze with isolated data (optional ARGS="...")' \
 	  'make release     Build an optimized app for TARGET (defaults to host)' \
-	  'make package     Build and archive the release under target/dist/' \
+	  'make package     Build installers under target/dist/' \
 	  'make fmt         Apply rustfmt' \
 	  'make fmt-check   Check rustfmt without changing files' \
 	  'make test-tools  Run release-tool tests (Python 3.11+)' \
