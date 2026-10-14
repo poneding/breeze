@@ -41,8 +41,19 @@ is feasibility evidence, not application acceptance.
   sources, and upload/checksum it with installers.
 - [x] Include the license, MuPDF notice, and corresponding-source instructions
   in macOS, Windows, Linux, and local review packages.
-- [ ] Audit enabled build features and packaged assets; record dependency
-  notices and native build prerequisites.
+- [x] Audit enabled build features and packaged assets; record dependency
+  notices and native build prerequisites. `cargo tree -e features -i mupdf-sys`
+  shows exactly `base14-fonts` (plus `zerocopy`, a binding detail): MuJS, OCR,
+  XPS/EPUB/HTML/CBZ/SVG, Brotli and document writing stay off. Every installer
+  payload copies `LICENSE`, `assets/licenses/COPYING-MUPDF.txt` and
+  `NOTICE-MUPDF.md`; the packaged COPYING is byte-identical (SHA-256) to
+  `vendor/mupdf-sys-0.8.0/mupdf/COPYING`. Building the archive locally produced
+  `Breeze-0.1.0-alpha.1-source.tar.gz` (182 MiB, checksum verified) containing
+  56,651 entries, `.cargo/config.toml`, `Cargo.lock`, the AGPL `LICENSE`, and
+  2,842 files under `vendor/mupdf-sys-0.8.0/mupdf/` — the MuPDF C/C++ sources.
+  README lists the Rust, C/C++, CMake and libclang prerequisites per platform.
+  A hosted release-workflow run and installer inspection on Windows/Linux remain
+  unperformed.
 
 ### 1. MuPDF adapter compatibility
 

@@ -184,3 +184,92 @@ fn a_page_beyond_the_document_is_rejected() {
         }
     }
 }
+
+/// The whole-page QA path shares the reader's raster budget instead of asking the
+/// host for an unbounded allocation.
+#[test]
+fn a_whole_page_beyond_the_raster_budget_is_refused() {
+    use lopdf::{Document, Object, Stream, dictionary};
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("huge-page.pdf");
+    let mut doc = Document::with_version("1.7");
+    let pages = doc.new_object_id();
+    let content = doc.add_object(Stream::new(
+        dictionary! {},
+        b"0.2 0.4 0.6 rg 10 10 80 80 re f".to_vec(),
+    ));
+    // 20000 x 20000 points is 400 Mpx at 1 device pixel per point.
+    let page = doc.add_object(dictionary! {
+        "Type"=>"Page",
+        "Parent"=>pages,
+        "MediaBox"=>vec![0.into(),0.into(),20000.into(),20000.into()],
+        "Resources"=>dictionary! {},
+        "Contents"=>content,
+    });
+    doc.objects.insert(
+        pages,
+        Object::Dictionary(dictionary! {"Type"=>"Pages","Kids"=>vec![page.into()],"Count"=>1}),
+    );
+    let catalog = doc.add_object(dictionary! {"Type"=>"Catalog","Pages"=>pages});
+    doc.trailer.set("Root", catalog);
+    doc.save(&path).unwrap();
+
+    let worker = PdfWorker::new().unwrap();
+    let source = Source::File(path);
+    // Metadata stays available so the reader can still show page geometry.
+    let metadata = futures::executor::block_on(
+        worker
+            .request_metadata(source.clone(), 0)
+            .expect("the worker accepts the request"),
+    )
+    .expect("the request completes")
+    .expect("metadata does not allocate a raster");
+    assert_eq!(metadata.points, (20000., 20000.));
+
+    for (mode, result) in [
+        (
+            "page",
+            futures::executor::block_on(
+                worker
+                    .request_page(source.clone(), 0, Rotation::None, 1.)
+                    .expect("the worker accepts the request"),
+            )
+            .expect("the request completes"),
+        ),
+        (
+            "region",
+            futures::executor::block_on(
+                worker
+                    .request_region(
+                        source,
+                        0,
+                        Rotation::None,
+                        1.,
+                        breeze_core::annotations::Rect {
+                            x: 0.,
+                            y: 0.,
+                            width: 20000.,
+                            height: 20000.,
+                        },
+                    )
+                    .expect("the worker accepts the request"),
+            )
+            .expect("the request completes"),
+        ),
+    ] {
+        match result {
+            Ok(page) => panic!(
+                "{mode}: a {}x{} raster was published instead of refusing it",
+                page.pixels.as_ref().expect("pixels").width,
+                page.pixels.as_ref().expect("pixels").height
+            ),
+            Err(error) => assert!(
+                matches!(
+                    error.downcast_ref::<breeze_pdf::PdfError>(),
+                    Some(breeze_pdf::PdfError::RenderBudget)
+                ),
+                "{mode}: unexpected error: {error:#}"
+            ),
+        }
+    }
+}
