@@ -89,7 +89,14 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential clang cmake pkg-config libfontconfig-dev libfreetype-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev libvulkan-dev libasound2-dev libudev-dev libglib2.0-dev libwebkit2gtk-4.1-dev
+          sudo apt-get install -y build-essential clang libclang-dev cmake pkg-config libfontconfig-dev libfreetype-dev libwayland-dev libxkbcommon-x11-dev libx11-xcb-dev libssl-dev libzstd-dev libvulkan-dev libasound2-dev libudev-dev libglib2.0-dev libwebkit2gtk-4.1-dev
+      - name: Install LLVM for bindgen
+        if: runner.os == 'Windows'
+        run: choco install llvm --no-progress -y
+      - name: Configure libclang for bindgen
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"LIBCLANG_PATH=C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8'
       - name: Install installer tooling
         run: |
           if [ "$RUNNER_OS" = "Linux" ]; then
@@ -187,13 +194,20 @@ jobs:
             $record = $view.Fetch()
             $view.Close()
             if ($null -eq $record) { return $null }
-            # Windows Installer pads version-shaped properties, so compare trimmed.
-            return $record.StringData(1).Trim()
+            return $record.StringData(1)
           }
-          $productVersion = Read-MsiProperty 'ProductVersion'
-          $releaseVersion = Read-MsiProperty 'BREEZERELEASEVERSION'
+          # Windows Installer returns version-shaped properties padded, and the
+          # padding is not always trimmable whitespace, so compare the version
+          # content rather than the raw string.
+          function Get-VersionContent([string] $value) {
+            if ($null -eq $value) { return '' }
+            return ($value -replace '[^0-9.]', '')
+          }
+          $productVersion = Get-VersionContent (Read-MsiProperty 'ProductVersion')
+          $releaseVersion = Get-VersionContent (Read-MsiProperty 'BREEZERELEASEVERSION')
           if ($productVersion -ne $core) { throw "MSI ProductVersion '$productVersion' is not '$core'" }
-          if ($releaseVersion -ne $env:RELEASE_VERSION) { throw "MSI release property '$releaseVersion' is not '$env:RELEASE_VERSION'" }
+          $expectedRelease = Get-VersionContent $env:RELEASE_VERSION
+          if ($releaseVersion -ne $expectedRelease) { throw "MSI release property '$releaseVersion' is not '$expectedRelease'" }
           # An administrative install extracts the packaged payload without
           # installing anything, which exercises the database and the cabinet.
           $extract = Join-Path $env:RUNNER_TEMP 'breeze-msi-extract'
@@ -204,6 +218,7 @@ jobs:
             throw 'the MSI payload does not contain breeze-app.exe'
           }
           $versionFile = Get-ChildItem -Recurse -Path $extract -Filter 'VERSION' | Select-Object -First 1
+          if ($null -eq $versionFile) { throw 'the MSI payload does not carry VERSION' }
           if ((Get-Content $versionFile.FullName -Raw).Trim() -ne $env:RELEASE_VERSION) {
             throw 'the MSI payload carries the wrong VERSION'
           }
@@ -226,7 +241,7 @@ jobs:
           retention-days: 7
 
   publish:
-    needs: [validate, build]
+    needs: [validate, build, source]
     # Manual runs build and verify installers without publishing a release.
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
@@ -268,7 +283,39 @@ jobs:
             if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
             gh release create "$RELEASE_TAG" --verify-tag --draft \
               --title "Breeze $RELEASE_TAG" --generate-notes "${flags[@]}" \
-              --notes 'Unsigned development installers: macOS packages are not Developer ID signed or notarized and Windows packages are not code-signed, so Gatekeeper and SmartScreen will warn before installation. Native Windows/Linux runtime acceptance, the complete dependency-license audit, and the production fidelity/performance gates remain pending. See RELEASE-NOTES.md inside each package. SHA-256 checksums accompany the downloads.'
+              --notes 'Unsigned development installers: macOS packages are not Developer ID signed or notarized and Windows packages are not code-signed, so Gatekeeper and SmartScreen will warn before installation. The AGPL corresponding-source archive and SHA-256 checksums accompany the downloads. Native Windows/Linux runtime acceptance, the complete dependency-license audit, and the production fidelity/performance gates remain pending. See RELEASE-NOTES.md inside each package.'
           fi
           gh release upload "$RELEASE_TAG" dist/* --clobber
           gh release edit "$RELEASE_TAG" --draft=false --prerelease="$PRERELEASE"
+
+  source:
+    needs: validate
+    if: needs.validate.outputs.valid == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      SOURCE_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.97.1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build corresponding source archive
+        run: python scripts/source_bundle.py --version "$RELEASE_VERSION" --revision "$SOURCE_REVISION" --output target/dist
+      - name: Verify source archive checksum
+        working-directory: target/dist
+        run: sha256sum --check ./*-source.tar.gz.sha256
+      - uses: actions/upload-artifact@v4
+        with:
+          name: breeze-source
+          path: |
+            target/dist/*-source.tar.gz
+            target/dist/*-source.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 7
