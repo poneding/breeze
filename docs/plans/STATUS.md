@@ -6,9 +6,12 @@ The user accepted AGPL-compatible source distribution and selected MuPDF through
 `mupdf-rs`. Phase 0 now declares `AGPL-3.0-only`, carries the root and MuPDF
 license texts into installer payloads, and builds a corresponding-source archive
 with vendored Cargo dependencies. Release CI is configured to upload and verify
-that archive. Local release tooling tests pass; the hosted workflow has not run.
-The committed runtime still uses PDF Oxide until phase 1 of
-[work package 22](22-mupdf-migration.md) is implemented.
+that archive. The source bundle was built from commit `d6c38c5`, its SHA-256
+verified, and its contents checked for `LICENSE`, `Cargo.lock`, `.cargo/config.toml`,
+and the source builder. Package payload tests, formatting, workspace tests (144
+app, 14 core, 21 PDF, 6 PDF integration, 7 storage; three existing probes
+ignored), and Clippy with warnings denied on Rust 1.97.1 pass. The hosted workflow
+remains unrun. The runtime dependency switch is phase 1 and is not yet implemented.
 
 ## October 14 PDF engine strategy comparison
 
