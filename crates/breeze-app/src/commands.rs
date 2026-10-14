@@ -474,26 +474,6 @@ impl Breeze {
                                         .text_color(p.muted),
                                     ),
                             ),
-                    )
-                    .child(
-                        row()
-                            .id("titlebar-actions")
-                            .test_support()
-                            .flex_shrink_0()
-                            .gap_1()
-                            .child(self.command(
-                                "theme",
-                                if self.theme_preference == ThemePreference::System {
-                                    IconName::Monitor
-                                } else if Theme::global(cx).is_dark() {
-                                    IconName::Moon
-                                } else {
-                                    IconName::Sun
-                                },
-                                tr!("Change theme"),
-                                &CycleTheme,
-                                cx,
-                            )),
                     ),
             )
     }
@@ -529,7 +509,6 @@ fn action_label(action: &dyn Action) -> &'static str {
     name!(ShowAbout, tr!("About"));
     name!(ShowShortcuts, tr!("Shortcuts"));
     name!(CloseTab, tr!("Close current tab"));
-    name!(CycleTheme, tr!("Cycle system and built-in themes"));
     name!(ToggleSidebar, tr!("Toggle navigation"));
     name!(ToggleDocumentPanel, tr!("Toggle document sidebar"));
     name!(NextPage, tr!("Next page"));

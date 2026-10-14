@@ -879,3 +879,21 @@ no “阅读文档” action and no layout change to the category/location colum
 Finder hand-off itself was not clicked from the running application, so the
 launcher is verified by its command line and by the failure path rather than by
 an observed Finder selection; Windows/Linux stay unverified.
+
+## October 15 titlebar theme button removed
+
+The right-hand titlebar group held one control, the theme-cycle button, and it
+was the only reason that group existed. The button and its group are gone, so
+the titlebar is now Home, the document tabs, and the divider/Plus control, and
+the Settings dropdown is the single theme control in the interface. The
+`CycleTheme` command, its Primary+Shift+T binding, and its entry on the
+Shortcuts page are unchanged; only the button, its monitor/moon/sun icon, and
+the retired tooltip string were removed from the catalog.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked`
+(app suite 153 passed) and `cargo clippy --workspace --all-targets --locked --
+-D warnings` pass. `theme_selection_and_settings_dropdown_stay_in_sync` now
+cycles with the shortcut instead of clicking the button, and the tab-compression
+test asserts the tab strip and Plus control stay inside `titlebar-content` with
+no trailing action group. Native visual inspection of the resulting titlebar was
+not performed in this session; Windows/Linux native checks remain open.

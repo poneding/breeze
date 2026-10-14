@@ -182,7 +182,6 @@ catalog! {
     "Search document" => ("搜索文档", "搜尋文件"),
     "Copy selected text" => ("复制选中文字", "複製選中文字"),
     "Close current tab" => ("关闭当前标签", "關閉目前分頁"),
-    "Cycle system and built-in themes" => ("切换主题：跟随系统与内置主题", "切換主題：跟隨系統與內建主題"),
     "Toggle navigation" => ("展开 / 收起导航", "展開 / 收起導航"),
     "Toggle document sidebar" => ("展开 / 收起文档侧栏", "展開 / 收起文件側欄"),
     "Next page" => ("下一页", "下一頁"),

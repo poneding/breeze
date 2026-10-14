@@ -134,7 +134,7 @@ fn resizing_respects_bounds_and_keeps_width_on_collapse(cx: &mut TestAppContext)
     .unwrap();
 }
 #[gpui_kit::test]
-fn titlebar_and_theme_dropdown_stay_in_sync(cx: &mut TestAppContext) {
+fn theme_selection_and_settings_dropdown_stay_in_sync(cx: &mut TestAppContext) {
     let (handle, view) = app(cx);
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
@@ -182,7 +182,8 @@ fn titlebar_and_theme_dropdown_stay_in_sync(cx: &mut TestAppContext) {
             view.set_appearance(ThemePreference::Theme("Twilight".into()), window, cx);
         });
         window.render_frame(cx);
-        window.click("theme", cx);
+        window.focus(&view.read(cx).focus.clone(), cx);
+        window.press("secondary-shift-t", cx);
         window.render_frame(cx);
         assert_eq!(view.read(cx).theme_preference, ThemePreference::System);
         assert_eq!(
@@ -1293,7 +1294,7 @@ fn tab_close_is_hover_only_and_does_not_activate_its_document(cx: &mut TestAppCo
 }
 
 #[gpui_kit::test]
-fn document_tabs_compress_without_covering_titlebar_actions(cx: &mut TestAppContext) {
+fn document_tabs_compress_without_covering_titlebar_controls(cx: &mut TestAppContext) {
     let (handle, view) = app(cx);
     for count in [1usize, 3, 16, 60] {
         cx.update_window(handle, |_, _, cx| {
@@ -1321,27 +1322,18 @@ fn document_tabs_compress_without_covering_titlebar_actions(cx: &mut TestAppCont
                 window.render_frame(cx);
                 let content = window.find("titlebar-content").bounds();
                 let tabs = window.find("document-tabs").bounds();
-                let actions = window.find("titlebar-actions").bounds();
                 let add = window.find("document-tab-add").bounds();
                 let plus = window.find("add-document");
                 let divider = window.find("document-tab-divider").bounds();
                 let first = window.find(("document", 0usize)).bounds();
                 assert!(content.right() <= px(width), "{count} tabs at {width}px");
-                assert!(tabs.right() <= actions.left());
-                assert!(actions.right() <= content.right());
                 assert!(tabs.right() <= add.left());
                 assert!(add.left() - tabs.right() <= px(4.));
-                assert!(add.right() <= actions.left());
+                assert!(add.right() <= content.right());
                 assert!(plus.visible());
                 assert!(divider.right() <= plus.bounds().left());
                 assert!(plus.bounds().right() <= add.right());
                 assert!(window.try_find("open").is_none());
-                {
-                    let button = window.find("theme");
-                    assert!(button.visible());
-                    assert!(button.bounds().left() >= actions.left());
-                    assert!(button.bounds().right() <= actions.right());
-                }
                 // Tabs shrink to a 40 px floor inside a 10 px padded, 4 px gapped
                 // strip, so fit is asserted where the measured strip can host that
                 // floor. Window widths cannot express this: Kit's window buttons
@@ -1458,9 +1450,8 @@ fn short_document_titles_use_content_width_and_leave_room_for_shadow(cx: &mut Te
             assert!(width >= px(40.) && width <= *wide);
         }
         assert!(window.find(("document", 2usize)).bounds().size.width < px(228.));
-        let actions = window.find("titlebar-actions").bounds();
-        assert!(window.find("document-tab-add").bounds().right() <= actions.left());
-        assert!(window.find("theme").visible());
+        let content = window.find("titlebar-content").bounds();
+        assert!(window.find("document-tab-add").bounds().right() <= content.right());
     })
     .unwrap();
 }

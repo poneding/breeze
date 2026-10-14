@@ -6,7 +6,7 @@ The user accepted the compact prototype's general layout on September 29, 2026. 
 
 - No application branding block, welcome poster, decorative sidebar footer, or redundant document-information card.
 - Document tabs occupy the native GPUI Kit TitleBar; do not stack a second title bar beneath OS chrome.
-- Home, Open, Settings, theme, and other global commands use icon buttons with accessibility labels and tooltips.
+- Home, Open, Settings, and other global commands use icon buttons with accessibility labels and tooltips.
 - Home owns every global page. Library, About, Shortcuts, and Settings share one compact sidebar and one content area.
 - Keep necessary text on document tabs, navigation tabs, and Reading/Annotate mode tabs.
 - Use restrained separators, small radii, a 4-pixel spacing system, and no decorative glass/gradient effects.
@@ -14,7 +14,7 @@ The user accepted the compact prototype's general layout on September 29, 2026. 
 ## Layout and density
 
 ```text
-Native title bar: window controls | Home | document tabs | divider | Plus | theme | Settings
+Native title bar: window controls | Home | document tabs | divider | Plus
 +---------------------------+---------------------------------------------------+
 | Outline / Thumbnails tabs | Reading / Annotate + contextual tools              |
 |                           +---------------------------------------------------+
@@ -108,7 +108,7 @@ Use one GPUI Kit Select labeled Theme, replacing the segmented mode control and 
 - Populate a searchable Select from the registry, grouped as System / Light / Dark (Chinese section labels). There are 39 choices: Follow System, 12 light themes, and 26 dark themes. Keep the default theme first within each appearance group, followed by case-insensitive name order; retain upstream theme names.
 - Selecting a named theme uses its declared appearance and ignores OS appearance changes. Persist its registry name, not its dropdown index.
 - Apply the selected `ThemeConfig` through `Theme::update` / `apply_config`. Application chrome reads the active Kit theme colors; Breeze no longer overrides them with its own palettes. Preserve compact typography and control radii.
-- The titlebar button and Primary+Shift+T cycle the same choices and keep the settings selection synchronized.
+- Primary+Shift+T cycles the same choices and keeps the settings selection synchronized.
 
 PDF pages are not inverted, tinted, or rerendered by theme selection. Theme preference, library state, and restoration switches persist locally. Legacy states retain Follow System or migrate explicit Light/Dark to the corresponding built-in name; retired palette fields are accepted on read but omitted from new snapshots. The language dropdown applies English, Simplified Chinese, or Traditional Chinese to application chrome immediately and persists the choice; user names, paths, document content, and official theme names are preserved. Update checks use the user-designated `poneding/breeze` stable GitHub Releases source. Manual is the default, Automatic checks once per startup, and Never prevents background checks. Explicit checks remain available in every policy. A newer release offers its GitHub page; automatic download/install is unavailable. Opening-window policies are implemented separately from page zoom and applied once for new/restored active documents.
 
@@ -161,7 +161,7 @@ In addition to component tests, inspect titlebar dragging/double-click/window co
 
 Use Kit Small controls instead of XSmall: the default 15 px rem gives global icon buttons a 22.5 px hit box. Keep the title bar, toolbar, navigation header, and status bar heights unchanged. Left alignment must be applied to a full-width child row inside Kit Button; outer `justify_start` alone does not override the component's centered content container.
 
-Document tabs have one four-corner rounded surface, a theme-background active fill with a small shadow, and no inter-tab separators. Inactive tabs receive the same shadow on hover, including over their Close overlay. Home, the tab group's trailing divider/Plus control, and the right-side theme/Settings group retain their control widths; Kit's Windows/Linux window controls occupy their own sibling region. Each tab fits its filename, icon, and normal padding up to 228 logical pixels; short names do not stretch to the maximum. Tabs shrink from their preferred widths as more documents open or the window narrows. At the 40 px minimum, excess tabs scroll within that bounded region. Preserve 4 px of leading space and 6 px of trailing space inside the tab scroller so edge shadows remain visible. A single 1 × 14 px divider and Plus button follow the visible tab region, including when it is empty. Plus opens the document picker, uses muted foreground at rest and ordinary button foreground/background on hover, and is never part of the scrolling content. The old right-side Open button is removed.
+Document tabs have one four-corner rounded surface, a theme-background active fill with a small shadow, and no inter-tab separators. Inactive tabs receive the same shadow on hover, including over their Close overlay. Home and the tab group's trailing divider/Plus control retain their control widths; Kit's Windows/Linux window controls occupy their own sibling region. Each tab fits its filename, icon, and normal padding up to 228 logical pixels; short names do not stretch to the maximum. Tabs shrink from their preferred widths as more documents open or the window narrows. At the 40 px minimum, excess tabs scroll within that bounded region. Preserve 4 px of leading space and 6 px of trailing space inside the tab scroller so edge shadows remain visible. A single 1 × 14 px divider and Plus button follow the visible tab region, including when it is empty. Plus opens the document picker, uses muted foreground at rest and ordinary button foreground/background on hover, and is never part of the scrolling content. The old right-side Open button is removed.
 
 Each tab's icon/title content has equal 0.5 rem left and right insets (7.5 logical pixels at the current 15 px rem). Preferred widths include both sides, keeping the right edge of short titles as comfortably inset as the left document icon. Close uses a separate 2 px right inset; its overlay does not inherit the title's larger inset.
 
