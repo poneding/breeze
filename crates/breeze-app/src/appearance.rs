@@ -1,14 +1,131 @@
 //! Theme choices come from Kit's registry; System remains an application preference.
 use anyhow::{Context as _, Result};
 use gpui_kit::component::{
-    ThemeConfig, ThemeMode, ThemeRegistry,
-    select::{SearchableVec, SelectGroup, SelectItem},
+    IndexPath, ThemeConfig, ThemeMode, ThemeRegistry,
+    select::{SelectDelegate, SelectGroup, SelectItem},
 };
-use gpui_kit::{App, SharedString, WindowAppearance};
+use gpui_kit::{AnyElement, App, IntoElement as _, SharedString, Task, Window, WindowAppearance};
 use serde::{Deserialize, Deserializer, Serialize};
+use std::cell::RefCell;
 use std::rc::Rc;
 
-pub type ThemeChoices = SearchableVec<SelectGroup<ThemePreference>>;
+/// The Settings dropdown's options: the bundled themes, grouped by appearance.
+///
+/// Kit's `SelectState` reports the dropdown cursor only as an `IndexPath`, and a search
+/// query renumbers the rows before that index is read. This delegate therefore keeps the
+/// filtered view itself, so the view can resolve the row under the cursor and preview
+/// that theme while the user is still moving around the open dropdown.
+#[derive(Clone)]
+pub struct ThemeChoices {
+    groups: Rc<Vec<SelectGroup<ThemePreference>>>,
+    /// One entry per visible section: its group, and the group rows a query kept.
+    visible: Rc<RefCell<Vec<VisibleGroup>>>,
+}
+
+struct VisibleGroup {
+    group: usize,
+    rows: Vec<usize>,
+}
+
+impl ThemeChoices {
+    pub fn new(groups: Vec<SelectGroup<ThemePreference>>) -> Self {
+        let visible = (0..groups.len())
+            .map(|group| VisibleGroup {
+                group,
+                rows: (0..groups[group].items.len()).collect(),
+            })
+            .collect();
+        Self {
+            groups: Rc::new(groups),
+            visible: Rc::new(RefCell::new(visible)),
+        }
+    }
+
+    /// The theme at `index`, in the coordinates the open dropdown's cursor uses.
+    pub fn theme_at(&self, index: IndexPath) -> Option<ThemePreference> {
+        self.item(index).cloned()
+    }
+}
+
+impl SelectDelegate for ThemeChoices {
+    type Item = ThemePreference;
+
+    fn sections_count(&self, _: &App) -> usize {
+        self.visible.borrow().len()
+    }
+
+    fn items_count(&self, section: usize) -> usize {
+        self.visible
+            .borrow()
+            .get(section)
+            .map_or(0, |visible| visible.rows.len())
+    }
+
+    /// Kit's default group header only formats the element this returns, so the
+    /// deprecated hook keeps the rows looking exactly as the previous
+    /// `SearchableVec<SelectGroup<_>>` delegate did.
+    #[allow(deprecated)]
+    fn section(&self, section: usize) -> Option<AnyElement> {
+        let group = self.visible.borrow().get(section)?.group;
+        Some(self.groups.get(group)?.title.clone().into_any_element())
+    }
+
+    fn item(&self, index: IndexPath) -> Option<&Self::Item> {
+        // Resolve the row index first: the returned reference borrows the groups,
+        // not the cell holding which of their rows are visible.
+        let (group, row) = {
+            let visible = self.visible.borrow();
+            let visible_group = visible.get(index.section)?;
+            (visible_group.group, *visible_group.rows.get(index.row)?)
+        };
+        self.groups.get(group)?.items.get(row)
+    }
+
+    fn position<V>(&self, value: &V) -> Option<IndexPath>
+    where
+        Self::Item: SelectItem<Value = V>,
+        V: PartialEq,
+    {
+        let visible = self.visible.borrow();
+        for (section, visible_group) in visible.iter().enumerate() {
+            let group = self.groups.get(visible_group.group)?;
+            for (row, group_row) in visible_group.rows.iter().enumerate() {
+                if group.items.get(*group_row)?.value() == value {
+                    return Some(IndexPath::default().section(section).row(row));
+                }
+            }
+        }
+        None
+    }
+
+    fn perform_search(&mut self, query: &str, _: &mut Window, _: &mut App) -> Task<()> {
+        let visible = self
+            .groups
+            .iter()
+            .enumerate()
+            .filter_map(|(group, entries)| {
+                matched_rows(entries, query).map(|rows| VisibleGroup { group, rows })
+            })
+            .collect();
+        *self.visible.borrow_mut() = visible;
+        Task::ready(())
+    }
+}
+
+/// The rows of one group that `query` keeps, or `None` when the group is hidden.
+///
+/// This mirrors Kit's own grouped filtering, so the rows the cursor walks and the rows
+/// this delegate reports stay the same.
+fn matched_rows(group: &SelectGroup<ThemePreference>, query: &str) -> Option<Vec<usize>> {
+    let rows = group
+        .items
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.matches(query))
+        .map(|(row, _)| row)
+        .collect::<Vec<_>>();
+    (!rows.is_empty() || group.title.to_lowercase().contains(&query.to_lowercase())).then_some(rows)
+}
 
 // These are unchanged official gallery assets, pinned alongside Kit 0.7.0.
 // Core Kit initialization alone registers only Default Light and Default Dark.
@@ -271,6 +388,42 @@ mod tests {
             assert_eq!(
                 ThemeRegistry::global(cx).default_dark_theme().name.as_ref(),
                 "Default Dark"
+            );
+        });
+    }
+
+    #[gpui_kit::test]
+    fn the_dropdown_cursor_resolves_through_the_filtered_view(cx: &mut gpui_kit::TestAppContext) {
+        let cx = cx.add_empty_window();
+        cx.update(|window, cx| {
+            gpui_kit::init(cx);
+            init(cx).unwrap();
+            let groups = ThemePreference::groups(cx);
+            let mut choices = ThemeChoices::new(groups.clone());
+            assert_eq!(
+                choices.theme_at(IndexPath::default()),
+                Some(ThemePreference::System)
+            );
+            assert_eq!(
+                choices.theme_at(IndexPath::default().section(1).row(1)),
+                Some(groups[1].items[1].clone())
+            );
+
+            // A query renumbers the rows the cursor walks, so the highlighted row has
+            // to resolve against the filtered view rather than the full list.
+            _ = choices.perform_search("mocha", window, cx);
+            assert_eq!(choices.sections_count(cx), 1);
+            assert_eq!(
+                choices.theme_at(IndexPath::default()),
+                Some(ThemePreference::Theme("Catppuccin Mocha".into()))
+            );
+
+            // Clearing the query restores the unfiltered grouping.
+            _ = choices.perform_search("", window, cx);
+            assert_eq!(choices.sections_count(cx), 3);
+            assert_eq!(
+                choices.theme_at(IndexPath::default().section(2).row(0)),
+                Some(ThemePreference::Theme("Default Dark".into()))
             );
         });
     }

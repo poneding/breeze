@@ -1,5 +1,6 @@
 //! Settings stay deliberately short: a title and one control per row.
 use crate::*;
+use gpui_kit::base::actions::{SelectDown, SelectUp};
 use gpui_kit::component::{
     select::Select,
     switch::Switch,
@@ -8,12 +9,25 @@ use gpui_kit::component::{
 impl Breeze {
     pub(super) fn settings_page(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let p = self.p(cx);
-        let theme = Select::new(&self.theme_select)
-            .id("theme-select")
-            .accessibility_label(tr!("Theme"))
-            .search_placeholder(tr!("Search themes"))
-            .small()
-            .w(px(220.));
+        // Kit reports the dropdown cursor only as an index, so an arrow key schedules a
+        // preview of the row it is about to move to. Confirming the row commits it, while
+        // Escape, an outside click, or focus loss restores the committed theme.
+        let theme =
+            div()
+                .w(px(220.))
+                .capture_action(cx.listener(|this, _: &SelectDown, window, cx| {
+                    this.schedule_theme_preview(window, cx)
+                }))
+                .capture_action(cx.listener(|this, _: &SelectUp, window, cx| {
+                    this.schedule_theme_preview(window, cx)
+                }))
+                .child(
+                    Select::new(&self.theme_select)
+                        .id("theme-select")
+                        .accessibility_label(tr!("Theme"))
+                        .search_placeholder(tr!("Search themes"))
+                        .small(),
+                );
         let language = Select::new(&self.language_select)
             .id("language-select")
             .accessibility_label(tr!("Interface language"))

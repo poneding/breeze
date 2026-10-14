@@ -897,3 +897,31 @@ cycles with the shortcut instead of clicking the button, and the tab-compression
 test asserts the tab strip and Plus control stay inside `titlebar-content` with
 no trailing action group. Native visual inspection of the resulting titlebar was
 not performed in this session; Windows/Linux native checks remain open.
+
+## October 15 theme preview while moving the dropdown cursor
+
+Moving the Settings theme dropdown's cursor with the up/down arrow keys now
+applies the highlighted theme immediately, so the effect can be judged before
+committing to it. The preference is still written only when a row is confirmed
+with Enter or a click; Escape, an outside click, focus loss, and leaving the
+Settings page drop an unconfirmed preview and restore the committed theme, and
+the trigger plus the row checkmark keep showing the committed choice throughout.
+
+Kit's `SelectState` reports its cursor only as an `IndexPath`, and a search query
+renumbers the rows before that index is read. `appearance::ThemeChoices` is
+therefore a real `SelectDelegate` that keeps the filtered view — grouped like
+Kit's own grouped filtering, so a matching group title still lists its rows — and
+`theme_at(IndexPath)` resolves the highlighted row in the same coordinates the
+cursor uses. Arrow keys schedule the preview through `Context::defer_in`, because
+Kit's list handler is what moves the cursor and it runs after element listeners.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked`
+(app suite 156 passed with two new tests) and `cargo clippy --workspace
+--all-targets --locked -- -D warnings` pass. Component tests cover preview-then
+-Escape, preview-then-Enter, reopening the dropdown on the committed row, a
+confirmed theme staying applied, and a preview dropped when the Home command
+unmounts the Settings page. A delegate test pins cursor resolution through a
+filtered view. Native verification of the arrow-key preview itself was not
+performed: this session lacks Screen Recording permission, and driving the
+isolated window through macOS accessibility prompts raised a Developer Tools
+password dialog, which was cancelled. Windows/Linux native checks remain open.

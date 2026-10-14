@@ -206,6 +206,107 @@ fn theme_selection_and_settings_dropdown_stay_in_sync(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn arrow_keys_preview_the_theme_until_the_row_is_confirmed(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.press("secondary-,", cx);
+        window.render_frame(cx);
+        window.click("theme-select", cx);
+        // Two rows down from Follow System lands on Aurora Light.
+        window.press("down", cx);
+        window.press("down", cx);
+    })
+    .unwrap();
+    // The preview is applied after Kit's own key handler moved the cursor.
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).theme_preference, ThemePreference::System);
+        assert_eq!(
+            view.read(cx).theme_select.read(cx).selected_value(),
+            Some(&ThemePreference::System),
+            "a preview must not move the committed selection"
+        );
+        assert_eq!(Theme::global(cx).theme_name().as_ref(), "Aurora Light");
+        window.press("escape", cx);
+    })
+    .unwrap();
+    // Dismissing the dropdown drops the preview without committing it.
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).theme_preference, ThemePreference::System);
+        assert_eq!(Theme::global(cx).theme_name().as_ref(), "Default Light");
+        window.click("theme-select", cx);
+        window.press("down", cx);
+        window.press("down", cx);
+        window.press("enter", cx);
+    })
+    .unwrap();
+    // Confirming the same row is what commits it.
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let selected = ThemePreference::Theme("Aurora Light".into());
+        assert_eq!(view.read(cx).theme_preference, selected);
+        assert_eq!(Theme::global(cx).theme_name().as_ref(), "Aurora Light");
+        // Reopen the dropdown to preview the row after the committed one.
+        window.click("theme-select", cx);
+        window.press("down", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(Theme::global(cx).theme_name().as_ref(), "Ayu Light");
+        // Clicking outside the dropdown ends the preview as well.
+        window.click("home-settings", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            view.read(cx).theme_preference,
+            ThemePreference::Theme("Aurora Light".into())
+        );
+        assert_eq!(Theme::global(cx).theme_name().as_ref(), "Aurora Light");
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn leaving_settings_drops_an_unconfirmed_theme_preview(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.press("secondary-,", cx);
+        window.render_frame(cx);
+        window.click("theme-select", cx);
+        window.press("down", cx);
+        window.press("down", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(Theme::global(cx).theme_name().as_ref(), "Aurora Light");
+        // The Home command unmounts the Settings page without closing the dropdown.
+        window.press("secondary-shift-h", cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).screen, Screen::Home);
+        assert_eq!(view.read(cx).theme_preference, ThemePreference::System);
+        assert_eq!(view.read(cx).theme_preview, None);
+        assert_eq!(Theme::global(cx).theme_name().as_ref(), "Default Light");
+        // The cursor is back on the committed row, so the next open starts there.
+        assert_eq!(
+            view.read(cx).theme_select.read(cx).selected_index(cx),
+            Some(gpui_kit::component::IndexPath::new(0))
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext) {
     let (handle, view) = app(cx);
     cx.update_window(handle, |_, window, cx| {
@@ -235,6 +336,11 @@ fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext)
         window.render_frame(cx);
         assert_eq!(view.read(cx).home_page, HomePage::Settings);
         assert!(window.find("theme-select").visible());
+        // The dropdown wrapper that captures arrow keys must not change its box.
+        let theme = window.find("theme-select").bounds();
+        let language = window.find("language-select").bounds();
+        assert_eq!(theme.size, language.size);
+        assert_eq!(theme.size.width, px(220.));
         assert!(window.find("remember-files").visible());
         // Row-by-row explanations are gone; the update status lives in About.
         assert!(window.try_find("update-status").is_none());

@@ -13,12 +13,11 @@ impl Breeze {
         self.language_select.update(cx, |select, cx| {
             select.set_selected_value(&i18n::LanguageItem::Choice(preference), window, cx);
         });
+        // Group titles are localized, so the shared delegate is rebuilt with the same
+        // choice list the dropdown is about to show.
+        self.theme_choices = appearance::ThemeChoices::new(ThemePreference::groups(cx));
         self.theme_select.update(cx, |select, cx| {
-            select.set_items(
-                appearance::ThemeChoices::new(ThemePreference::groups(cx)),
-                window,
-                cx,
-            );
+            select.set_items(self.theme_choices.clone(), window, cx);
             select.set_selected_value(&self.theme_preference, window, cx);
         });
         for (input, placeholder) in [

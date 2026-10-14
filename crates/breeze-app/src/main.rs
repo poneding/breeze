@@ -170,6 +170,9 @@ struct Breeze {
     brand_logo: Option<Arc<RenderImage>>,
     system_appearance: WindowAppearance,
     theme_preference: ThemePreference,
+    /// The dropdown row the user is previewing but has not confirmed, if any.
+    theme_preview: Option<ThemePreference>,
+    theme_choices: appearance::ThemeChoices,
     theme_select: Entity<SelectState<appearance::ThemeChoices>>,
     navigation_split: Entity<ResizableState>,
     navigation_width: f32,
@@ -259,10 +262,10 @@ impl Breeze {
                 }
             }
         });
-        let theme_options = appearance::ThemeChoices::new(ThemePreference::groups(cx));
+        let theme_choices = appearance::ThemeChoices::new(ThemePreference::groups(cx));
         let theme_select = cx.new(|cx| {
             SelectState::new(
-                theme_options,
+                theme_choices.clone(),
                 Some(gpui_kit::component::IndexPath::new(0)),
                 window,
                 cx,
@@ -275,6 +278,14 @@ impl Breeze {
                     this.set_appearance(preference.clone(), window, cx);
                 }
             });
+        // Escape, an outside click, or focus loss must not leave a preview applied.
+        let theme_dismiss_subscription = cx.subscribe_in(
+            &theme_select,
+            window,
+            |this, _, _: &DismissEvent, window, cx| {
+                this.cancel_theme_preview(window, cx);
+            },
+        );
         let appearance_observer = cx.observe_window_appearance(window, |this, window, cx| {
             this.system_appearance = window.appearance();
             if this.theme_preference == ThemePreference::System {
@@ -324,6 +335,7 @@ impl Breeze {
                 search_subscription,
                 library_observer,
                 theme_subscription,
+                theme_dismiss_subscription,
                 language_subscription,
             ],
             books: Vec::new(),
@@ -333,6 +345,8 @@ impl Breeze {
             brand_logo: about::brand_logo(),
             system_appearance: window.appearance(),
             theme_preference: ThemePreference::System,
+            theme_preview: None,
+            theme_choices,
             theme_select,
             navigation_split,
             navigation_width: 208.,
@@ -655,11 +669,71 @@ impl Breeze {
         });
         self.open_book(self.books.len() - 1, cx);
     }
+    /// Applies the preference in effect, which is the previewed row while the user is
+    /// still moving around the open theme dropdown.
     fn apply_theme(&mut self, cx: &mut App) {
-        match self.theme_preference.config(self.system_appearance, cx) {
+        let preference = self
+            .theme_preview
+            .clone()
+            .unwrap_or_else(|| self.theme_preference.clone());
+        match preference.config(self.system_appearance, cx) {
             Ok(config) => style::apply(&config, cx),
             Err(error) => self.storage_error = Some(errors::error_text(&error)),
         }
+    }
+    /// The theme under the open dropdown's cursor, resolved through its own delegate.
+    fn highlighted_theme(&self, cx: &App) -> Option<ThemePreference> {
+        self.theme_select
+            .read(cx)
+            .selected_index(cx)
+            .and_then(|index| self.theme_choices.theme_at(index))
+    }
+    /// Whether the Settings page that owns the theme dropdown is on screen.
+    fn settings_visible(&self) -> bool {
+        !self.restoring
+            && !self.closing
+            && self.screen == Screen::Home
+            && self.home_page == HomePage::Settings
+    }
+    /// Shows the theme under the open dropdown's cursor without committing it.
+    ///
+    /// Kit reports the cursor as an index into its filtered rows, so the row is
+    /// resolved through the dropdown's own delegate. Confirming the row is what
+    /// commits the preference; until then the applied theme stays a preview.
+    fn preview_highlighted_theme(&mut self, cx: &mut Context<Self>) {
+        let Some(highlighted) = self.highlighted_theme(cx) else {
+            return;
+        };
+        if highlighted == self.theme_preference {
+            // Moving back onto the committed row ends the preview.
+            if self.theme_preview.take().is_some() {
+                self.apply_theme(cx);
+                cx.notify();
+            }
+            return;
+        }
+        if self.theme_preview.as_ref() == Some(&highlighted) {
+            return;
+        }
+        self.theme_preview = Some(highlighted);
+        self.apply_theme(cx);
+        cx.notify();
+    }
+    /// Previews the highlighted row once Kit's own key handler has moved the cursor.
+    fn schedule_theme_preview(&mut self, window: &Window, cx: &mut Context<Self>) {
+        cx.defer_in(window, |this, _, cx| this.preview_highlighted_theme(cx));
+    }
+    /// Drops an unconfirmed preview so the committed theme comes back on screen, and
+    /// puts the dropdown's cursor back on the committed row for the next open.
+    fn cancel_theme_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.theme_preview.take().is_none() {
+            return;
+        }
+        self.theme_select.update(cx, |select, cx| {
+            select.set_selected_value(&self.theme_preference, window, cx);
+        });
+        self.apply_theme(cx);
+        cx.notify();
     }
     /// Toggles immersive reading. Native fullscreen removes the OS chrome and
     /// the immersive layout removes every application row, leaving the pages.
@@ -690,6 +764,8 @@ impl Breeze {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
+        // Committing a row, or cycling from the keyboard, replaces any preview.
+        self.theme_preview = None;
         self.theme_preference = preference;
         self.system_appearance = window.appearance();
         self.apply_theme(cx);
@@ -699,6 +775,14 @@ impl Breeze {
 impl Render for Breeze {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.refresh_language(window, cx);
+        // An unconfirmed preview only lives while the dropdown that can confirm it is on
+        // screen. Kit reports its own closes directly, so this covers leaving Settings
+        // through a command that unmounts the dropdown without running those callbacks.
+        if self.theme_preview.is_some() && !self.settings_visible() {
+            cx.defer_in(window, |this, window, cx| {
+                this.cancel_theme_preview(window, cx)
+            });
+        }
         let p = self.p(cx);
         if self.theme_select.read(cx).selected_value() != Some(&self.theme_preference) {
             self.theme_select.update(cx, |select, cx| {
