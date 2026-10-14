@@ -21,7 +21,11 @@ not change document colors or UI palette preferences.
   tile and transparent outer margin.
 - `breeze-mark.svg`: single-color symbol on transparency. For dark backgrounds,
   change its root fill to ivory; preserve the two page paths and their spacing.
-- `breeze-icon.png`: 1024 × 1024 RGBA icon for general use and Linux packaging.
+- `breeze-icon.png`: 1024 × 1024 RGBA icon for general use and installer artwork.
+- `breeze-icon-256.png`: 256 × 256 RGBA icon for Linux desktop integration
+  (`hicolor` themes and the AppImage), downscaled once from the master with
+  ImageMagick. Installers cannot resize it themselves because the release tool is
+  standard-library-only.
 - `Breeze.icns`: macOS icon with 16, 32, 128, 256 and 512 point representations at
   1× and 2×. Used by `scripts/bundle-macos.sh` and `scripts/release.py`.
 - `breeze.ico`: Windows icon with 16, 32, 48, 64, 128 and 256 pixel images.
