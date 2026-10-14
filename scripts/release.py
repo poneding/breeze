@@ -327,9 +327,14 @@ def wix_source(version: str, target: str, payload: Path, icon: Path) -> str:
 
 
 def inno_script(version: str, target: str, payload: Path, icon: Path, output: Path) -> str:
-    """Generate the Inno Setup script for the Windows setup executable."""
+    """Generate the Inno Setup script for the Windows setup executable.
+
+    Inno treats a single `{` as a constant reference, so a literal braced GUID
+    needs the documented `{{GUID}` spelling, and the AppId must stay identical
+    across versions for an upgrade to replace an installed copy.
+    """
     core = _version_parts(version)["core"]
-    app_id = _guid("inno", target)
+    app_id = "{{" + str(uuid.uuid5(GUID_NAMESPACE, f"inno-{target}")).upper() + "}"
     return (
         "[Setup]\n"
         f"AppId={app_id}\n"
