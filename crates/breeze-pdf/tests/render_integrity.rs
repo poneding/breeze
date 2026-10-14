@@ -186,55 +186,108 @@ fn assert_region_matches_full_page(
     }
 }
 
-/// Incomplete output must not be returned as a successful page or region.
-#[ignore = "MuPDF 0.8.0 can omit a damaged JPEG without reporting it through Cookie"]
+/// MuPDF draws malformed content defensively and reports nothing through its
+/// `Cookie`, so the adapter verifies referenced content itself. Every case here
+/// would otherwise publish a page with part of its content missing.
 #[test]
-fn drawing_failures_never_return_successful_pixels_and_do_not_poison_next_page() {
+fn damaged_content_is_reported_instead_of_rendered_as_a_partial_page() {
     let root = tempfile::tempdir().unwrap();
     for kind in [
+        // A DCTDecode stream the engine cannot decode, as a named XObject and
+        // inside an inline image.
         "image",
-        "image-mask",
-        "truncated-mask",
         "inline-image",
-        "inline-mask",
+        // Forms that draw an unresolved XObject and a form that recurses.
         "form",
         "cyclic-form",
+        // A broken soft mask or explicit mask behind an otherwise valid image.
         "smask",
         "mask",
+        // A page drawing an unresolved XObject, and an unsupported shading.
         "missing",
         "shading",
+        // An image mask with fewer scanlines than its declared height.
+        "truncated-mask",
     ] {
-        let path = root.path().join(format!("{kind}.pdf"));
-        fixture(kind).save(&path).unwrap();
-        let source = Source::File(path.clone());
-        let before = std::fs::read(&path).unwrap();
-        let worker = PdfWorker::new().unwrap();
-        assert!(
-            request(&worker, source.clone(), 3).is_ok(),
-            "{kind}: metadata remains available"
-        );
-        for mode in 0..=2 {
-            match request(&worker, source.clone(), mode) {
-                Ok(_) => panic!("{kind}/{mode}: published incomplete pixels"),
-                Err(error) => assert!(
-                    format!("{error:#}").contains("第 1 页渲染失败"),
-                    "{kind}: {error:#}"
-                ),
-            }
+        assert_page_render_fails(root.path(), kind);
+    }
+}
+
+/// Damage the engine recovers from must stay readable. These streams are short
+/// or unusual rather than undecodable, and MuPDF pads or clamps them, so failing
+/// the page would turn a tolerant decode into a false report.
+#[test]
+fn recoverable_malformed_content_still_renders() {
+    let root = tempfile::tempdir().unwrap();
+    for kind in ["image-mask", "inline-mask"] {
+        assert_page_renders(root.path(), kind);
+    }
+}
+
+fn assert_page_render_fails(root: &std::path::Path, kind: &str) {
+    let path = root.join(format!("{kind}.pdf"));
+    fixture(kind).save(&path).unwrap();
+    let source = Source::File(path.clone());
+    let before = std::fs::read(&path).unwrap();
+    let worker = PdfWorker::new().unwrap();
+    assert!(
+        request(&worker, source.clone(), 3).is_ok(),
+        "{kind}: metadata remains available"
+    );
+    for mode in 0..=2 {
+        match request(&worker, source.clone(), mode) {
+            Ok(_) => panic!("{kind}/{mode}: published incomplete pixels"),
+            Err(error) => assert!(
+                format!("{error:#}").contains("第 1 页渲染失败"),
+                "{kind}: {error:#}"
+            ),
         }
-        if request(&worker, source.clone(), 4).is_ok() {
-            panic!("{kind}/region: published incomplete pixels");
-        }
-        let good = futures::executor::block_on(worker.request(source, 1).unwrap())
-            .unwrap()
-            .unwrap();
-        assert!(good.pixels.is_some());
-        assert_eq!(std::fs::read(&path).unwrap(), before);
-        if let Some(dir) = std::env::var_os("BREEZE_RENDER_REVIEW_DIR") {
-            let dir = std::path::PathBuf::from(dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            std::fs::copy(path, dir.join(format!("{kind}.pdf"))).unwrap();
-        }
+    }
+    if request(&worker, source.clone(), 4).is_ok() {
+        panic!("{kind}/region: published incomplete pixels");
+    }
+    assert_recovery_after_damage(&worker, source, &path, &before, kind);
+}
+
+fn assert_page_renders(root: &std::path::Path, kind: &str) {
+    let path = root.join(format!("{kind}.pdf"));
+    fixture(kind).save(&path).unwrap();
+    let source = Source::File(path.clone());
+    let before = std::fs::read(&path).unwrap();
+    let worker = PdfWorker::new().unwrap();
+    for mode in 0..=2 {
+        let rendered = request(&worker, source.clone(), mode)
+            .unwrap_or_else(|error| panic!("{kind}/{mode}: {error:#}"));
+        assert!(rendered.pixels.is_some(), "{kind}/{mode}: no pixels");
+    }
+    let region = request(&worker, source.clone(), 4)
+        .unwrap_or_else(|error| panic!("{kind}/region: {error:#}"));
+    assert!(region.pixels.is_some(), "{kind}/region: no pixels");
+    assert_recovery_after_damage(&worker, source, &path, &before, kind);
+}
+
+/// The next page still renders and the source file is untouched, whatever the
+/// damaged page reported.
+fn assert_recovery_after_damage(
+    worker: &PdfWorker,
+    source: Source,
+    path: &std::path::Path,
+    before: &[u8],
+    kind: &str,
+) {
+    let good = futures::executor::block_on(worker.request(source, 1).unwrap())
+        .unwrap()
+        .unwrap_or_else(|error| panic!("{kind}: healthy page failed: {error:#}"));
+    assert!(good.pixels.is_some(), "{kind}: healthy page has no pixels");
+    assert_eq!(
+        std::fs::read(path).unwrap(),
+        before,
+        "{kind}: source modified"
+    );
+    if let Some(dir) = std::env::var_os("BREEZE_RENDER_REVIEW_DIR") {
+        let dir = std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::copy(path, dir.join(format!("{kind}.pdf"))).unwrap();
     }
 }
 

@@ -28,7 +28,7 @@ atlas eviction. These tests establish the region mapping and output allocation
 bound, not a complete process-memory bound.
 
 Validation on this macOS checkout: `cargo fmt --all -- --check` passes;
-`cargo test --workspace --locked` passes 199 tests with 5 ignored; and
+`cargo test --workspace --locked` passes 206 tests with 3 ignored; and
 `cargo clippy --workspace --all-targets --locked -- -D warnings` passes with no
 lint exceptions. The three fixed-width `chunks_exact` uses in
 `breeze-app/src/about.rs`, `breeze-pdf/src/export/tests.rs`, and
@@ -38,9 +38,14 @@ running application with `BREEZE_DATA_DIR` under `target/mupdf-migration-smoke`
 and was then manually stopped. This was a startup smoke test, not visual
 acceptance.
 
-Production gates remain open: MuPDF can omit a damaged JPEG while returning a
-successful page and a Cookie with no reported error, so the page-integrity UI
-and PDF fixture tests remain ignored. The adapter also has no verified
+Page content is verified before its pixels are published: drawn `Do`/`sh`
+resources must resolve, forms are bounded by depth and cycle checks,
+`DCTDecode`/`JPXDecode` images (named and inline) must decode through MuPDF's own
+image loader, and an image mask must carry its declared scanlines. The two
+previously ignored integrity gates now run and pass, covering eight damage
+classes plus the two the engine legitimately recovers from.
+
+Production gates remain open: the adapter has no verified
 MuPDF store-size cap; ICC/transparency and broad font/image corpus parity,
 Release same-workload latency/RSS/GPU measurements, and native Windows/Linux
 validation remain outstanding. macOS visual acceptance was not performed in

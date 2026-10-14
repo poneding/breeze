@@ -1,5 +1,6 @@
 //! Bounded PDF reading and explicit annotation-copy export; no source-content editing.
 pub mod export;
+mod integrity;
 mod raster;
 use anyhow::{Context, Result, bail};
 use breeze_core::{
@@ -15,6 +16,7 @@ use mupdf::{
 };
 use raster::rotate_region;
 use std::{
+    cell::RefCell,
     collections::VecDeque,
     path::PathBuf,
     sync::atomic::{AtomicBool, Ordering},
@@ -255,6 +257,8 @@ struct Loaded {
     geometries: Vec<PageGeometry>,
     sizes: Arc<Vec<(f32, f32)>>,
     outline: Arc<Vec<Outline>>,
+    /// Damage verdicts for embedded images, reused across page requests.
+    integrity: RefCell<integrity::IntegrityCache>,
 }
 const MAX_PDF_BYTES: u64 = 256 * 1024 * 1024;
 type SourceStamp = (u64, SystemTime);
@@ -389,6 +393,7 @@ fn render(
             doc,
             fingerprint,
             stamp,
+            integrity: RefCell::new(integrity::IntegrityCache::default()),
         });
         cache.clear();
     }
@@ -472,6 +477,10 @@ fn render(
         let page_handle = doc
             .load_pdf_page(i32::try_from(page)?)
             .with_context(|| format!("无法读取第 {} 页", page + 1))?;
+        // MuPDF draws malformed content defensively and leaves the Cookie empty,
+        // so referenced content is verified before its pixels are published.
+        integrity::verify_page_content(doc, &page_handle, &mut loaded.integrity.borrow_mut())
+            .with_context(|| format!("第 {} 页渲染失败，无法完整显示", page + 1))?;
         let image = (|| -> Result<Pixels> {
             if let Some(region) = job.region {
                 render_page_region(

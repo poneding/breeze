@@ -30,9 +30,9 @@ fn damaged_image_pdf() -> Vec<u8> {
     bytes
 }
 
-/// MuPDF 0.8.0 can omit a damaged JPEG without reporting an error through Cookie.
-/// Keep this end-to-end case as a release gate until that behavior is resolved.
-#[ignore = "MuPDF 0.8.0 can publish a page with a damaged JPEG omitted"]
+/// A damaged JPEG is dropped by MuPDF without touching `Cookie`, so the adapter
+/// verifies page content itself before publishing pixels. The reader must show a
+/// real error for that page and stay usable on the next one.
 #[gpui_kit::test]
 async fn damaged_image_shows_a_real_page_error_and_navigation_recovers(cx: &mut TestAppContext) {
     let folder = tempfile::tempdir().unwrap();

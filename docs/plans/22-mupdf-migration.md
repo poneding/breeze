@@ -76,9 +76,15 @@ is feasibility evidence, not application acceptance.
 - [x] Verify region stitching against whole-page output for four view rotations,
   PDF `/Rotate`, a nonzero CropBox, fractional-DPI whole-page output, zoom
   replacement, tile seams at 72 DPI, and GPU atlas eviction.
+- [x] Report content MuPDF would drop silently. Page rendering verifies every
+  drawn `Do`/`sh` resource, recurses into form XObjects with a depth and cycle
+  bound, decodes named and inline `DCTDecode`/`JPXDecode` images with MuPDF's own
+  image loader, and rejects an image mask whose stream is shorter than its
+  declared scanlines. Damage verdicts are cached per object for the loaded
+  document. `render_integrity` and the reader's end-to-end case are enabled.
 - [ ] Verify image/mask/transparency/ICC fidelity across a representative corpus
-  and source changes. A damaged JPEG is currently omitted by MuPDF 0.8.0 without
-  a reported Cookie error; the incomplete-page test remains a release gate.
+  and source changes. The integrity pass covers undecodable images; visual parity
+  for ICC, transparency and masks beyond the current fixtures is still open.
 - [ ] Establish an effective MuPDF resource-store bound. Published `mupdf 0.8.0`
   does not expose the newer safe store-size setter found in its repository
   branch. If measurements exceed the budget, evaluate a narrowly scoped wrapper
@@ -91,9 +97,11 @@ is feasibility evidence, not application acceptance.
   cancellation test passes; the cap is present in code but has no focused test.
 - [ ] Compare semantic text and glyph quads on the existing corpus before
   switching annotation/selection geometry to the new adapter.
-- [ ] Keep rendering errors visible. Do not turn unsupported or malformed
-  drawing operations into successful blank/partial pages. MuPDF's damaged-JPEG
-  behavior currently fails this gate.
+- [x] Keep rendering errors visible. Do not turn unsupported or malformed
+  drawing operations into successful blank/partial pages. MuPDF drops some
+  malformed content without a Cookie error, so `breeze-pdf::integrity` verifies
+  what a page draws before its pixels are published; damage the engine recovers
+  from (padded masks, tolerated truncation) still renders.
 - [ ] Verify CJK/subset/Type 3 fonts, scans, JPEG2000/JBIG2, ICC/transparency,
   cropped/rotated pages, large page boxes, and malformed documents.
 
@@ -115,7 +123,7 @@ is feasibility evidence, not application acceptance.
 
 The source tree now selects MuPDF for the `breeze-pdf` reader adapter, and the
 viewport region path is implemented and covered by deterministic geometry and
-stitching tests. This is not production acceptance: the damaged-JPEG partial
+stitching tests. This is not production acceptance: the broad-corpus fidelity
 render, missing encrypted/source-race regressions, unbounded MuPDF store, broad
 fidelity corpus, Release same-workload benchmark, and native platform checks
 remain open. Do not mark a phase complete while its listed regressions or gates
