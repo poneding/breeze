@@ -10,9 +10,9 @@
 
 ## Implemented automation (not acceptance)
 
-The user authorized tag-triggered packaging and publication. `.github/workflows/release.yml` validates SemVer and the workspace version, checks and builds macOS Apple Silicon/Intel, Windows x64, and Linux x64, then publishes all unsigned archives with checksums only after the full matrix succeeds. Prerelease tags are labeled accordingly. See [release operations](../releases.md).
+The user authorized tag-triggered packaging and publication. `.github/workflows/release.yml` validates SemVer and the workspace version, checks and builds macOS Apple Silicon/Intel, Windows x64, and Linux x64, then publishes unsigned installers with checksums only after the full matrix succeeds: a `.dmg` per macOS target, WiX `.msi` and Inno Setup `.exe` for Windows, and `.deb` plus `.AppImage` for Linux. Each runner mounts, lists, or otherwise verifies its own container before the publication job may run, and a manual `workflow_dispatch` run performs the same builds and checks without publishing. Prerelease tags are labeled accordingly. See [release operations](../releases.md).
 
-This is workflow configuration, not evidence of a completed GitHub Actions run or native runtime acceptance. Signing/notarization, a complete audited license inventory, installers, and production acceptance remain pending.
+This is workflow configuration and container inspection, not evidence of a completed GitHub Actions run or native runtime acceptance. Signing/notarization, a complete audited license inventory, installing and launching each package on a real desktop, and production acceptance remain pending.
 
 ## Existing blockers
 

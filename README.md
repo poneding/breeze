@@ -35,7 +35,7 @@ Use GNU Make from the repository root (`make` shows help). On Windows, run it in
 | `make build` | Build the workspace in the development profile |
 | `make run` | Launch with isolated data under `target/manual-state/` |
 | `make release` | Build the optimized app for the host Rust target |
-| `make package` | Build the release, then write its archive/checksum to `target/dist/` |
+| `make package` | Build the release, then write its installer/checksum to `target/dist/` |
 | `make fmt` / `make fmt-check` | Apply formatting / check without editing |
 | `make clean` | Remove Cargo output (including scratch data under the target directory) |
 
@@ -125,9 +125,9 @@ open target/Breeze.app
 
 ## Automated releases
 
-Pushing a SemVer tag (for example `v0.1.0` or `v0.2.0-rc.1`) triggers the [release workflow](.github/workflows/release.yml). The tag version must exactly match the workspace version in `Cargo.toml`. After checks and all four builds succeed, it publishes macOS Apple Silicon/Intel, Windows x64, and Linux x64 archives with SHA-256 checksums; prerelease tags are marked accordingly.
+Pushing a SemVer tag (for example `v0.1.0` or `v0.2.0-rc.1`) triggers the [release workflow](.github/workflows/release.yml). The tag version must exactly match the workspace version in `Cargo.toml`. After checks and all four builds succeed, it publishes a macOS `.dmg` for Apple Silicon and Intel, Windows `.msi` and setup `.exe`, and Linux `.deb` and `.AppImage`, each with a SHA-256 checksum; prerelease tags are marked accordingly. A manual run of the same workflow builds and verifies every installer without publishing.
 
-These are unsigned development distributions, not production acceptance. See [release instructions and limitations](docs/releases.md) for versioning, prerequisites, artifact contents, and safe reruns. Python 3.11+ is used only for development/CI packaging and its tests, not by the application.
+These are unsigned development installers, not production acceptance: macOS packages are neither Developer ID signed nor notarized and Windows packages are not code-signed, so Gatekeeper and SmartScreen warn before installation. See [release instructions and limitations](docs/releases.md) for versioning, prerequisites, installed layout, per-platform install steps, and safe reruns. Python 3.11+ is used only for development/CI packaging and its tests, not by the application.
 
 ## Dependency constraints
 
