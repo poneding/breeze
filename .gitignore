@@ -5,3 +5,7 @@
 .DS_Store
 *.breeze.json
 *.breeze.json.lock
+
+# Python bytecode from release-tool runs.
+__pycache__/
+*.pyc
