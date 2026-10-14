@@ -1,5 +1,16 @@
 # Delivery Status
 
+## October 14 MuPDF Rust binding assessment
+
+[The `mupdf-rs` assessment](../specs/09-mupdf-rs-assessment.md) records a viable
+technical alternative to waiting for PDF Oxide's region API. An isolated Release
+probe built `mupdf 0.8.0`/`mupdf-sys 0.8.0` on macOS and rendered the user's 343-page,
+17.78 MiB book through MuPDF display lists: whole-page p95 44.86 ms with 77.4 MiB
+probe RSS, versus a 512 × 512 clipped replay p95 17.76 ms with 26.1 MiB probe RSS.
+These figures exclude Breeze UI, GPU, scheduling and fidelity checks. The wrapper
+requires MuPDF C/C++ sources and declares AGPL-3.0, so the current contributor
+constraint still rejects adoption; no runtime dependency or policy changed.
+
 ## October 14 performance investigation
 
 [The reader performance assessment](../specs/08-performance-assessment.md) records

@@ -11,6 +11,12 @@
 | `lopdf` 0.45.0 | Adopted for restricted annotation-copy export |
 | Alternative native PDF engines | Not authorized |
 
+The October 14, 2026 `mupdf-rs` assessment is a feasibility record only. It
+found a viable clipped display-list API and lower isolated region-rendering cost,
+but did not change the decision above. MuPDF adoption remains blocked by the
+Rust-only/C++ engine constraint, AGPL-3.0 licensing, and unperformed three-platform
+fidelity/build acceptance. See [the detailed assessment](09-mupdf-rs-assessment.md).
+
 The exploratory executable, raw reports, screenshots, and temporary fixtures were removed during repository cleanup. The observations below are retained as a **historical decision record**, not as a currently reproducible benchmark suite. Recreate focused, versioned tests before relying on them for a production decision.
 
 ## Dependency compatibility
