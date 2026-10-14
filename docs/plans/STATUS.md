@@ -1,5 +1,17 @@
 # Delivery Status
 
+## October 14 PDF engine strategy comparison
+
+[The strategy comparison](../specs/10-engine-strategy-comparison.md) recommends
+MuPDF via `mupdf-rs` as the long-term performance target, conditional on an explicit
+AGPL-compatible product license and a passing adapter/corpus/platform gate. Keep
+the existing UI, core, storage and `lopdf` export boundaries. The option-2 scheduler
+improvements (visible-first service, byte admission, prediction backoff) are shared
+work and remain valuable under either engine. Sumatra-inspired scheduling alone
+does not bound PDF Oxide's whole-page output raster; a maintained region renderer
+would still be required for the same high-DPI memory objective. No product license
+or backend selection has been changed.
+
 ## October 14 MuPDF Rust binding assessment
 
 [The `mupdf-rs` assessment](../specs/09-mupdf-rs-assessment.md) records a viable

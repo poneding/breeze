@@ -15,6 +15,7 @@ The user accepted the compact UI's general direction on September 29, 2026. Impl
 | [06 — Icons](06-icons.md) | Icon source, licensing, and function-to-icon mapping |
 | [08 — Reader performance assessment](08-performance-assessment.md) | SumatraPDF source research, current whole-page costs, local measurements, and proposed optimizations |
 | [09 — MuPDF Rust binding assessment](09-mupdf-rs-assessment.md) | Feasibility, region-rendering probe, licensing, build risks, and migration boundary for `mupdf-rs` |
+| [10 — PDF engine strategy comparison](10-engine-strategy-comparison.md) | MuPDF versus PDF Oxide tradeoffs against performance, memory, licensing, and migration goals |
 
 Implementation plans belong in [docs/plans](../plans/README.md). Do not treat target behavior in a specification as already implemented. Consult [AGENTS.md](../../AGENTS.md) for language, coding, validation, and commit rules.
 
