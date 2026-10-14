@@ -140,8 +140,11 @@ jobs:
           set -eu
           deb=$(ls target/dist/*.deb)
           dpkg-deb --info "$deb"
-          dpkg-deb --contents "$deb" | grep -q 'usr/bin/breeze-app'
-          dpkg-deb --contents "$deb" | grep -q 'usr/share/icons/hicolor/256x256/apps/breeze.png'
+          # Read the listing once: `dpkg-deb --contents | grep -q` would close the
+          # pipe at the first match and fail the step under GitHub's pipefail.
+          contents=$(dpkg-deb --contents "$deb")
+          grep -q 'usr/bin/breeze-app' <<< "$contents"
+          grep -q 'usr/share/icons/hicolor/256x256/apps/breeze.png' <<< "$contents"
           appimage=$(ls target/dist/*.AppImage)
           # Type-2 AppImage magic; running it needs FUSE, so only the container
           # is verified here.
