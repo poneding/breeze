@@ -28,7 +28,7 @@ atlas eviction. These tests establish the region mapping and output allocation
 bound, not a complete process-memory bound.
 
 Validation on this macOS checkout: `cargo fmt --all -- --check` passes;
-`cargo test --workspace --locked` passes 206 tests with 3 ignored; and
+`cargo test --workspace --locked` passes 216 tests with 3 ignored; and
 `cargo clippy --workspace --all-targets --locked -- -D warnings` passes with no
 lint exceptions. The three fixed-width `chunks_exact` uses in
 `breeze-app/src/about.rs`, `breeze-pdf/src/export/tests.rs`, and
