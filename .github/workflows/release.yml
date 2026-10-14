@@ -153,12 +153,13 @@ jobs:
             fi
           done
           appimage=$(ls target/dist/*.AppImage)
-          # AppImage's own magic; running one needs FUSE, so only the container is
-          # verified here.
-          magic=$(head -c 3 "$appimage" | od -An -tx1 | tr -d ' \n')
-          echo "AppImage magic: $magic"
-          if [ "${magic:0:4}" != "4149" ]; then
-            echo "unexpected AppImage magic: $magic" >&2
+          # The type-2 AppImage magic sits at offset 8, behind the ELF header. A
+          # container check is all CI can do: running one needs FUSE.
+          elf=$(od -An -tx1 -N 4 "$appimage" | tr -d ' \n')
+          magic=$(od -An -tx1 -j 8 -N 3 "$appimage" | tr -d ' \n')
+          echo "AppImage ELF magic: $elf, container magic at offset 8: $magic"
+          if [ "$elf" != "7f454c46" ] || [ "$magic" != "414902" ]; then
+            echo "not a type-2 AppImage container (elf=$elf magic=$magic)" >&2
             exit 1
           fi
       - name: Verify Windows installers
@@ -166,20 +167,49 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
+          $core = $env:RELEASE_VERSION.Split('-')[0]
           $msi = Get-ChildItem target/dist/*.msi | Select-Object -First 1
           $exe = Get-ChildItem target/dist/*.exe | Select-Object -First 1
           foreach ($item in @($msi, $exe)) {
             if ($item.Length -lt 1MB) { throw "$($item.Name) is implausibly small" }
           }
           $msiBytes = [IO.File]::ReadAllBytes($msi.FullName)
-          $magic = ($msiBytes[0..7] | ForEach-Object { $_.ToString('x2') }) -join ''
-          if ($magic -ne 'd0cf11e0a1b11ae1') { throw "MSI is not a compound file: $magic" }
-          # The installer database must reference the payload we packaged.
-          $database = [Text.Encoding]::Unicode.GetString($msiBytes)
-          if ($database -notmatch 'breeze-app\.exe') { throw 'MSI does not reference breeze-app.exe' }
-          if ($database -notmatch [regex]::Escape($env:RELEASE_VERSION)) { throw 'MSI does not carry the release version' }
+          $compound = ($msiBytes[0..7] | ForEach-Object { $_.ToString('x2') }) -join ''
+          if ($compound -ne 'd0cf11e0a1b11ae1') { throw "MSI is not a compound file: $compound" }
+          # Windows version fields cannot hold a SemVer suffix, so the numeric core
+          # is the product version and the full version travels in a property.
+          $installer = New-Object -ComObject WindowsInstaller.Installer
+          $database = $installer.OpenDatabase($msi.FullName, 0)
+          function Read-MsiProperty([string] $name) {
+            $sql = 'SELECT `Value` FROM `Property` WHERE `Property`={0}{1}{0}' -f [char]39, $name
+            $view = $database.OpenView($sql)
+            $view.Execute()
+            $record = $view.Fetch()
+            $view.Close()
+            if ($null -eq $record) { return $null }
+            return $record.StringData(1)
+          }
+          $productVersion = Read-MsiProperty 'ProductVersion'
+          $releaseVersion = Read-MsiProperty 'BREEZERELEASEVERSION'
+          if ($productVersion -ne $core) { throw "MSI ProductVersion '$productVersion' is not '$core'" }
+          if ($releaseVersion -ne $env:RELEASE_VERSION) { throw "MSI release property '$releaseVersion' is not '$env:RELEASE_VERSION'" }
+          # An administrative install extracts the packaged payload without
+          # installing anything, which exercises the database and the cabinet.
+          $extract = Join-Path $env:RUNNER_TEMP 'breeze-msi-extract'
+          Remove-Item -Recurse -Force $extract -ErrorAction SilentlyContinue
+          $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/a', $msi.FullName, '/qn', "TARGETDIR=$extract")
+          if ($process.ExitCode -ne 0) { throw "administrative install failed: $($process.ExitCode)" }
+          if (-not (Get-ChildItem -Recurse -Path $extract -Filter 'breeze-app.exe')) {
+            throw 'the MSI payload does not contain breeze-app.exe'
+          }
+          $versionFile = Get-ChildItem -Recurse -Path $extract -Filter 'VERSION' | Select-Object -First 1
+          if ((Get-Content $versionFile.FullName -Raw).Trim() -ne $env:RELEASE_VERSION) {
+            throw 'the MSI payload carries the wrong VERSION'
+          }
           $exeBytes = [IO.File]::ReadAllBytes($exe.FullName)
-          if (([Text.Encoding]::ASCII.GetString($exeBytes[0..1])) -ne 'MZ') { throw 'Setup executable is not a PE file' }
+          if (([Text.Encoding]::ASCII.GetString($exeBytes[0..1])) -ne 'MZ') { throw 'setup executable is not a PE file' }
+          $fileVersion = (Get-Item $exe.FullName).VersionInfo.FileVersion
+          if ($fileVersion -notlike "$core*") { throw "setup version '$fileVersion' does not start with '$core'" }
           Get-ChildItem target/dist | Format-Table Name, Length
       - uses: actions/upload-artifact@v4
         with:

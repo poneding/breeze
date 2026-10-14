@@ -64,9 +64,10 @@ those fields cannot hold a suffix.
 4. Every matrix build must pass formatting, workspace tests, Clippy,
    release-tool tests, compilation, packaging, and the per-platform installer
    checks before the publication job runs. Those checks mount the disk image and
-   read its bundle, list the Debian package contents, confirm the MSI is a
-   compound file whose database references the payload and version, and confirm
-   the AppImage container magic. They do not install or launch anything. Only the
+   read its bundle, list the Debian package contents, read the MSI database and
+   extract its payload with an administrative install, and confirm the AppImage
+   type-2 container magic. Nothing installs or launches an application, so
+   installation and launch remain unverified. Only the
    final job gets `contents: write` through the built-in `GITHUB_TOKEN`; no
    personal access token is needed. Repository/organization Actions policy must
    permit this permission.
