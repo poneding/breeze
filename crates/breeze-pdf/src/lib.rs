@@ -81,6 +81,20 @@ pub struct Page {
     pub page_sizes: Arc<Vec<(f32, f32)>>,
     pub elapsed_ms: f64,
 }
+/// Scheduling class of a request.
+///
+/// The reader waits on its own page, so a speculative request (library cover or
+/// a thumbnail ahead of the viewport) must never displace one. Requests of the
+/// same class still supersede each other, which is what keeps a fast scroll from
+/// rendering pages the reader has already left.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Priority {
+    /// Covers and thumbnails: prepared ahead of the reader.
+    Background,
+    /// The page the reader is looking at, its metadata and its text.
+    Visible,
+}
+
 struct Job {
     source: Source,
     page: usize,
@@ -96,10 +110,33 @@ struct Job {
 }
 #[derive(Default)]
 struct Pending {
-    job: Option<Job>,
+    visible: Option<Job>,
+    background: Option<Job>,
     stop: bool,
 }
+impl Pending {
+    fn is_empty(&self) -> bool {
+        self.visible.is_none() && self.background.is_none()
+    }
+
+    /// Visible work is always served before speculative work.
+    fn take_next(&mut self) -> Option<Job> {
+        self.visible.take().or_else(|| self.background.take())
+    }
+
+    fn slot(&mut self, priority: Priority) -> &mut Option<Job> {
+        match priority {
+            Priority::Visible => &mut self.visible,
+            Priority::Background => &mut self.background,
+        }
+    }
+}
 type Queue = Arc<(Mutex<Pending>, Condvar)>;
+
+/// Reason given to a request that a newer request of the same class replaced.
+fn superseded() -> anyhow::Error {
+    anyhow::anyhow!("Superseded by a newer request")
+}
 pub struct PdfWorker {
     queue: Queue,
 }
@@ -117,7 +154,7 @@ impl PdfWorker {
                 loop {
                     let (lock, wake) = &*q;
                     let Ok(mut pending) = lock.lock() else { return };
-                    while pending.job.is_none() && !pending.stop {
+                    while pending.is_empty() && !pending.stop {
                         pending = match wake.wait(pending) {
                             Ok(p) => p,
                             Err(_) => return,
@@ -126,7 +163,7 @@ impl PdfWorker {
                     if pending.stop {
                         return;
                     }
-                    let Some(job) = pending.job.take() else {
+                    let Some(job) = pending.take_next() else {
                         continue;
                     };
                     drop(pending);
@@ -148,22 +185,50 @@ impl PdfWorker {
         Ok(Self { queue })
     }
     pub fn request(&self, source: Source, page: usize) -> Result<oneshot::Receiver<Result<Page>>> {
-        self.request_kind(source, page, false, false, None, None, Rotation::None)
+        self.request_kind(
+            source,
+            page,
+            false,
+            false,
+            None,
+            None,
+            Rotation::None,
+            Priority::Visible,
+        )
     }
+    /// A cover or thumbnail prepared ahead of the reader.
     pub fn request_thumbnail(
         &self,
         source: Source,
         page: usize,
         rotation: Rotation,
     ) -> Result<oneshot::Receiver<Result<Page>>> {
-        self.request_kind(source, page, true, false, None, None, rotation)
+        self.request_kind(
+            source,
+            page,
+            true,
+            false,
+            None,
+            None,
+            rotation,
+            Priority::Background,
+        )
     }
     pub fn request_metadata(
         &self,
         source: Source,
         page: usize,
     ) -> Result<oneshot::Receiver<Result<Page>>> {
-        self.request_kind(source, page, false, true, None, None, Rotation::None)
+        self.request_kind(
+            source,
+            page,
+            false,
+            true,
+            None,
+            None,
+            Rotation::None,
+            Priority::Visible,
+        )
     }
     /// Rasterize the whole page at `scale` device pixels per PDF point, rotated
     /// for the current view.
@@ -179,7 +244,16 @@ impl PdfWorker {
         rotation: Rotation,
         scale: f32,
     ) -> Result<oneshot::Receiver<Result<Page>>> {
-        self.request_kind(source, page, false, false, Some(scale), None, rotation)
+        self.request_kind(
+            source,
+            page,
+            false,
+            false,
+            Some(scale),
+            None,
+            rotation,
+            Priority::Visible,
+        )
     }
 
     /// Replay a clipped view-space page rectangle at the requested device scale.
@@ -207,6 +281,7 @@ impl PdfWorker {
             Some(scale),
             Some(region),
             rotation,
+            Priority::Visible,
         )
     }
     #[allow(clippy::too_many_arguments)]
@@ -219,6 +294,7 @@ impl PdfWorker {
         scale: Option<f32>,
         region: Option<Rect>,
         rotation: Rotation,
+        priority: Priority,
     ) -> Result<oneshot::Receiver<Result<Page>>> {
         let (reply, receive) = oneshot::channel();
         let mut pending = self
@@ -226,8 +302,13 @@ impl PdfWorker {
             .0
             .lock()
             .map_err(|_| anyhow::anyhow!("PDF worker unavailable"))?;
-        // Replacing the sole pending job cancels its receiver; there is no unbounded queue.
-        pending.job = Some(Job {
+        // One pending slot per class: replacing a same-class request keeps the
+        // queue bounded, and the replaced caller is told why instead of being
+        // left with a closed channel.
+        if let Some(replaced) = pending.slot(priority).take() {
+            let _ = replaced.reply.send(Err(superseded()));
+        }
+        *pending.slot(priority) = Some(Job {
             source,
             page,
             thumbnail,
@@ -245,7 +326,8 @@ impl Drop for PdfWorker {
     fn drop(&mut self) {
         if let Ok(mut p) = self.queue.0.lock() {
             p.stop = true;
-            p.job = None;
+            p.visible = None;
+            p.background = None;
             self.queue.1.notify_one();
         }
     }
@@ -1118,35 +1200,55 @@ mod tests {
 #[cfg(test)]
 mod scheduling_tests {
     use super::*;
-    #[test]
-    fn replacing_pending_job_cancels_old_request() {
-        let (first, mut old) = oneshot::channel();
-        let (second, _) = oneshot::channel();
-        let mut pending = Pending {
-            job: Some(Job {
-                source: Source::Sample,
-                page: 0,
-                thumbnail: false,
-                metadata_only: false,
-                scale: None,
-                region: None,
-                rotation: Rotation::None,
-                reply: first,
-            }),
-            stop: false,
-        };
-        pending.job = Some(Job {
+    fn job(page: usize, reply: oneshot::Sender<Result<Page>>) -> Job {
+        Job {
             source: Source::Sample,
-            page: 7,
+            page,
             thumbnail: false,
             metadata_only: false,
             scale: None,
             region: None,
             rotation: Rotation::None,
-            reply: second,
-        });
-        assert!(old.try_recv().is_err());
-        assert_eq!(pending.job.as_ref().unwrap().page, 7);
+            reply,
+        }
+    }
+
+    #[test]
+    fn replacing_pending_job_cancels_old_request() {
+        let (first, mut old) = oneshot::channel();
+        let (second, _) = oneshot::channel();
+        let mut pending = Pending {
+            visible: Some(job(0, first)),
+            background: None,
+            stop: false,
+        };
+        let replaced = pending.slot(Priority::Visible).take().unwrap();
+        let _ = replaced.reply.send(Err(superseded()));
+        *pending.slot(Priority::Visible) = Some(job(7, second));
+        let message = match old.try_recv() {
+            Ok(Some(Err(error))) => format!("{error:#}"),
+            _ => panic!("the superseded request must be told why"),
+        };
+        assert!(message.contains("Superseded"), "{message}");
+        assert_eq!(pending.visible.as_ref().unwrap().page, 7);
+    }
+
+    #[test]
+    fn a_background_request_never_displaces_visible_work() {
+        let (visible_tx, _visible) = oneshot::channel();
+        let (cover_tx, _cover) = oneshot::channel();
+        let mut pending = Pending {
+            visible: Some(job(3, visible_tx)),
+            background: None,
+            stop: false,
+        };
+        *pending.slot(Priority::Background) = Some(job(0, cover_tx));
+        assert_eq!(pending.visible.as_ref().unwrap().page, 3);
+        assert_eq!(pending.background.as_ref().unwrap().page, 0);
+        // Visible work is served first.
+        assert_eq!(pending.take_next().unwrap().page, 3);
+        assert_eq!(pending.take_next().unwrap().page, 0);
+        assert!(pending.is_empty());
     }
     #[test]
     fn pixel_conversion_preserves_alpha_and_swaps_channels() {

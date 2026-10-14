@@ -32,13 +32,22 @@ impl CategoryColor {
         Self::Pink,
     ];
 }
+/// Display names the library reserves for documents without a category. The
+/// Unassigned filter is always present, so a user category may not reuse its
+/// label in any supported interface language; otherwise the sidebar shows two
+/// indistinguishable entries.
+const RESERVED_CATEGORY_NAMES: [&str; 3] = ["Unassigned", "未分类", "未分類"];
+
 pub fn validate_name(
     name: &str,
     categories: &[Category],
     editing: Option<usize>,
 ) -> Result<String, &'static str> {
     let name = name.trim();
-    if name == "未分类" {
+    if RESERVED_CATEGORY_NAMES
+        .iter()
+        .any(|reserved| reserved.eq_ignore_ascii_case(name))
+    {
         return Err("此名称保留给未分类文档");
     }
     if name.is_empty() || name.chars().count() > 40 || name.chars().any(char::is_control) {
@@ -67,6 +76,13 @@ mod tests {
             Ok("Work".into())
         );
         assert!(validate_name("work", &categories, None).is_err());
+        // Every language's Unassigned label is reserved, including case variants.
+        for reserved in ["Unassigned", "unassigned", "未分类", "未分類"] {
+            assert!(
+                validate_name(reserved, &categories, None).is_err(),
+                "{reserved} must stay reserved"
+            );
+        }
         for name in ["", "\n", "a\tb", &"a".repeat(41)] {
             assert!(validate_name(name, &categories, None).is_err());
         }

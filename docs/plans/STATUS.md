@@ -94,6 +94,18 @@ Fixes from the post-migration code review, in commit order:
   twice; annotation export streams the source fingerprint and loads the document
   file-backed instead of reading the entire PDF into an extra buffer.
 
+- Worker scheduling: the single pending slot became one slot per priority
+  class. A library cover or look-ahead thumbnail can no longer displace the page
+  the reader is waiting for, and a request replaced by a newer same-class request
+  is answered with an explicit "superseded" error instead of a closed channel.
+- Reserved category name: `Unassigned` is reserved in every shipped interface
+  language, not only in Simplified Chinese, so a user category can never shadow
+  the built-in filter.
+- Stale dependency notes: the README and engine assessment no longer ask for
+  `office_oxide 0.1.9` (retired with `pdf_oxide`), and the `block` 0.1.6
+  future-incompatibility notice is recorded as coming from
+  `cocoa`/`gpui-pre-macos` at its newest published version.
+
 Release probe on the bundled sample (this machine, macOS, debug-independent
 Release build, 20 samples, excludes GPU residency): whole-page
 document-cold p50 15.35 ms / p95 20.44 ms, warm p50 0.71 ms, thumbnail cold

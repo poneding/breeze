@@ -5,8 +5,8 @@
 | Component | Decision |
 |---|---|
 | GPUI Kit 0.7.0 / GPUI snapshot 0.3.7 | Adopted for the native prototype |
-| `mupdf` 0.8.0 / MuPDF | Selected October 14, 2026; native rendering backend under migration and validation |
-| `office_oxide` 0.1.9 | Keep the verified transitive version in `Cargo.lock` |
+| `mupdf` 0.8.0 / MuPDF | Selected October 14, 2026; the reader's rendering backend, with the fidelity and platform gates below still open |
+| `pdf_oxide` / `office_oxide` | Retired. Both are absent from the workspace and `Cargo.lock`; the entries below are history, not constraints |
 | PDF page content | Read-only; content editing is not a product capability |
 | `lopdf` 0.45.0 | Adopted for restricted annotation-copy export |
 | Alternative native PDF engines | PDFium and Poppler are not authorized |
@@ -22,9 +22,9 @@ The exploratory executable, raw reports, screenshots, and temporary fixtures wer
 
 ## Dependency compatibility
 
-The earlier build of `pdf_oxide` 0.3.78 resolved `office_oxide` 0.1.12 and failed because a `DocumentIR` initializer lacked the newly required `defined_names` field. Locking the transitive dependency to 0.1.9 restored the build.
+Historical: the earlier build of `pdf_oxide` 0.3.78 resolved `office_oxide` 0.1.12 and failed because a `DocumentIR` initializer lacked the newly required `defined_names` field. Locking the transitive dependency to 0.1.9 restored that build. The MuPDF migration removed both crates, so the pairing constraint and the "keep 0.1.9" advice no longer apply.
 
-Keep that pairing until retested. Do not modify downloaded registry sources or add speculative multi-version compatibility code. The current application enables the Rust rendering and ICC features; the old initial performance probe used rendering and parallel processing without the same complete feature graph.
+Do not modify downloaded registry sources or add speculative multi-version compatibility code.
 
 ## Historical performance observations
 

@@ -136,9 +136,9 @@ These are unsigned development installers, not production acceptance: macOS pack
 
 ## Dependency constraints
 
-GPUI Kit is pinned to 0.7.1, the selected MuPDF Rust bindings are 0.8.0, and the annotation writer (`lopdf`) is 0.45.0. The MuPDF dependency switch is in progress; consult [work package 22](docs/plans/22-mupdf-migration.md) for phase status. Other previously locked dependency versions are retained. Keep `office_oxide` at 0.1.9 until its pairing is revalidated. Use MuPDF only through the `mupdf` safe API inside `breeze-pdf`; do not add a fallback PDF engine. The high-level PDF DOM editor is not an approved structural-editing path.
+GPUI Kit is pinned to 0.7.1, the reader engine is `mupdf` 0.8.0 over MuPDF C/C++, and the annotation writer (`lopdf`) is 0.45.0. `pdf_oxide` and its `office_oxide` pairing are gone from the workspace and the lockfile; consult [work package 22](docs/plans/22-mupdf-migration.md) for the remaining migration and release gates. Use MuPDF only through the `mupdf` safe API inside `breeze-pdf`; do not add a fallback PDF engine. The high-level PDF DOM editor is not an approved structural-editing path. The `block` 0.1.6 future-incompatibility notice comes from `cocoa`/`gpui-pre-macos`, not from Breeze; 0.1.6 is the newest published version, so the notice clears only with an upstream GPUI Kit update.
 
-PDF Oxide's high-level annotation Contents decoder has a known UTF-16 issue. Exported Unicode notes were independently verified with pypdf and PDFKit; standard encoding is not changed to hide that reader defect. External verification tools (Poppler, PDFKit, and pypdf) are not application dependencies.
+Imported annotation text was previously blocked by PDF Oxide's high-level Contents decoder, which read UTF-16 strings as UTF-8; that engine is no longer used. Exported Unicode notes were independently verified with pypdf and PDFKit, and standard UTF-16 encoding is not changed to work around a reader. External verification tools (Poppler, PDFKit, and pypdf) are not application dependencies.
 
 Generated screenshots, reports, bundles, and test state belong under ignored `target/`, not in version control.
 
