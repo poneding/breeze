@@ -21,6 +21,7 @@ mod commands;
 mod covers;
 mod document_icons;
 mod document_panel;
+mod errors;
 mod home;
 mod raster;
 mod reader;
@@ -463,7 +464,7 @@ impl Breeze {
             Err(e) => {
                 self.loading = false;
                 self.pending_window_policy = false;
-                self.message = format!("{e:#}");
+                self.message = errors::error_text(&e);
                 cx.notify();
                 return;
             }
@@ -505,10 +506,10 @@ impl Breeze {
                                 this.prepare_annotations(fingerprint, cx);
                                 this.apply_opening_policy(cx);
                             }
-                            Err(e) => this.message = format!("{e:#}"),
+                            Err(e) => this.message = errors::error_text(&e),
                         }
                     }
-                    Ok(Err(error)) => this.message = format!("{error:#}"),
+                    Ok(Err(error)) => this.message = errors::error_text(&error),
                     Err(_) => this.message = tr!("Request cancelled. Reopen the document.").into(),
                 }
                 if this.preview.is_none() {
@@ -629,7 +630,7 @@ impl Breeze {
     fn apply_theme(&mut self, cx: &mut App) {
         match self.theme_preference.config(self.system_appearance, cx) {
             Ok(config) => style::apply(&config, cx),
-            Err(error) => self.storage_error = Some(format!("{error:#}")),
+            Err(error) => self.storage_error = Some(errors::error_text(&error)),
         }
     }
     /// Toggles immersive reading. Native fullscreen removes the OS chrome and

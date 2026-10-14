@@ -175,7 +175,10 @@ fn a_page_beyond_the_document_is_rejected() {
         match result {
             Ok(page) => panic!("{mode}: page 100 was served as page {}", page.page + 1),
             Err(error) => assert!(
-                format!("{error:#}").contains("超出文档范围"),
+                matches!(
+                    error.downcast_ref::<breeze_pdf::PdfError>(),
+                    Some(breeze_pdf::PdfError::PageOutOfRange { page: 99, .. })
+                ),
                 "{mode}: unexpected error: {error:#}"
             ),
         }

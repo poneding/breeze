@@ -238,7 +238,10 @@ fn assert_page_render_fails(root: &std::path::Path, kind: &str) {
         match request(&worker, source.clone(), mode) {
             Ok(_) => panic!("{kind}/{mode}: published incomplete pixels"),
             Err(error) => assert!(
-                format!("{error:#}").contains("第 1 页渲染失败"),
+                matches!(
+                    error.downcast_ref::<breeze_pdf::PdfError>(),
+                    Some(breeze_pdf::PdfError::PageRenderFailed { page: 0 })
+                ),
                 "{kind}: {error:#}"
             ),
         }

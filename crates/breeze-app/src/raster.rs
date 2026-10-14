@@ -498,7 +498,7 @@ impl Breeze {
                             let prefetch = match this.lookahead(viewport, display, window) {
                                 Ok(keys) => keys,
                                 Err(error) => {
-                                    this.message = format!("{error:#}");
+                                    this.message = errors::error_text(&error);
                                     Vec::new()
                                 }
                             };
@@ -517,7 +517,7 @@ impl Breeze {
                                         }
                                         if let Some(demand) = this.raster.pending.take() {
                                             if let Err(error) = this.raster.commit(demand, cx) {
-                                                this.message = format!("{error:#}");
+                                                this.message = errors::error_text(&error);
                                             }
                                             this.pump_visible(cx);
                                         }
@@ -606,7 +606,7 @@ impl Breeze {
         ) {
             Ok(receiver) => receiver,
             Err(error) => {
-                self.raster.fail(key, format!("{error:#}"));
+                self.raster.fail(key, errors::error_text(&error));
                 cx.notify();
                 return false;
             }
@@ -647,7 +647,7 @@ impl Breeze {
                         this.raster.insert(key, pixels, cx)
                     })();
                     if let Err(error) = result {
-                        this.raster.fail(key, format!("{error:#}"));
+                        this.raster.fail(key, errors::error_text(&error));
                     }
                 }
                 this.pump_visible(cx);

@@ -1,4 +1,5 @@
 //! Bounded PDF reading and explicit annotation-copy export; no source-content editing.
+mod error;
 pub mod export;
 mod integrity;
 mod raster;
@@ -7,6 +8,7 @@ use breeze_core::{
     Rotation,
     annotations::{PageGeometry, Rect},
 };
+pub use error::PdfError;
 use futures::channel::oneshot;
 use mupdf::{
     Colorspace, IRect, Matrix, Outline as MuPdfOutline, Pixmap, TextPageFlags,
@@ -34,6 +36,9 @@ use std::{
 /// host for a gigabyte of pixels.
 const MAX_PAGE_PIXELS: u64 = 16_777_216;
 const MAX_REGION_PIXELS: u64 = 12_000_000;
+
+/// Accepted page count for one document.
+const MAX_PAGES: usize = 20_000;
 
 /// MuPDF's resource-store ceiling. The pinned binding creates its context with
 /// `FZ_STORE_DEFAULT`, which the bundled MuPDF source defines as `256 << 20`, and
@@ -135,7 +140,7 @@ type Queue = Arc<(Mutex<Pending>, Condvar)>;
 
 /// Reason given to a request that a newer request of the same class replaced.
 fn superseded() -> anyhow::Error {
-    anyhow::anyhow!("Superseded by a newer request")
+    anyhow::Error::new(PdfError::Superseded)
 }
 pub struct PdfWorker {
     queue: Queue,
@@ -271,7 +276,7 @@ impl PdfWorker {
                 && region.valid()
                 && region.width > 0.
                 && region.height > 0.,
-            "页面区域或缩放无效"
+            PdfError::RegionOutOfBounds
         );
         self.request_kind(
             source,
@@ -367,15 +372,16 @@ fn read_source(source: &Source) -> Result<Vec<u8>> {
                 .extension()
                 .is_some_and(|s| s.eq_ignore_ascii_case("pdf"))
             {
-                bail!("当前仅支持 PDF；其他格式尚未接入");
+                bail!(PdfError::UnsupportedFormat);
             }
-            let file = std::fs::File::open(path)
-                .with_context(|| format!("无法打开 {}", path.display()))?;
+            let file = std::fs::File::open(path).map_err(|_| PdfError::open_failed(path))?;
             let mut data = Vec::new();
             file.take(256 * 1024 * 1024 + 1).read_to_end(&mut data)?;
             anyhow::ensure!(
-                data.len() <= 256 * 1024 * 1024,
-                "当前版本限制 PDF 文件为 256 MiB"
+                data.len() as u64 <= MAX_PDF_BYTES,
+                PdfError::FileTooLarge {
+                    limit_mib: MAX_PDF_BYTES / (1024 * 1024)
+                }
             );
             Ok(data)
         }
@@ -383,7 +389,8 @@ fn read_source(source: &Source) -> Result<Vec<u8>> {
 }
 
 fn source_stamp(path: &std::path::Path) -> Result<SourceStamp> {
-    breeze_storage::source_identity(path).with_context(|| format!("无法读取 {}", path.display()))
+    breeze_storage::source_identity(path)
+        .map_err(|_| anyhow::Error::new(PdfError::open_failed(path)))
 }
 
 fn open_document(source: &Source) -> Result<OpenedDocument> {
@@ -403,24 +410,26 @@ fn open_document(source: &Source) -> Result<OpenedDocument> {
                 .extension()
                 .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
             {
-                bail!("当前仅支持 PDF；其他格式尚未接入");
+                bail!(PdfError::UnsupportedFormat);
             }
             let before = source_stamp(path)?;
             anyhow::ensure!(
                 before.len() <= MAX_PDF_BYTES,
-                "当前版本限制 PDF 文件为 256 MiB"
+                PdfError::FileTooLarge {
+                    limit_mib: MAX_PDF_BYTES / (1024 * 1024)
+                }
             );
-            let fingerprint = breeze_storage::fingerprint(path)
-                .with_context(|| format!("无法校验 {}", path.display()))?;
-            let document = PdfDocument::open(path.as_path())
-                .with_context(|| format!("无法打开 {}", path.display()))?;
+            let fingerprint =
+                breeze_storage::fingerprint(path).map_err(|_| PdfError::open_failed(path))?;
+            let document =
+                PdfDocument::open(path.as_path()).map_err(|_| PdfError::open_failed(path))?;
             let after = source_stamp(path)?;
-            anyhow::ensure!(before == after, "PDF 在打开过程中发生变化，请重试");
-            let opened_fingerprint = breeze_storage::fingerprint(path)
-                .with_context(|| format!("无法复核 {}", path.display()))?;
+            anyhow::ensure!(before == after, PdfError::SourceChangedDuringOpen);
+            let opened_fingerprint =
+                breeze_storage::fingerprint(path).map_err(|_| PdfError::open_failed(path))?;
             anyhow::ensure!(
                 opened_fingerprint == fingerprint,
-                "PDF 在打开过程中发生变化，请重试"
+                PdfError::SourceChangedDuringOpen
             );
             Ok(OpenedDocument {
                 doc: document,
@@ -453,19 +462,21 @@ fn render(
         anyhow::ensure!(
             !doc.needs_password()
                 .context("Cannot inspect PDF password state")?,
-            "当前不支持加密/密码 PDF"
+            PdfError::Encrypted
         );
         let trailer = doc.trailer().context("Cannot inspect PDF trailer")?;
-        anyhow::ensure!(
-            trailer.get_dict("Encrypt")?.is_none(),
-            "当前不支持加密/密码 PDF"
-        );
+        anyhow::ensure!(trailer.get_dict("Encrypt")?.is_none(), PdfError::Encrypted);
         let total = usize::try_from(doc.page_count().context("Cannot read PDF page count")?)
             .context("Invalid PDF page count")?;
-        anyhow::ensure!(total > 0 && total <= 20_000, "当前支持 1–20000 页文档");
+        anyhow::ensure!(
+            total > 0 && total <= MAX_PAGES,
+            PdfError::PageCountUnsupported { max: MAX_PAGES }
+        );
         let geometries = (0..total)
             .map(|page| {
-                page_geometry(&doc, page).with_context(|| format!("第 {} 页不支持阅读", page + 1))
+                // Keep the geometry diagnostic as the cause of the structured
+                // failure, so a report can still say why the page is unsupported.
+                page_geometry(&doc, page).with_context(|| PdfError::PageUnsupported { page })
             })
             .collect::<Result<Vec<_>>>()?;
         let sizes = Arc::new(geometries.iter().map(|g| g.size()).collect());
@@ -492,13 +503,14 @@ fn render(
     let total = usize::try_from(doc.page_count().context("Cannot read PDF page count")?)
         .context("Invalid PDF page count")?;
     if total == 0 {
-        bail!("文档没有可阅读的页面");
+        bail!(PdfError::NoPages);
     }
     anyhow::ensure!(
         job.page < total,
-        "请求的第 {} 页超出文档范围（共 {} 页）",
-        job.page + 1,
-        total
+        PdfError::PageOutOfRange {
+            page: job.page,
+            total
+        }
     );
     let page = job.page;
     if let Some(index) = cache.iter().position(|(rotation, p)| {
@@ -523,7 +535,7 @@ fn render(
             let dpi = (f64::from(scale) * 72.).ceil();
             anyhow::ensure!(
                 dpi.is_finite() && (1. ..=4_608.).contains(&dpi),
-                "不支持的页面缩放"
+                PdfError::UnsupportedZoom
             );
             dpi as u32
         } else if job.thumbnail {
@@ -543,7 +555,7 @@ fn render(
             |region| region_dimensions(region, job.scale.unwrap_or(dpi as f32 / 72.)),
         );
         while job.thumbnail && u64::from(expected.0) * u64::from(expected.1) > pixel_budget {
-            anyhow::ensure!(dpi > 1, "页面像素数超出缩略图预算");
+            anyhow::ensure!(dpi > 1, PdfError::RenderBudget);
             let pixel_ratio = (pixel_budget as f64
                 / (u64::from(expected.0) * u64::from(expected.1)) as f64)
                 .sqrt();
@@ -554,7 +566,7 @@ fn render(
         }
         if job.thumbnail {
             while u64::from(expected.0) * u64::from(expected.1) > pixel_budget {
-                anyhow::ensure!(dpi > 1, "页面像素数超出缩略图预算");
+                anyhow::ensure!(dpi > 1, PdfError::RenderBudget);
                 let ratio = (pixel_budget as f64
                     / (u64::from(expected.0) * u64::from(expected.1)) as f64)
                     .sqrt();
@@ -566,16 +578,16 @@ fn render(
         } else {
             anyhow::ensure!(
                 u64::from(expected.0) * u64::from(expected.1) <= pixel_budget,
-                "页面像素数超出当前渲染预算"
+                PdfError::RenderBudget
             );
         }
         let page_handle = doc
             .load_pdf_page(i32::try_from(page)?)
-            .with_context(|| format!("无法读取第 {} 页", page + 1))?;
+            .map_err(|_| PdfError::PageUnreadable { page })?;
         // MuPDF draws malformed content defensively and leaves the Cookie empty,
         // so referenced content is verified before its pixels are published.
         integrity::verify_page_content(doc, &page_handle, &mut loaded.integrity.borrow_mut())
-            .with_context(|| format!("第 {} 页渲染失败，无法完整显示", page + 1))?;
+            .map_err(|_| PdfError::PageRenderFailed { page })?;
         let image = (|| -> Result<Pixels> {
             if let Some(region) = job.region {
                 render_page_region(
@@ -588,14 +600,10 @@ fn render(
                 render_page_pixmap(&page_handle, dpi)
             }
         })()
-        .with_context(|| format!("第 {} 页渲染失败，无法完整显示", page + 1))?;
+        .map_err(|_| PdfError::PageRenderFailed { page })?;
         anyhow::ensure!(
             image.width.abs_diff(expected.0) <= 1 && image.height.abs_diff(expected.1) <= 1,
-            "渲染器未按请求的清晰度返回页面（需要 {}x{}，得到 {}x{}）",
-            expected.0,
-            expected.1,
-            image.width,
-            image.height
+            PdfError::ResolutionMismatch
         );
         (
             Some(if job.region.is_some() {
@@ -618,9 +626,12 @@ fn render(
         match doc.load_pdf_page(i32::try_from(page)?) {
             Ok(page_handle) => match extract_glyphs(&page_handle) {
                 Ok(glyphs) => glyphs,
-                Err(error) => (Vec::new(), Some(format!("文字提取失败：{error:#}"))),
+                Err(error) => (
+                    Vec::new(),
+                    Some(format!("Text extraction failed: {error:#}")),
+                ),
             },
-            Err(error) => (Vec::new(), Some(format!("文字提取失败：{error}"))),
+            Err(error) => (Vec::new(), Some(format!("Text extraction failed: {error}"))),
         }
     };
     let result = Page {
@@ -713,7 +724,7 @@ fn page_geometry(doc: &PdfDocument, index: usize) -> Result<PageGeometry> {
         let unit = pdf_number(value)?;
         anyhow::ensure!(
             unit == 1.0,
-            "页面使用非默认 UserUnit={unit}；当前阅读器尚不支持此页面单位"
+            "Page uses a non-default UserUnit={unit}, which Breeze does not support"
         );
     }
     let media = pdf_box(&page, "MediaBox")?;
@@ -733,12 +744,12 @@ fn page_geometry(doc: &PdfDocument, index: usize) -> Result<PageGeometry> {
     };
     anyhow::ensure!(
         crop.valid() && crop.width > 0. && crop.height > 0.,
-        "页面裁剪区域无效"
+        "Page crop box is invalid"
     );
     let rotation = page.rotation()?;
     anyhow::ensure!(
         rotation.rem_euclid(90) == 0,
-        "当前仅支持 90 度倍数的页面旋转"
+        "Only page rotations that are multiples of 90 degrees are supported"
     );
     Ok(PageGeometry { crop, rotation })
 }
@@ -776,7 +787,10 @@ fn extract_glyphs(page: &PdfPage) -> Result<(Vec<Glyph>, Option<String>)> {
                     bounds: quad_bounds(character.quad, &inverse),
                 });
                 if glyphs.len() > 50_000 {
-                    return Ok((Vec::new(), Some("当前页字符数量超出文本选择预算".into())));
+                    return Ok((
+                        Vec::new(),
+                        Some("Page exceeds the text-selection budget".into()),
+                    ));
                 }
             }
         }
@@ -871,12 +885,12 @@ fn view_region_to_page(
 ) -> Result<Rect> {
     let base_size = geometry.page.size();
     let view_size = geometry.size();
-    anyhow::ensure!(region.valid(), "页面区域无效");
+    anyhow::ensure!(region.valid(), PdfError::RegionOutOfBounds);
     let x0 = region.x.clamp(0., view_size.0);
     let y0 = region.y.clamp(0., view_size.1);
     let x1 = (region.x + region.width).clamp(0., view_size.0);
     let y1 = (region.y + region.height).clamp(0., view_size.1);
-    anyhow::ensure!(x1 > x0 && y1 > y0, "页面区域超出文档边界");
+    anyhow::ensure!(x1 > x0 && y1 > y0, PdfError::RegionOutOfBounds);
     let corners = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)].map(|(x, y)| {
         geometry
             .rotation
@@ -913,13 +927,13 @@ pub fn page_region_tiles(points: (f32, f32), scale: f32, visible: Rect) -> Resul
             && scale > 0.
             && scale <= 64.
             && visible.valid(),
-        "页面区域或缩放无效"
+        PdfError::RegionOutOfBounds
     );
     let left = visible.x.max(0.).min(points.0);
     let top = visible.y.max(0.).min(points.1);
     let right = (visible.x + visible.width).clamp(0., points.0);
     let bottom = (visible.y + visible.height).clamp(0., points.1);
-    anyhow::ensure!(right > left && bottom > top, "页面区域超出文档边界");
+    anyhow::ensure!(right > left && bottom > top, PdfError::RegionOutOfBounds);
     let tile_page_units = INTERIOR_DEVICE / scale;
     let gutter = GUTTER_DEVICE / scale;
     let first_column = (left / tile_page_units).floor() as usize;
@@ -956,14 +970,14 @@ fn render_page_region(
 ) -> Result<Pixels> {
     anyhow::ensure!(
         scale.is_finite() && scale > 0. && scale <= 64.,
-        "不支持的页面缩放"
+        PdfError::UnsupportedZoom
     );
     let clipped = view_region_to_page(geometry, region)?;
     let target = region_dimensions(clipped, scale);
     let pixels = u64::from(target.0) * u64::from(target.1);
     anyhow::ensure!(
         pixels > 0 && pixels <= MAX_REGION_PIXELS,
-        "页面区域超出渲染预算"
+        PdfError::RenderBudget
     );
     let target_w = i32::try_from(target.0)?;
     let target_h = i32::try_from(target.1)?;
@@ -1073,7 +1087,7 @@ pub fn search(
 ) -> Result<SearchOutcome> {
     anyhow::ensure!(
         !query.trim().is_empty() && query.len() <= 256,
-        "请输入 1–256 字节的搜索词"
+        PdfError::SearchQuery
     );
     let stamp = match &source {
         Source::Sample => None,
@@ -1090,9 +1104,9 @@ pub fn search(
     let OpenedDocument {
         doc, fingerprint, ..
     } = open_document(&source)?;
-    anyhow::ensure!(!doc.needs_password()?, "不支持加密文档搜索");
+    anyhow::ensure!(!doc.needs_password()?, PdfError::Encrypted);
     let trailer = doc.trailer()?;
-    anyhow::ensure!(trailer.get_dict("Encrypt")?.is_none(), "不支持加密文档搜索");
+    anyhow::ensure!(trailer.get_dict("Encrypt")?.is_none(), PdfError::Encrypted);
     let needle = query.to_lowercase();
     let page_count = usize::try_from(doc.page_count()?)?;
     let mut pages = Vec::new();
@@ -1101,7 +1115,7 @@ pub fn search(
     let mut hits = Vec::new();
     for page_index in 0..page_count {
         if cancel.load(Ordering::Relaxed) {
-            bail!("搜索已取消");
+            bail!(PdfError::SearchCancelled);
         }
         let page = doc.load_pdf_page(i32::try_from(page_index)?)?;
         let text = page.text(mupdf::TextExtractOptions::default())?;
@@ -1142,7 +1156,7 @@ fn scan_pages(pages: &[String], query: &str, cancel: &AtomicBool) -> Result<Vec<
     let mut hits = Vec::new();
     for (page_index, text) in pages.iter().enumerate() {
         if cancel.load(Ordering::Relaxed) {
-            bail!("搜索已取消");
+            bail!(PdfError::SearchCancelled);
         }
         collect_hits(text, page_index, &needle, &mut hits);
         if hits.len() >= MAX_SEARCH_HITS {

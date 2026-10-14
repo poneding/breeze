@@ -54,8 +54,10 @@ pub(super) fn verify_page_content(
     page: &PdfPage,
     cache: &mut IntegrityCache,
 ) -> Result<()> {
-    let resources = page.resources().context("无法读取页面资源")?;
-    let contents = page.contents().context("无法读取页面内容流")?;
+    let resources = page.resources().context("Cannot read page resources")?;
+    let contents = page
+        .contents()
+        .context("Cannot read the page content stream")?;
     let mut path = Vec::new();
     walk(doc, &resources, contents.as_ref(), cache, 0, &mut path)
 }
@@ -69,7 +71,7 @@ fn walk(
     path: &mut Vec<i32>,
 ) -> Result<()> {
     if depth > MAX_FORM_DEPTH {
-        bail!("表单对象嵌套超过 {MAX_FORM_DEPTH} 层，页面内容不完整");
+        bail!("Form XObjects nest more than {MAX_FORM_DEPTH} levels deep");
     }
     let Some(ops) = collect_operations(doc, content)? else {
         return Ok(());
@@ -77,7 +79,7 @@ fn walk(
     for name in &ops.xobjects {
         let Some(object) = lookup(resources, "XObject", name)? else {
             bail!(
-                "页面内容引用了缺失的对象 /{}，页面内容不完整",
+                "Page content references a missing object /{}",
                 display_name(name)
             );
         };
@@ -86,14 +88,14 @@ fn walk(
             Subtype::Form => {
                 let xref = object.as_indirect().unwrap_or(0);
                 if xref > 0 && path.contains(&xref) {
-                    bail!("页面包含循环引用的表单对象，页面内容不完整");
+                    bail!("Page content contains a cyclic form XObject")
                 }
                 if xref > 0 {
                     path.push(xref);
                 }
                 let nested = object
                     .get_dict("Resources")
-                    .context("无法读取表单资源")?
+                    .context("Cannot read form resources")?
                     .unwrap_or_else(|| resources.try_clone().unwrap_or_else(|_| resources.clone()));
                 let result = walk(doc, &nested, Some(&object), cache, depth + 1, path);
                 if xref > 0 {
@@ -107,20 +109,20 @@ fn walk(
     for name in &ops.shadings {
         let Some(shading) = lookup(resources, "Shading", name)? else {
             bail!(
-                "页面内容引用了缺失的底纹 /{}，页面内容不完整",
+                "Page content references a missing shading /{}",
                 display_name(name)
             );
         };
         let Some(kind) = shading
             .get_dict("ShadingType")
-            .context("无法读取底纹类型")?
+            .context("Cannot read the shading type")?
         else {
-            bail!("页面底纹缺少类型，页面内容不完整");
+            bail!("Shading has no type")
         };
         let kind = kind.resolve()?.unwrap_or(kind);
-        let kind = kind.as_int().context("无法读取底纹类型")?;
+        let kind = kind.as_int().context("Cannot read the shading type")?;
         if !(1..=7).contains(&kind) {
-            bail!("页面使用了不支持的底纹类型 {kind}");
+            bail!("Unsupported shading type {kind}")
         }
     }
     for inline in &ops.inline_images {
@@ -131,12 +133,16 @@ fn walk(
 
 /// Looks a name up in one resource subdictionary, resolving the result.
 fn lookup(resources: &PdfObject, category: &str, name: &[u8]) -> Result<Option<PdfObject>> {
-    let Some(dict) = resources.get_dict(category).context("无法读取页面资源")? else {
+    let Some(dict) = resources
+        .get_dict(category)
+        .context("Cannot read page resources")?
+    else {
         return Ok(None);
     };
     let dict = dict.resolve()?.unwrap_or(dict);
-    let key = PdfObject::new_name(&String::from_utf8_lossy(name)).context("无效的资源名称")?;
-    let Some(value) = dict.get_dict(key).context("无法读取页面资源")? else {
+    let key =
+        PdfObject::new_name(&String::from_utf8_lossy(name)).context("Invalid resource name")?;
+    let Some(value) = dict.get_dict(key).context("Cannot read page resources")? else {
         return Ok(None);
     };
     Ok(Some(value))
@@ -145,7 +151,7 @@ fn lookup(resources: &PdfObject, category: &str, name: &[u8]) -> Result<Option<P
 fn subtype(object: &PdfObject) -> Result<Subtype> {
     let Some(value) = object
         .get_dict("Subtype")
-        .context("无法读取 XObject 类型")?
+        .context("Cannot read the XObject subtype")?
     else {
         return Ok(Subtype::Other);
     };
@@ -189,7 +195,7 @@ fn check_image(object: &PdfObject, cache: &mut IntegrityCache, depth: usize) -> 
         }
     }
     for key in ["SMask", "Mask"] {
-        let Some(mask) = object.get_dict(key).context("无法读取图像蒙版")? else {
+        let Some(mask) = object.get_dict(key).context("Cannot read the image mask")? else {
             continue;
         };
         check_image(&mask, cache, depth + 1)?;
@@ -206,7 +212,7 @@ fn image_damage(object: &PdfObject) -> Result<Option<String>> {
         && Image::from_bytes(&object.read_raw_stream()?).is_err()
     {
         return Ok(Some(format!(
-            "页面内嵌图像数据无法解码（{}），页面内容不完整",
+            "Embedded image data cannot be decoded ({})",
             filters[0].iter().map(|b| *b as char).collect::<String>()
         )));
     }
@@ -214,7 +220,10 @@ fn image_damage(object: &PdfObject) -> Result<Option<String>> {
 }
 
 fn filters(object: &PdfObject) -> Result<Vec<Vec<u8>>> {
-    let Some(filter) = object.get_dict("Filter").context("无法读取图像过滤器")? else {
+    let Some(filter) = object
+        .get_dict("Filter")
+        .context("Cannot read the image filter")?
+    else {
         return Ok(Vec::new());
     };
     let filter = filter.resolve()?.unwrap_or(filter);
@@ -267,7 +276,7 @@ fn truncated_mask(object: &PdfObject) -> Result<Option<String>> {
     let actual = i64::try_from(object.read_raw_stream()?.len()).unwrap_or(i64::MAX);
     if actual < expected {
         return Ok(Some(format!(
-            "页面内嵌图像蒙版缺少数据（需要 {expected} 字节，只有 {actual} 字节），页面内容不完整"
+            "Embedded image mask is short: {actual} bytes, expected {expected}"
         )));
     }
     Ok(None)
@@ -364,7 +373,7 @@ fn check_inline_image(inline: &InlineImage) -> Result<()> {
     }
     if Image::from_bytes(&inline.data).is_err() {
         bail!(
-            "页面内嵌图像数据无法解码（{}），页面内容不完整",
+            "Embedded image data cannot be decoded ({})",
             inline.filter.iter().map(|b| *b as char).collect::<String>()
         );
     }

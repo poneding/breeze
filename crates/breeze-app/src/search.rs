@@ -57,7 +57,7 @@ impl Breeze {
                         this.search_hits = outcome.hits;
                         this.search_cache = outcome.cache;
                     }
-                    Err(e) => this.search_notice = format!("{e:#}"),
+                    Err(e) => this.search_notice = errors::error_text(&e),
                 };
                 this.search_cancel = None;
                 cx.notify();

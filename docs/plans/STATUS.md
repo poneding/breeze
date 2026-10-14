@@ -101,6 +101,13 @@ Fixes from the post-migration code review, in commit order:
 - Reserved category name: `Unassigned` is reserved in every shipped interface
   language, not only in Simplified Chinese, so a user category can never shadow
   the built-in filter.
+- Error language: `breeze-pdf` now reports failures as `PdfError` variants
+  (format, size, encryption, page count, page bounds, unreadable/render-failed
+  pages, zoom, render budget, search) with English catalog keys, and
+  `breeze-app::errors` words them through the selected interface language. Pure
+  engine diagnostics stay as context and translate only when their text is itself
+  a catalog key. The reader's damaged-page test asserts the localized text, so the
+  adapter-to-UI path is covered end to end, not just in a unit test.
 - Stale dependency notes: the README and engine assessment no longer ask for
   `office_oxide 0.1.9` (retired with `pdf_oxide`), and the `block` 0.1.6
   future-incompatibility notice is recorded as coming from
