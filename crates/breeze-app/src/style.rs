@@ -11,7 +11,6 @@ pub struct Palette {
     pub muted: Hsla,
     pub line: Hsla,
     pub accent: Hsla,
-    pub tint: Hsla,
 }
 impl Palette {
     pub fn from_theme(cx: &App) -> Self {
@@ -25,7 +24,6 @@ impl Palette {
             muted: theme.muted_foreground,
             line: theme.border,
             accent: theme.primary,
-            tint: theme.list_active,
         }
     }
 }

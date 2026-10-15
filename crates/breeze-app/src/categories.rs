@@ -183,6 +183,7 @@ impl Breeze {
             )
             .children(self.categories.iter().map(|category| {
                 let id = category.id;
+                let selected = self.home_page == HomePage::Library && self.library_filter == id + 3;
                 let actions = self.category_action_bounds.get(&id).copied();
                 row()
                     .id(("category-row", id))
@@ -191,19 +192,21 @@ impl Breeze {
                     .w_full()
                     .child(
                         Button::new(("category-nav", id))
-                            .custom(ButtonCustomVariant::new(cx).hover(hover).active(hover))
+                            // The same ghost control as the other navigation entries, so
+                            // the selected and hovered fills stay the ones Kit resolves
+                            // for them.
+                            .ghost()
                             .small()
                             .w_full()
                             .pl_2()
                             // The row actions sit nearly flush with the panel edge.
                             .pr(px(2.))
-                            .selected(self.library_filter == id + 3)
-                            .when(
-                                self.home_page == HomePage::Library
-                                    && self.library_filter == id + 3,
-                                |d| d.bg(p.tint),
-                            )
-                            .group_hover("category-row", move |s| s.bg(hover))
+                            .selected(selected)
+                            // Keep one row surface while the pointer crosses the actions,
+                            // unless the selected entry already owns it.
+                            .when(!selected, |d| {
+                                d.group_hover("category-row", move |s| s.bg(hover))
+                            })
                             .accessibility_label(category.name.clone())
                             .tooltip(category.name.clone())
                             .on_click(cx.listener(move |this, _, _, cx| {

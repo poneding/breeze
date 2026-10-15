@@ -1257,3 +1257,20 @@ publication's own paragraph indentation, line spacing and justified wrapping.
 Driving the native window itself was not possible — this session lacks Screen
 Recording permission — and Windows/Linux remain unverified, although the CJK hook
 gap this fixed is macOS/Linux-specific.
+
+## October 14 category selection uses the navigation entry fill
+
+A selected category row now paints the same fill as the other navigation
+entries. It was the only sidebar entry that mixed the list-active colour, a blue
+tint, into its selected state, because that colour was passed to a Custom button
+variant; the sibling entries are Kit ghost buttons, whose selected fill is the
+secondary-active token. The category row is now the same ghost control, so
+selection, hover, and their text colours all resolve from the tokens the other
+entries use, the selected fill is no longer overridden by the row's own group
+hover, and `Palette` loses its now-unused `tint` field.
+
+Validation: formatting, the complete workspace suite (173 app, 16 core, 30 PDF
+with three ignored, and every PDF integration suite) and all-target Clippy with
+warnings denied pass in the working checkout. Native visual inspection was not
+performed because this session lacks Screen Recording permission. Windows/Linux
+native checks remain open.
