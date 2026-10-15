@@ -127,6 +127,38 @@ impl Breeze {
                 self.open_book(tabs[(current + step) % tabs.len()], cx);
             }
         } else if self.screen == Screen::Reader {
+            if !self.books[self.active].is_pdf() {
+                if action.as_any().is::<ExportPdf>()
+                    || action.as_any().is::<SaveAnnotations>()
+                    || action.as_any().is::<SaveAnnotationsAs>()
+                    || action.as_any().is::<UndoAnnotation>()
+                    || action.as_any().is::<RedoAnnotation>()
+                    || action.as_any().is::<CycleLayout>()
+                    || action.as_any().is::<RotateLeft>()
+                    || action.as_any().is::<RotateRight>()
+                    || action.as_any().is::<ShowThumbnails>()
+                    || action.as_any().is::<FocusPage>()
+                    || action.as_any().is::<AnnotateMode>()
+                    || action.as_any().is::<FitPage>()
+                    || action.as_any().is::<FitWidth>()
+                {
+                    return;
+                }
+                if action.as_any().is::<ZoomIn>()
+                    || action.as_any().is::<ZoomOut>()
+                    || action.as_any().is::<ActualSize>()
+                {
+                    let delta = if action.as_any().is::<ZoomIn>() {
+                        1
+                    } else if action.as_any().is::<ZoomOut>() {
+                        -1
+                    } else {
+                        18 - self.books[self.active].reflow.font_size as i16
+                    };
+                    self.resize_reflow_text(delta, cx);
+                    return;
+                }
+            }
             if action.as_any().is::<ExportPdf>() {
                 self.choose_pdf_export(cx);
             } else if action.as_any().is::<SaveAnnotations>() {

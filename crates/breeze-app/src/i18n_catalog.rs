@@ -224,6 +224,8 @@ catalog! {
     "Request cancelled. Reopen the document." => ("请求已取消，请重新打开文档", "請求已取消，請重新打開文件"),
     "Save annotations before removing the library entry" => ("请先保存批注，再移除资料库条目", "請先儲存批注，再移除資料庫條目"),
     "Open document · PDF supported" => ("打开文档 · 当前原型支持 PDF", "打開文件 · 目前原型支援 PDF"),
+    "Open document · PDF, EPUB, Markdown" => ("打开文档 · 支持 PDF、EPUB、Markdown", "打開文件 · 支援 PDF、EPUB、Markdown"),
+    "Supported formats: PDF, EPUB and Markdown" => ("支持的格式：PDF、EPUB 和 Markdown", "支援的格式：PDF、EPUB 和 Markdown"),
     "File dialog failed: {}" => ("文件对话框失败：{}", "檔案對話框失敗：{}"),
     "Cannot open {}: {}" => ("无法打开 {}：{}", "無法打開 {}：{}"),
     "The library entry limit has been reached" => ("资料库条目已达上限", "資料庫條目已達上限"),

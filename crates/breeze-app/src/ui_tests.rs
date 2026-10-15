@@ -28,6 +28,7 @@ pub(super) fn app(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) 
                 let view = cx.new(|cx| Breeze::new(PdfWorker::new().unwrap(), window, cx));
                 view.update(cx, |view, cx| {
                     view.books.push(Book {
+                        reflow: ReflowState::default(),
                         source: Source::Sample,
                         title: "Field notes".into(),
                         favorite: false,
@@ -960,7 +961,7 @@ fn categories_are_user_owned_and_layout_roundtrips(cx: &mut TestAppContext) {
             assert_eq!(view.categories.len(), 1);
             assert_eq!(view.categories[0].id, 2);
             assert_eq!(view.books[0].categories, vec![2]);
-            assert_eq!(view.snapshot().version, 9);
+            assert_eq!(view.snapshot().version, 10);
         });
     })
     .unwrap();
@@ -1366,6 +1367,7 @@ fn tab_close_is_hover_only_and_does_not_activate_its_document(cx: &mut TestAppCo
     cx.update_window(handle, |_, window, cx| {
         view.update(cx, |view, _| {
             view.books.push(Book {
+                reflow: ReflowState::default(),
                 source: Source::Sample,
                 title: "Second".into(),
                 favorite: false,
@@ -1416,6 +1418,7 @@ fn document_tabs_compress_without_covering_titlebar_controls(cx: &mut TestAppCon
             view.update(cx, |view, _| {
                 view.books.truncate(1);
                 view.books.extend((1..count).map(|index| Book {
+                    reflow: ReflowState::default(),
                     source: Source::Sample,
                     title: format!("Long document title number {index}"),
                     favorite: false,
@@ -1522,6 +1525,7 @@ fn short_document_titles_use_content_width_and_leave_room_for_shadow(cx: &mut Te
                 "A very long document name that needs truncation.pdf",
             ] {
                 view.books.push(Book {
+                    reflow: ReflowState::default(),
                     source: Source::Sample,
                     title: title.into(),
                     favorite: false,

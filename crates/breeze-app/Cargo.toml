@@ -12,6 +12,7 @@ anyhow.workspace = true
 gpui-kit.workspace = true
 breeze-core.workspace = true
 breeze-pdf.workspace = true
+breeze-reflow.workspace = true
 image.workspace = true
 ureq = { version = "=3.4.2", default-features = false, features = ["rustls"] }
 semver = "=1.0.28"

@@ -63,7 +63,11 @@ impl Breeze {
         }
         // One thumbnail is bounded to 120,000 BGRA pixels in the PDF worker.
         // Thirty-two visible covers therefore fit within the 16 MiB image budget.
-        let sources: Vec<_> = sources.into_iter().take(32).collect();
+        let sources: Vec<_> = sources
+            .into_iter()
+            .filter(|source| document_format(source) == Some(DocumentFormat::Pdf))
+            .take(32)
+            .collect();
         if self.covers.pending.is_none() && self.covers.wanted == sources {
             self.pump_covers(cx);
             return;

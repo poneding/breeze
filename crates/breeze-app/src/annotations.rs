@@ -144,6 +144,9 @@ impl Breeze {
         .detach();
     }
     pub(super) fn save_annotations(&mut self, cx: &mut Context<Self>) {
+        if !self.books[self.active].is_pdf() {
+            return;
+        }
         if self.annotation_editing.pending_text() {
             self.message = tr!("Press Enter to finish the text note before saving").into();
             cx.notify();
@@ -261,6 +264,9 @@ impl Breeze {
         cx.notify();
     }
     pub(super) fn save_annotations_as(&mut self, cx: &mut Context<Self>) {
+        if !self.books[self.active].is_pdf() {
+            return;
+        }
         if self.annotation_editing.pending_text() {
             self.message = tr!("Press Enter to finish the text note before Save As").into();
             cx.notify();

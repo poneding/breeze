@@ -1,0 +1,26 @@
+[package]
+name = "breeze-reflow"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+breeze-core.workspace = true
+futures.workspace = true
+pulldown-cmark = { version = "=0.13.4", default-features = false, features = ["html"] }
+rbook = { version = "=0.7.12", default-features = false }
+quick-xml = "=0.42.0"
+percent-encoding = "=2.3.2"
+url = "=2.5.8"
+mupdf = { workspace = true, features = ["html", "epub"] }
+sha2.workspace = true
+zip = { version = "=9.0.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

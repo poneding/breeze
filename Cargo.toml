@@ -4,6 +4,7 @@ members = [
     "crates/breeze-pdf",
     "crates/breeze-app",
     "crates/breeze-storage",
+    "crates/breeze-reflow",
 ]
 default-members = ["crates/breeze-app"]
 resolver = "3"
@@ -33,6 +34,7 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"
 breeze-core = { path = "crates/breeze-core" }
 breeze-pdf = { path = "crates/breeze-pdf" }
+breeze-reflow = { path = "crates/breeze-reflow" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

@@ -27,6 +27,8 @@ mod open_events;
 mod raster;
 mod reader;
 mod reading;
+mod reflow;
+mod reflow_images;
 mod reveal;
 mod settings;
 mod shortcuts;
@@ -35,6 +37,7 @@ mod tool_settings;
 mod view_controls;
 use anyhow::Result;
 use appearance::ThemePreference;
+use breeze_core::document::{DocumentFormat, ReflowState};
 use breeze_core::{Mode, ReaderState, ReadingLayout, ReadingPreferences, Zoom};
 use breeze_pdf::{PdfWorker, Pixels, Source};
 use gpui_kit::component::{
@@ -115,9 +118,39 @@ struct Book {
     favorite: bool,
     categories: Vec<usize>,
     state: ReaderState,
+    reflow: ReflowState,
     opened: bool,
     last_opened: u64,
     annotations: DocumentAnnotations,
+}
+impl Book {
+    fn format(&self) -> Option<DocumentFormat> {
+        document_format(&self.source)
+    }
+    fn is_pdf(&self) -> bool {
+        self.format() == Some(DocumentFormat::Pdf)
+    }
+    fn format_label(&self) -> &'static str {
+        self.format()
+            .map(DocumentFormat::label)
+            .unwrap_or("Unknown")
+    }
+    fn position_label(&self) -> String {
+        if self.last_opened == 0 {
+            return tr!("Not opened").into();
+        }
+        if self.is_pdf() {
+            tf!("Page {}", self.state.navigation.page() + 1)
+        } else {
+            format!("{:.0}%", self.reflow.progress * 100.)
+        }
+    }
+}
+fn document_format(source: &Source) -> Option<DocumentFormat> {
+    match source {
+        Source::Sample => Some(DocumentFormat::Pdf),
+        Source::File(path) => DocumentFormat::from_path(path),
+    }
 }
 struct Preview {
     page: usize,
@@ -131,6 +164,7 @@ struct Preview {
 struct Breeze {
     page_task: Option<Task<()>>,
     reading: reading::ReadingView,
+    reflow: reflow::ReflowView,
     raster: raster::RasterView,
     worker: PdfWorker,
     window_handle: AnyWindowHandle,
@@ -303,6 +337,7 @@ impl Breeze {
         Self {
             page_task: None,
             reading: reading::ReadingView::default(),
+            reflow: reflow::ReflowView::default(),
             raster: raster::RasterView::default(),
             worker,
             window_handle: window.window_handle(),
@@ -463,6 +498,11 @@ impl Breeze {
         self.selected_text.clear();
         self.surface_bounds = None;
         self.generation += 1;
+        if !self.books[self.active].is_pdf() {
+            self.load_reflow(cx);
+            return;
+        }
+        self.reflow.clear(cx);
         let generation = self.generation;
         self.loading = true;
         let source = self.books[self.active].source.clone();
@@ -590,6 +630,10 @@ impl Breeze {
         if self.screen != Screen::Reader {
             return;
         }
+        if !self.books[self.active].is_pdf() {
+            self.turn_reflow(delta, cx);
+            return;
+        }
         if !self.annotation_navigation_allowed(cx) {
             return;
         }
@@ -606,7 +650,7 @@ impl Breeze {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some(tr!("Open document · PDF supported").into()),
+            prompt: Some(tr!("Open document · PDF, EPUB, Markdown").into()),
         });
         cx.spawn(async move |this, cx| match receiver.await {
             Ok(Ok(Some(paths))) => {
@@ -666,6 +710,11 @@ impl Breeze {
         .detach();
     }
     fn open_canonical_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if DocumentFormat::from_path(&path).is_none() {
+            self.message = tr!("Supported formats: PDF, EPUB and Markdown").into();
+            cx.notify();
+            return;
+        }
         if !self.annotation_navigation_allowed(cx) {
             return;
         }
@@ -699,6 +748,7 @@ impl Breeze {
             opened: false,
             last_opened: 0,
             annotations: DocumentAnnotations::default(),
+            reflow: ReflowState::default(),
         });
         self.open_book(self.books.len() - 1, cx);
     }

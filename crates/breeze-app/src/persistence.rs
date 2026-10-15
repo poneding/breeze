@@ -15,6 +15,8 @@ pub(super) struct SavedBook {
     #[serde(default)]
     pub categories: Vec<usize>,
     pub page: Option<usize>,
+    #[serde(default)]
+    pub reflow: ReflowState,
     pub zoom: Zoom,
     #[serde(default)]
     pub layout: ReadingLayout,
@@ -60,7 +62,7 @@ fn first_category_id() -> usize {
 impl Default for SavedState {
     fn default() -> Self {
         Self {
-            version: 9,
+            version: 10,
             books: Vec::new(),
             active: 0,
             categories: Vec::new(),
@@ -101,7 +103,7 @@ impl SavedState {
         };
     }
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(matches!(self.version, 1..=9), "Unsupported state version");
+        anyhow::ensure!(matches!(self.version, 1..=10), "Unsupported state version");
         anyhow::ensure!(self.books.len() <= 4096, "Too many library entries");
         anyhow::ensure!(
             self.width.is_finite() && (168.0..=360.0).contains(&self.width),
@@ -149,6 +151,7 @@ impl SavedState {
             anyhow::ensure!((25..=200).contains(&n), "Invalid default zoom");
         }
         for b in &self.books {
+            anyhow::ensure!(b.reflow.is_valid(), "Invalid reflow reading state");
             anyhow::ensure!(
                 (if self.version == 1 {
                     b.category < 3
@@ -181,7 +184,7 @@ impl SavedState {
 impl Breeze {
     pub(super) fn snapshot(&self) -> SavedState {
         SavedState {
-            version: 9,
+            version: 10,
             books: self
                 .books
                 .iter()
@@ -194,7 +197,16 @@ impl Breeze {
                     favorite: b.favorite,
                     category: 0,
                     categories: b.categories.clone(),
-                    page: self.remember_position.then_some(b.state.navigation.page()),
+                    page: (self.remember_position && b.is_pdf())
+                        .then_some(b.state.navigation.page()),
+                    reflow: if self.remember_position {
+                        b.reflow.clone()
+                    } else {
+                        ReflowState {
+                            font_size: b.reflow.font_size,
+                            ..Default::default()
+                        }
+                    },
                     zoom: b.state.zoom,
                     layout: b.state.layout,
                     rotation: b.state.rotation,
@@ -382,6 +394,14 @@ impl Breeze {
                     favorite: b.favorite,
                     categories: b.categories,
                     state: reader,
+                    reflow: if state.remember_position {
+                        b.reflow
+                    } else {
+                        ReflowState {
+                            font_size: b.reflow.font_size,
+                            ..Default::default()
+                        }
+                    },
                     opened: state.remember_files && b.opened,
                     last_opened: b.last_opened,
                     annotations: DocumentAnnotations {
@@ -554,6 +574,7 @@ mod tests {
             ..Default::default()
         };
         state.books.push(SavedBook {
+            reflow: ReflowState::default(),
             path: Some("document.pdf".into()),
             title: "Document".into(),
             favorite: true,
@@ -595,6 +616,7 @@ mod tests {
             ..Default::default()
         };
         state.books.push(SavedBook {
+            reflow: ReflowState::default(),
             path: None,
             title: "Document".into(),
             favorite: false,

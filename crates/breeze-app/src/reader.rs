@@ -12,7 +12,7 @@ use std::rc::Rc;
 pub(super) const NAVIGATION_MIN_WIDTH: f32 = 192.;
 pub(super) const NAVIGATION_MAX_WIDTH: f32 = 360.;
 
-fn navigation_handle_appearance(p: Palette) -> ResizeHandleRenderer {
+pub(super) fn navigation_handle_appearance(p: Palette) -> ResizeHandleRenderer {
     Rc::new(move |handle, window, cx| {
         let (target_length, target_opacity) = match handle.state() {
             ResizeHandleState::Idle => (px(0.), 0.),
@@ -64,6 +64,9 @@ fn navigation_handle_appearance(p: Palette) -> ResizeHandleRenderer {
 
 impl Breeze {
     pub(super) fn reader(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+        if !self.books[self.active].is_pdf() {
+            return self.reflow_reader(window, cx);
+        }
         // Immersive reading shows the document alone: no toolbar, no panels, no status bar.
         if self.full_screen {
             return column()
@@ -220,7 +223,7 @@ impl Breeze {
     }
 
     pub(super) fn show_thumbnails(&self) -> bool {
-        self.thumbs || !self.has_outline()
+        self.books[self.active].is_pdf() && (self.thumbs || !self.has_outline())
     }
 
     fn navigation(&self, cx: &mut Context<Self>) -> Div {
@@ -474,6 +477,9 @@ impl Breeze {
             .into_any_element()
     }
     pub(super) fn submit_page(&mut self, cx: &mut Context<Self>) {
+        if !self.books[self.active].is_pdf() {
+            return;
+        }
         if !self.annotation_navigation_allowed(cx) {
             return;
         }

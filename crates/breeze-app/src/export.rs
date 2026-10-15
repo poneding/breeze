@@ -28,6 +28,9 @@ impl Breeze {
         })
     }
     pub(super) fn choose_pdf_export(&mut self, cx: &mut Context<Self>) {
+        if !self.books[self.active].is_pdf() {
+            return;
+        }
         self.commit_selected_annotation(cx);
         let Some(mut request) = self.export_snapshot(PathBuf::new()) else {
             self.message =

@@ -324,7 +324,10 @@ impl Breeze {
                                             .child(b.title.clone()),
                                     )
                                     .child(
-                                        div().text_size(px(11.)).text_color(p.muted).child("PDF"),
+                                        div()
+                                            .text_size(px(11.))
+                                            .text_color(p.muted)
+                                            .child(b.format_label()),
                                     ),
                             ),
                     )
@@ -339,7 +342,7 @@ impl Breeze {
                             .text_size(px(12.))
                             .text_color(p.muted)
                             .child(if b.opened {
-                                tf!("Page {}", b.state.navigation.page() + 1)
+                                b.position_label()
                             } else {
                                 tr!("Not opened").into()
                             }),
@@ -474,9 +477,10 @@ impl Breeze {
                             .text_color(p.muted)
                             .text_center()
                             .child(format!(
-                                "PDF · {}",
+                                "{} · {}",
+                                book.format_label(),
                                 if book.last_opened > 0 {
-                                    tf!("Page {}", book.state.navigation.page() + 1)
+                                    book.position_label()
                                 } else {
                                     tr!("Not opened").into()
                                 }

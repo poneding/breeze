@@ -13,6 +13,10 @@ pub(super) fn search_row(border: Hsla) -> Div {
 
 impl Breeze {
     pub(super) fn run_search(&mut self, cx: &mut Context<Self>) {
+        if !self.books[self.active].is_pdf() {
+            self.run_reflow_search(cx);
+            return;
+        }
         let query = self.search_input.read(cx).value().to_string();
         if query.trim().is_empty() {
             return;
@@ -38,11 +42,11 @@ impl Breeze {
         cx.spawn(async move |this, cx| {
             let result = work.await;
             let _ = this.update(cx, |this, cx| {
-                this.search_busy = false;
                 if generation != this.search_generation {
                     cx.notify();
                     return;
                 }
+                this.search_busy = false;
                 match result {
                     Ok(outcome) => {
                         this.search_notice = tf!(
@@ -67,6 +71,8 @@ impl Breeze {
         cx.notify();
     }
     pub(super) fn cancel_search(&mut self) {
+        self.reflow.hits.clear();
+        self.search_busy = false;
         if let Some(token) = &self.search_cancel {
             token.store(true, Ordering::Relaxed);
         }
@@ -117,6 +123,9 @@ impl Breeze {
             .into_any_element()
     }
     pub(super) fn search_results(&self, cx: &mut Context<Self>) -> Div {
+        if !self.books[self.active].is_pdf() {
+            return self.reflow_search_results(cx);
+        }
         let p = self.p(cx);
         column()
             .flex_1()

@@ -1,6 +1,7 @@
 //! Format-independent reader state. No GPUI or PDF engine types cross here.
 use serde::{Deserialize, Serialize};
 pub mod annotations;
+pub mod document;
 pub mod library;
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {

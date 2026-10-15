@@ -78,6 +78,9 @@ fn filtered_indices(items: &[Annotation], kind: Option<Kind>, page: Option<usize
 
 impl Breeze {
     pub(super) fn document_sidebar(&self, cx: &mut Context<Self>) -> AnyElement {
+        if !self.books[self.active].is_pdf() {
+            return self.reflow_sidebar(cx);
+        }
         let theme = Theme::global(cx);
         column()
             .id("document-panel")
