@@ -329,9 +329,17 @@ impl Breeze {
                                     offset_in_item: px(position.scroll_offset),
                                 });
                                 let view = cx.entity().downgrade();
-                                list.set_scroll_handler(move |_, _, cx| {
-                                    let _ = view
-                                        .update(cx, |this, cx| this.remember_markdown_position(cx));
+                                list.set_scroll_handler(move |event, _, cx| {
+                                    // Kit dispatches this handler while the list's own
+                                    // state is mutably borrowed for the scroll, so it
+                                    // reports the event instead of asking the list
+                                    // where it is; reading the list here panics with a
+                                    // second borrow.
+                                    let first = event.visible_range.start;
+                                    let at_end = event.visible_range.end >= event.count;
+                                    let _ = view.update(cx, |this, cx| {
+                                        this.record_markdown_position(first, at_end, cx)
+                                    });
                                 });
                                 this.reflow.list = list;
                                 this.reflow.markdown = Some(document);
@@ -439,7 +447,13 @@ impl Breeze {
         }));
     }
 
-    fn remember_markdown_position(&mut self, cx: &mut Context<Self>) {
+    /// Store the reading position the list reports for a scrolled Markdown view.
+    ///
+    /// This must not call into [`ListState`]: Kit runs the scroll handler while
+    /// the list mutably borrows its own state, so any list query here panics
+    /// with `RefCell already mutably borrowed`. The caller passes the reported
+    /// block instead.
+    fn record_markdown_position(&mut self, block: usize, at_end: bool, cx: &mut Context<Self>) {
         if self
             .books
             .get(self.active)
@@ -450,19 +464,29 @@ impl Breeze {
         let Some(document) = &self.reflow.markdown else {
             return;
         };
-        let top = self.reflow.list.logical_scroll_top();
-        let Some(block) = document.blocks.get(top.item_ix) else {
+        if document.blocks.is_empty() {
             return;
-        };
+        }
+        let index = block.min(document.blocks.len() - 1);
+        let source_start = document.blocks[index].source.start;
         let position = &mut self.books[self.active].reflow;
-        position.markdown_offset = block.source.start;
-        position.scroll_offset = f32::from(top.offset_in_item).max(0.);
-        position.progress = if self.reflow.list.is_scrolled_to_end() == Some(true) {
+        position.markdown_offset = source_start;
+        position.scroll_offset = 0.;
+        position.progress = if at_end {
             1.
         } else {
-            block.source.start as f32 / document.source_bytes.max(1) as f32
+            source_start as f32 / document.source_bytes.max(1) as f32
         };
         cx.notify();
+    }
+
+    /// Remember the current position after a command moved the list.
+    ///
+    /// Commands run outside Kit's scroll dispatch, so this may read the list.
+    fn remember_markdown_position(&mut self, cx: &mut Context<Self>) {
+        let top = self.reflow.list.logical_scroll_top();
+        let at_end = self.reflow.list.is_scrolled_to_end() == Some(true);
+        self.record_markdown_position(top.item_ix, at_end, cx);
     }
 
     pub(super) fn turn_reflow(&mut self, delta: i32, cx: &mut Context<Self>) {
@@ -905,9 +929,20 @@ impl Breeze {
         } else {
             let state = cx.new(|cx| TextViewState::html(&block.html, cx).selectable(true));
             let list = self.reflow.list.clone();
+            let view = cx.entity().downgrade();
             let subscription = cx.observe(&state, move |_, _, cx| {
-                list.remeasure_items(index..index + 1);
-                cx.notify();
+                // Remeasuring touches the list's own borrow, and this observer can
+                // fire from inside a list layout pass because the text element
+                // updates its state while it is being laid out. Deferring the
+                // remeasure keeps the two borrows apart; the notification is for
+                // the reader, never for the observed text state, which would
+                // re-enter this observer.
+                let list = list.clone();
+                let view = view.clone();
+                cx.defer(move |cx| {
+                    list.remeasure_items(index..index + 1);
+                    let _ = view.update(cx, |_, cx| cx.notify());
+                });
             });
             while self.reflow.blocks.len() >= 96 {
                 self.reflow.blocks.pop_front();

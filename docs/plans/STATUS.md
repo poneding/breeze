@@ -1022,3 +1022,29 @@ filtered view. Native verification of the arrow-key preview itself was not
 performed: this session lacks Screen Recording permission, and driving the
 isolated window through macOS accessibility prompts raised a Developer Tools
 password dialog, which was cancelled. Windows/Linux native checks remain open.
+
+## October 15 Markdown scrolling no longer re-borrows the list
+
+Opening a Markdown document and scrolling it aborted the process with
+`RefCell already mutably borrowed` from `gpui-pre`'s list state. Kit dispatches a
+virtual list's scroll handler while that list mutably borrows its own state, so
+recording the reading position through `ListState::logical_scroll_top()`
+re-entered the same `RefCell`. The handler now records the block range the event
+reports and reads nothing back from the list; the exact list offset is only read
+after commands that move the list, which run outside the scroll dispatch. The
+per-block text observer also defers its remeasure and notifies the reader
+instead of the observed text state, so a text layout pass cannot remeasure the
+list while it is borrowed or re-enter its own observer.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --offline`
+(app suite 165 passed with the new regression test, 16 core, 30 PDF with three
+ignored, 1+1+8+5+1+3+4+7 in the remaining suites) and `cargo clippy --workspace
+--all-targets --offline -- -D warnings` pass. The regression test
+`markdown_reader_scrolls_and_records_its_position` opens a 200-block Markdown
+document, scrolls, scrolls past the end, jumps through a heading and changes the
+text size; reverting only the handler change reproduces the original panic at
+`list.rs:561`. The app was also launched natively against an isolated
+`BREEZE_DATA_DIR` with the same Markdown file as an argument and stayed running
+without a panic, but the scroll gesture itself was not driven through the
+native window: this session lacks Screen Recording permission. Windows/Linux
+native checks remain open.

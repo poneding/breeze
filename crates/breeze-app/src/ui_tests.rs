@@ -2512,3 +2512,72 @@ fn a_running_window_opens_delivered_documents(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+/// A Markdown document must scroll in the virtualized reader.
+///
+/// Kit dispatches the list's scroll handler while the list mutably borrows its
+/// own state, so recording the reading position must use the reported range
+/// instead of querying the list; querying it panicked with `RefCell already
+/// mutably borrowed` as soon as the first scroll arrived.
+#[gpui_kit::test]
+fn markdown_reader_scrolls_and_records_its_position(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("notes.md");
+    let mut markdown = String::new();
+    for index in 0..200 {
+        markdown.push_str(&format!(
+            "## Heading {index}\n\nParagraph {index} with 中文 text and **bold** words.\n\n"
+        ));
+    }
+    std::fs::write(&path, markdown).unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "notes.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+        assert!(
+            view.read(cx).reflow.markdown.is_some(),
+            "the Markdown document did not load: {}",
+            view.read(cx).message
+        );
+        assert_eq!(view.read(cx).books[0].reflow.markdown_offset, 0);
+        for _ in 0..12 {
+            window.scroll("reflow-viewport", ScrollDelta::Lines(point(0., -6.)), cx);
+        }
+        window.render_frame(cx);
+        let offset = view.read(cx).books[0].reflow.markdown_offset;
+        assert!(
+            offset > 0,
+            "scrolling the Markdown reader recorded no position: {offset}"
+        );
+        assert!(
+            view.read(cx).books[0].reflow.progress > 0.,
+            "scrolling the Markdown reader recorded no progress"
+        );
+        // Scrolling past the end reports the finished document instead of
+        // asking the borrowed list where it landed.
+        for _ in 0..80 {
+            window.scroll("reflow-viewport", ScrollDelta::Lines(point(0., -20.)), cx);
+        }
+        assert_eq!(view.read(cx).books[0].reflow.progress, 1.);
+        // The heading outline jumps and the text-size command remeasures the
+        // list; both run outside the scroll dispatch and must keep working.
+        window.click(("reflow-heading", 4usize), cx);
+        window.render_frame(cx);
+        let jumped = view.read(cx).books[0].reflow.markdown_offset;
+        assert!(jumped < offset, "heading jump did not move back: {jumped}");
+        window.focus(&view.read(cx).focus.clone(), cx);
+        window.press("secondary-=", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).books[0].reflow.font_size, 19);
+    })
+    .unwrap();
+}
