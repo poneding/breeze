@@ -192,7 +192,8 @@ def _write_documents(destination: Path, version: str) -> None:
         "https://github.com/poneding/breeze/releases\n\n"
         f"Download Breeze-{version}-source.tar.gz. It contains the exact Breeze source, Cargo.lock,\n"
         "build/release scripts, and vendored locked Cargo source packages. The archive can be\n"
-        "built offline with the Rust, C/C++, and libclang toolchains documented in README.md.\n\n"
+        "built offline with the Rust, C/C++, and libclang toolchains documented in\n"
+        "the repository development guide (docs/development.md).\n\n"
         "For a workflow_dispatch dry run, the source archive is provided as the separate\n"
         "breeze-source workflow artifact and is not published to a GitHub Release.\n"
     )
