@@ -29,6 +29,13 @@ lopdf = { version = "=0.45.0", default-features = false }
 mupdf = { version = "=0.8.0", default-features = false, features = [
     "base14-fonts",
     "system-fonts",
+    # `mupdf-sys` compiles no CJK font, and the safe crate's system loader
+    # implements the CJK hook on Windows only. Without a bundled CJK font every
+    # Han character looks up a font that does not exist: the glyph is not drawn
+    # and the failed lookup costs a millisecond each. These providers install
+    # MuPDF's runtime font hooks for CJK and symbol coverage.
+    "bundled-fonts-droid",
+    "bundled-fonts-noto",
 ] }
 image = { version = "0.25", default-features = false, features = ["png"] }
 futures = "0.3"

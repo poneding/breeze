@@ -443,25 +443,43 @@ pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
         }
     }
     let native = state.document.load_page(i32::try_from(page)?)?;
+    // Opaque, so an unpainted area is the publication's own white background
+    // and the UI never has to composite a premultiplied transparent page.
     let pixmap = native.to_pixmap(
         &Matrix::new_scale(request.scale, request.scale),
         &Colorspace::device_rgb(),
-        true,
+        false,
         true,
     )?;
     let width = pixmap.width();
     let height = pixmap.height();
-    ensure!(
-        pixmap.n() == 4 && u64::from(width) * u64::from(height) <= MAX_PIXELS,
-        "EPUB raster exceeds its limit"
-    );
-    let mut bgra = pixmap.samples().to_vec();
-    ensure!(
-        bgra.len() == width as usize * height as usize * 4,
-        "Unexpected EPUB pixel buffer"
-    );
-    for pixel in bgra.as_chunks_mut::<4>().0 {
-        pixel.swap(0, 2);
+    let pixels = u64::from(width) * u64::from(height);
+    ensure!(pixels <= MAX_PIXELS, "EPUB raster exceeds its limit");
+    // The page is rendered opaque: device RGB yields three channels, and the
+    // texture needs BGRA, so the alpha byte is added here rather than making the
+    // page premultiplied and transparent.
+    let mut bgra = Vec::with_capacity(width as usize * height as usize * 4);
+    match pixmap.n() {
+        3 => {
+            ensure!(
+                pixmap.samples().len() >= width as usize * height as usize * 3,
+                "Unexpected EPUB pixel buffer"
+            );
+            for rgb in pixmap.samples().as_chunks::<3>().0 {
+                bgra.extend_from_slice(&[rgb[2], rgb[1], rgb[0], 255]);
+            }
+        }
+        4 => {
+            bgra.extend_from_slice(pixmap.samples());
+            ensure!(
+                bgra.len() == width as usize * height as usize * 4,
+                "Unexpected EPUB pixel buffer"
+            );
+            for pixel in bgra.as_chunks_mut::<4>().0 {
+                pixel.swap(0, 2);
+            }
+        }
+        channels => anyhow::bail!("Unexpected EPUB raster channel count {channels}"),
     }
     let text = native.to_text_page(TextPageFlags::empty())?.to_text()?;
     let links = native

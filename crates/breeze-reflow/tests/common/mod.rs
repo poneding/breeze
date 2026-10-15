@@ -48,3 +48,51 @@ pub fn publication(chapters: usize, paragraphs: usize) -> Vec<u8> {
     }
     archive.finish().unwrap().into_inner()
 }
+
+/// A chapter of Chinese prose, laid out with the publication's own stylesheet.
+///
+/// Chinese text needs a CJK font. `mupdf-sys` compiles none in, and the safe
+/// crate's system loader implements the CJK hook on Windows only, so without a
+/// bundled font every Han character is a failed lookup: nothing is drawn and the
+/// page looks like scattered Latin words.
+#[allow(dead_code)]
+pub fn chinese_publication(paragraphs: usize) -> Vec<u8> {
+    let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+    let write = |archive: &mut ZipWriter<Cursor<Vec<u8>>>, path: &str, text: &str| {
+        archive
+            .start_file(path, SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(text.as_bytes()).unwrap();
+    };
+    write(&mut archive, "mimetype", "application/epub+zip");
+    write(
+        &mut archive,
+        "META-INF/container.xml",
+        r#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#,
+    );
+    write(
+        &mut archive,
+        "OEBPS/content.opf",
+        r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">breeze-chinese-fixture</dc:identifier><dc:title>中文样章</dc:title><dc:language>zh</dc:language><meta property="dcterms:modified">2026-10-15T00:00:00Z</meta></metadata><manifest><item id="ch" href="ch1.xhtml" media-type="application/xhtml+xml"/><item id="css" href="book.css" media-type="text/css"/></manifest><spine><itemref idref="ch"/></spine></package>"#,
+    );
+    write(
+        &mut archive,
+        "OEBPS/book.css",
+        ".calibre { display: block; margin: 0 5pt; } p { display: block; margin: 1em 0; text-indent: 2em; line-height: 1.5; } h1 { display: block; font-size: 1.5em; margin: 1em 0; }",
+    );
+    let body: String = (0..paragraphs)
+        .map(|index| {
+            format!(
+                "<p>第{index}段中文正文用于检验排版密度与换行是否自然。阅读器应当沿用出版物的样式，让每一行都紧凑而整齐。</p>"
+            )
+        })
+        .collect();
+    write(
+        &mut archive,
+        "OEBPS/ch1.xhtml",
+        &format!(
+            r#"<html xmlns="http://www.w3.org/1999/xhtml"><head><title>第一章</title><link rel="stylesheet" type="text/css" href="book.css"/></head><body><h1>第一章</h1>{body}</body></html>"#
+        ),
+    );
+    archive.finish().unwrap().into_inner()
+}

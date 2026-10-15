@@ -147,3 +147,75 @@ fn page_delta_moves_the_requested_number_of_pages() {
     let back = book.render(&request).unwrap();
     assert_eq!(back.chapter_page, 1);
 }
+
+/// Chinese prose must actually be drawn. Without a CJK font every Han character
+/// is a failed lookup: the page keeps only its Latin words and digits, and each
+/// lookup costs about a millisecond, which is what made an EPUB look sparse and
+/// turn pages slowly.
+#[test]
+fn chinese_prose_is_drawn_with_its_own_stylesheet() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("chinese.epub");
+    std::fs::write(&path, common::chinese_publication(12)).unwrap();
+    let mut book = Book::open(&path).unwrap();
+    let request = Request {
+        path: path.clone(),
+        location: EpubLocation::default(),
+        width: 1200.,
+        height: 900.,
+        scale: 1.,
+        font_size: 18.,
+        turn: 0,
+        scroll: 0.,
+        find: None,
+    };
+    let start = std::time::Instant::now();
+    let frame = book.render(&request).unwrap();
+    let first = start.elapsed();
+
+    // The text layer has the Chinese, and the raster has ink: a page whose CJK
+    // glyphs were skipped is nearly blank.
+    let cjk = frame
+        .text
+        .chars()
+        .filter(|c| ('\u{4e00}'..='\u{9fff}').contains(c))
+        .count();
+    assert!(
+        cjk > 200,
+        "only {cjk} Han characters reached the text layer"
+    );
+    let total = (frame.width as usize) * (frame.height as usize);
+    let ink = frame
+        .bgra
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .filter(|pixel| pixel[0] < 200 || pixel[1] < 200 || pixel[2] < 200)
+        .count();
+    let coverage = ink as f64 * 100. / total as f64;
+    assert!(
+        coverage > 3.,
+        "the page is {coverage:.2}% ink: the Chinese glyphs were not drawn"
+    );
+    // The raster is opaque BGRA, so the reader composites no transparent page.
+    assert!(
+        frame
+            .bgra
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| pixel[3] == 255),
+        "the page raster is not opaque"
+    );
+
+    // Every page must be fast. A failed font lookup per character cost over a
+    // second per page on the same machine.
+    assert!(first.as_millis() < 500, "the first page took {first:?}");
+    let mut turn = request.clone();
+    turn.location = frame.location.clone();
+    turn.turn = 1;
+    let start = std::time::Instant::now();
+    let _ = book.render(&turn).unwrap();
+    let turned = start.elapsed();
+    assert!(turned.as_millis() < 500, "a page turn took {turned:?}");
+}

@@ -1210,3 +1210,50 @@ unprefetched one waits p95 63 ms. The app was launched against an isolated
 contains a space and stayed running; the rendered page was not inspected visually
 because this session lacks Screen Recording permission. Windows/Linux native
 checks remain open.
+
+## October 15 CJK font: the real cause of sparse, slow EPUB reading
+
+Reporting "the layout is disordered and sparse" and "page turns are slow" had one
+root cause. `mupdf-sys` compiles no CJK font at all — its build script sets
+`TOFU_CJK` and prunes Droid and Source Han to stay under the registry's package
+limit — and the fallback belongs to `mupdf`'s `SystemFontLoader`, whose CJK hook
+is implemented for Windows only. On macOS and Linux the workspace had
+`base14-fonts` and `system-fonts` and nothing else, so every Han character became
+a failed font lookup: the glyph was never drawn, and the lookup cost roughly a
+millisecond, which is why a page of Chinese prose rendered as scattered Latin
+words and digits and why each page took well over a second.
+
+Enabling `bundled-fonts-droid` and `bundled-fonts-noto` installs MuPDF's runtime
+font hooks for CJK and symbol coverage. Measured on the reported book (`从零构建大
+模型`, 119 chapters, chapter 7 at 1200×900 logical, scale 2) through the adapter,
+which produces exactly the texture the reader displays:
+
+| | before | after |
+|---|---|---|
+| first page of chapter 7 | 4054 ms | 46 ms |
+| rasterization ink coverage | 0.72 % (no Han glyphs) | 11.6 % |
+| chapter page count | 1 | 2 at 1200×900, 1 at 1240×1160 |
+| page turn inside the chapter | 1490 ms | 19 ms (p95 21 ms) |
+
+At the reported window's own content size (1240×1160 logical, 2480×2320 device
+pixels) the first page is 46 ms and a turn is p50 19 ms; jumping to a distant
+chapter is p50 96 ms, p95 142 ms. A rendering defect in the same path was fixed
+along the way: the page was requested with alpha, giving premultiplied
+transparency that nothing needed, and the opaque variant returns three channels
+where the old code assumed four, so the conversion now builds BGRA from RGB and
+adds an opaque alpha byte.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --offline` (app
+suite 173 passed, 16 core, 30 PDF with three ignored, 6 reflow unit, 6 reflow
+integration, and the remaining suites) and `cargo clippy --workspace
+--all-targets --offline -- -D warnings` pass.
+`chinese_prose_is_drawn_with_its_own_stylesheet` renders a Chinese chapter through
+the real adapter and asserts the Han characters reach the text layer, that ink
+coverage exceeds 3 %, that the raster is opaque, and that both the first page and
+a page turn stay under 500 ms. With the two font providers removed the same test
+fails at 0.05 % ink, which reproduces the reported symptom exactly. The chapter in
+the report was rendered to PNG and inspected: Chinese text now lays out with the
+publication's own paragraph indentation, line spacing and justified wrapping.
+Driving the native window itself was not possible — this session lacks Screen
+Recording permission — and Windows/Linux remain unverified, although the CJK hook
+gap this fixed is macOS/Linux-specific.

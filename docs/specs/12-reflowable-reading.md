@@ -79,6 +79,14 @@ locations/preferences across format switches.
   visible blocks with bounded lookahead rather than measuring the whole document.
 - Preserve native text shaping and original EPUB colors. Changing UI themes
   must not invert publication images or page colors.
+- `mupdf-sys` compiles no CJK font — it prunes Droid and Source Han to stay under
+  the registry's package limit — and the safe crate's system-font loader
+  implements the CJK hook on Windows only. A CJK publication therefore needs the
+  bundled runtime font providers (`bundled-fonts-droid`, `bundled-fonts-noto`);
+  without them every Han character is a failed lookup, which both omits the glyph
+  and costs about a millisecond, and a page of Chinese prose renders as a scatter
+  of its Latin words and digits. Any release build must keep those providers
+  enabled, and any new platform must be checked for the same gap.
 - A Markdown image target is a URI: resolve percent-encoded names and drop a
   query or fragment before opening the file. A reference that still cannot be
   opened is a property of that one image — record it, show nothing in its place,
