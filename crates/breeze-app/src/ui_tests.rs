@@ -976,7 +976,7 @@ fn chrome_heights_and_left_navigation_are_preserved(cx: &mut TestAppContext) {
             window.find("titlebar-content").bounds().size.height,
             px(33.) // The native 34 px title bar includes its 1 px bottom border.
         );
-        assert_eq!(window.find("reader-toolbar").bounds().size.height, px(32.));
+        assert_eq!(window.find("reader-toolbar").bounds().size.height, px(34.));
         assert_eq!(window.find("status-scroll").bounds().size.height, px(32.));
         assert_eq!(window.find("home-tab").bounds().size.height, px(22.5));
         view.update(cx, |view, cx| view.show_home(cx));
@@ -1102,7 +1102,7 @@ fn navigation_tabs_follow_the_current_outline(cx: &mut TestAppContext) {
         );
         assert_eq!(
             window.find("navigation-header").bounds().size.height,
-            px(32.)
+            px(34.)
         );
 
         view.update(cx, |view, _| {

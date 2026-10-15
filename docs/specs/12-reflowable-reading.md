@@ -61,7 +61,7 @@ controls that need one are dropped.
 | Position | Page plus PDF view settings | Chapter href plus an in-chapter position | Source block/offset and scroll position |
 | Reading width | Not applicable | Not applicable; the page is laid out at the viewport | Centred maximum measure by default, toggleable to the full window |
 
-The titlebar, 32 px content headers, 32 px status bar, panel sizing, library,
+The titlebar, 34 px content headers, 32 px status bar, panel sizing, library,
 categories, favorites and opening policies remain shared. Actions must be
 guarded at dispatch as well as hidden visually. PDF sidecars and export remain
 PDF-only. Session persistence must accept old snapshots and retain independent

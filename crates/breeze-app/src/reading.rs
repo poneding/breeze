@@ -1628,7 +1628,7 @@ mod tests {
             let search = window.find("outline-search").bounds();
             let more = window.find("outline-more").bounds();
             let collapse = window.find("collapse").bounds();
-            assert_eq!(header.size.height, px(32.));
+            assert_eq!(header.size.height, px(34.));
             assert!((view.read(cx).navigation_width - reader::NAVIGATION_MIN_WIDTH).abs() < 1.);
             assert!(header.right() <= window.find("navigation-content").bounds().right());
             assert!(collapse.left() - header.left() < px(12.));

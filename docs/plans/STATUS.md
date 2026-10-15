@@ -1,25 +1,24 @@
 # Delivery Status
 
-## October 15 reader toolbar matches the status bar at 32 px
+## October 15 reader toolbar matches the title bar at 34 px
 
 The reader toolbar and the navigation and document-panel headers that align with
-it were 38 px while the status bar was 32 px, so the two horizontal control rows
-that bound the document had different heights. `style::TOOLBAR_HEIGHT` now holds
-32 px and the three headers, and both status bars, read that one constant.
+it were 38 px, 4 px taller than the title bar above them. `style::TOOLBAR_HEIGHT`
+now holds 34 px, matching the title bar, and the three headers read that one
+constant; the status bar keeps its own 32 px. The panel search row that replaces
+a header keeps sharing the header height.
 
 The reading viewport and the fit-to-document window policy subtract the same
-constant, so page geometry follows the shorter chrome instead of leaving a 6 px
-gap at the bottom of a fitted page. Component tests assert the toolbar, both
-headers and the status bar at 32 px in the PDF and reflow readers.
+constant, so page geometry follows the shorter toolbar instead of keeping a 4 px
+gap at the bottom of a fitted page. Component tests assert the toolbar and both
+headers at 34 px while the status bar stays 32 px, in the PDF and reflow readers.
 
 Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked`
 (173 app, 16 core, 30 PDF with three ignored, and the remaining suites) and
 `cargo clippy --workspace --all-targets --locked -- -D warnings` pass. A native
-run against an isolated `BREEZE_DATA_DIR` confirmed 32 px for the content
-toolbar and the 32 px status bar in both the PDF and Markdown readers: the
-toolbar's bottom border sits 32 pt below the title bar's, and the status bar's
-top border 32 pt above the window's bottom edge. Windows and Linux native checks
-remain open.
+run against an isolated `BREEZE_DATA_DIR` confirmed the 34 px content toolbar in
+both the PDF and Markdown readers, with the status bar unchanged at 32 px.
+Windows and Linux native checks remain open.
 
 ## October 15 macOS traffic-light fullscreen
 

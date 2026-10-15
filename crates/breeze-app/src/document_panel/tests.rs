@@ -67,10 +67,10 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         assert!(window.within("tools").try_find(("tool", 1usize)).is_none());
         window.click("document-panel-toggle", cx);
         assert!(window.find("document-information").visible());
-        assert_eq!(window.find("reader-toolbar").bounds().size.height, px(32.));
+        assert_eq!(window.find("reader-toolbar").bounds().size.height, px(34.));
         assert_eq!(
             window.find("document-panel-header").bounds().size.height,
-            px(32.)
+            px(34.)
         );
         assert_eq!(
             window.find("document-panel-header").bounds().origin.y,
