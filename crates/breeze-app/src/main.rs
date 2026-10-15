@@ -53,7 +53,7 @@ use gpui_kit::{
     },
     *,
 };
-use std::{path::PathBuf, sync::Arc};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use style::{Palette, column, row};
 
 actions!(
@@ -183,6 +183,8 @@ struct Breeze {
     state_save_generation: u64,
     data_dir: Option<PathBuf>,
     surface_bounds: Option<Bounds<gpui_kit::Pixels>>,
+    /// Where each category row's revealed action row was laid out last frame.
+    category_action_bounds: HashMap<usize, Bounds<gpui_kit::Pixels>>,
     gesture: Vec<breeze_core::annotations::Point>,
     selected_text: String,
     search_input: Entity<InputState>,
@@ -356,6 +358,7 @@ impl Breeze {
             state_save_generation: 0,
             data_dir: None,
             surface_bounds: None,
+            category_action_bounds: HashMap::new(),
             gesture: Vec::new(),
             selected_text: String::new(),
             search_input,

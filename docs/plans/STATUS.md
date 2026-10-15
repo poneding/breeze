@@ -1117,3 +1117,27 @@ also launched against an isolated `BREEZE_DATA_DIR` with a Markdown file holding
 that image and stayed running without a panic; the resulting chrome and image were
 not inspected visually because this session lacks Screen Recording permission.
 Windows/Linux native checks remain open.
+
+## October 14 category action hover follows the pointer directly
+
+The category row's edit and delete icons take the panel foreground from the
+pointer's own position instead of from a hover style. GPUI resolves an element's
+hover against the previous frame's hit boxes, so a button that only exists while
+its row is hovered never matched the pointer that revealed it: the icon stayed
+muted until the pointer moved again, which is what the user reported. Each row's
+action row now records its laid-out bounds during prepaint, and the render
+compares the live pointer against them, so the first revealed frame already draws
+the hovered icon in the panel foreground.
+
+`category_action_hover` is the pure half of that decision, which end of the
+action row the pointer occupies and nothing when the pointer is outside it, and
+it is unit tested. The reported scenario was reproduced with a temporary probe
+that mapped the decision onto the delete button's width: moving the pointer
+straight onto the button in one event left it at its resting width before this
+change and yields the hovered width on that first frame after it.
+
+Validation: formatting, the complete workspace suite (172 app, 16 core, 30 PDF
+with three ignored, and every PDF integration suite) and all-target Clippy with
+warnings denied pass in the working checkout. Native visual inspection of the
+colours was not performed because this session lacks Screen Recording permission.
+Windows/Linux native checks remain open.

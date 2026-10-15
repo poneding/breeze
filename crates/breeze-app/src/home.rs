@@ -17,12 +17,12 @@ impl Breeze {
             .flex_1()
             .min_h_0()
             .items_stretch()
-            .child(self.library_sidebar(cx))
+            .child(self.library_sidebar(window, cx))
             .child(self.home_content(window, cx))
     }
 
     /// Library entries stay scrollable; global pages sit at the bottom edge.
-    fn library_sidebar(&self, cx: &mut Context<Self>) -> Div {
+    fn library_sidebar(&self, window: &Window, cx: &mut Context<Self>) -> Div {
         let p = self.p(cx);
         column()
             .w(px(168.))
@@ -60,7 +60,7 @@ impl Breeze {
                                 }))
                         }),
                     )
-                    .child(self.category_sidebar(cx)),
+                    .child(self.category_sidebar(window, cx)),
             )
             .child(
                 column()

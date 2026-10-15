@@ -2,7 +2,7 @@
 use crate::*;
 use breeze_core::library::{Category, CategoryColor, validate_name};
 use gpui_kit::component::{
-    Icon,
+    ElementExt, Icon,
     button::ButtonCustomVariant,
     dialog::Confirm,
     menu::{DropdownMenu, PopupMenuItem},
@@ -45,16 +45,46 @@ fn left_button_icon(
                 ),
         )
 }
+/// Side of the square edit and delete buttons a category row reveals.
+const CATEGORY_ACTION_BUTTON: f32 = 20.;
+
+/// Which revealed category action the pointer is over, if any.
+///
+/// The buttons only exist while their row is hovered, and GPUI resolves an
+/// element's hover against the previous frame's hit boxes, so a pointer that
+/// arrives together with the reveal would never match the button's own hover
+/// style. The pointer is tested against the action row's last laid-out bounds
+/// instead, which is known from the first revealed frame.
+pub(super) fn category_action_hover(
+    bounds: Bounds<gpui_kit::Pixels>,
+    pointer: Point<gpui_kit::Pixels>,
+    action: CategoryAction,
+) -> bool {
+    if !bounds.contains(&pointer) {
+        return false;
+    }
+    let button = px(CATEGORY_ACTION_BUTTON);
+    match action {
+        CategoryAction::Edit => pointer.x < bounds.left() + button,
+        CategoryAction::Delete => pointer.x >= bounds.right() - button,
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum CategoryAction {
+    Edit,
+    Delete,
+}
+
 /// Category row actions stay text-only: no hover surface at all, a muted icon
-/// at rest, and the panel foreground only while that button itself is hovered.
-fn category_action_icon(p: Palette, icon: IconName, group: &'static str) -> Div {
+/// at rest, and the panel foreground while that button itself is hovered.
+fn category_action_icon(p: Palette, icon: IconName, hovered: bool) -> impl IntoElement {
     div()
         .size_full()
         .flex()
         .items_center()
         .justify_center()
-        .text_color(p.muted)
-        .group_hover(group, move |s| s.text_color(p.text))
+        .text_color(if hovered { p.text } else { p.muted })
         .child(Icon::new(icon).small())
 }
 impl Breeze {
@@ -112,9 +142,10 @@ impl Breeze {
         self.category_edit = None;
         cx.notify();
     }
-    pub(super) fn category_sidebar(&self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn category_sidebar(&self, window: &Window, cx: &mut Context<Self>) -> Div {
         let p = self.p(cx);
         let hover = style::accent_hover(cx);
+        let pointer = window.mouse_position();
         column()
             .gap_1()
             .child(
@@ -152,6 +183,7 @@ impl Breeze {
             )
             .children(self.categories.iter().map(|category| {
                 let id = category.id;
+                let actions = self.category_action_bounds.get(&id).copied();
                 row()
                     .id(("category-row", id))
                     .test_support()
@@ -207,6 +239,15 @@ impl Breeze {
                                             .w(px(44.))
                                             .flex_shrink_0()
                                             .gap_1()
+                                            .on_prepaint({
+                                                let view = cx.entity();
+                                                move |bounds, _, cx| {
+                                                    view.update(cx, |this, _| {
+                                                        this.category_action_bounds
+                                                            .insert(id, bounds);
+                                                    });
+                                                }
+                                            })
                                             .when(
                                                 !(self.category_form
                                                     && self.category_edit == Some(id)),
@@ -220,9 +261,8 @@ impl Breeze {
                                                 self.category_popover(
                                                     Button::new(("rename-category", id))
                                                         .custom(ButtonCustomVariant::new(cx))
-                                                        .group("category-edit")
                                                         .small()
-                                                        .size(px(20.))
+                                                        .size(px(CATEGORY_ACTION_BUTTON))
                                                         .p_0()
                                                         .accessibility_label(tf!("Edit category: {}",
                                                             category.name
@@ -231,7 +271,13 @@ impl Breeze {
                                                         .child(category_action_icon(
                                                             p,
                                                             IconName::Pencil,
-                                                            "category-edit",
+                                                            actions.is_some_and(|bounds| {
+                                                                category_action_hover(
+                                                                    bounds,
+                                                                    pointer,
+                                                                    CategoryAction::Edit,
+                                                                )
+                                                            }),
                                                         )),
                                                     Some(id),
                                                     cx,
@@ -240,9 +286,8 @@ impl Breeze {
                                             .child(
                                                 Button::new(("delete-category", id))
                                                     .custom(ButtonCustomVariant::new(cx))
-                                                    .group("category-delete")
                                                     .small()
-                                                    .size(px(20.))
+                                                    .size(px(CATEGORY_ACTION_BUTTON))
                                                     .p_0()
                                                     .accessibility_label(tf!("Delete category: {}",
                                                         category.name
@@ -251,7 +296,13 @@ impl Breeze {
                                                     .child(category_action_icon(
                                                         p,
                                                         IconName::Trash,
-                                                        "category-delete",
+                                                        actions.is_some_and(|bounds| {
+                                                            category_action_hover(
+                                                                bounds,
+                                                                pointer,
+                                                                CategoryAction::Delete,
+                                                            )
+                                                        }),
                                                     ))
                                                     .on_click(cx.listener(
                                                         move |this, _, _, cx| {

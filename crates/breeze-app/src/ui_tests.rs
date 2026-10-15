@@ -2267,6 +2267,33 @@ fn category_forms_confirm_with_enter(cx: &mut TestAppContext) {
     .unwrap();
 }
 
+#[test]
+fn category_action_hover_splits_the_action_row_at_its_buttons() {
+    use categories::{CategoryAction, category_action_hover};
+    let bounds = Bounds {
+        origin: point(px(100.), px(50.)),
+        size: size(px(44.), px(20.)),
+    };
+    let at = |x: f32, action| category_action_hover(bounds, point(px(x), px(60.)), action);
+    // Each button owns one end of the row; the gap between them belongs to neither.
+    assert!(at(101., CategoryAction::Edit));
+    assert!(at(118., CategoryAction::Edit));
+    assert!(!at(121., CategoryAction::Edit) && !at(121., CategoryAction::Delete));
+    assert!(at(141., CategoryAction::Delete));
+    assert!(!at(101., CategoryAction::Delete) && !at(141., CategoryAction::Edit));
+    // A pointer outside the revealed row's vertical band or beside it matches nothing.
+    assert!(!category_action_hover(
+        bounds,
+        point(px(101.), px(80.)),
+        CategoryAction::Edit
+    ));
+    assert!(!category_action_hover(
+        bounds,
+        point(px(90.), px(60.)),
+        CategoryAction::Delete
+    ));
+}
+
 #[gpui_kit::test]
 fn category_secondary_actions_do_not_select_the_row(cx: &mut TestAppContext) {
     let (handle, view) = app(cx);
