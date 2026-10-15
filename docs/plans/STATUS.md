@@ -1,5 +1,25 @@
 # Delivery Status
 
+## October 16 macOS traffic-light maximize
+
+The October 15 traffic-light change made the green button and the reader's
+Fullscreen command share the document-only immersive layout. That coupling was
+wrong for the green button: it is the window control, not the reader mode.
+
+AppKit's green button now receives
+`NSWindowCollectionBehavior::FullScreenNone`, so it performs the standard zoom
+or maximize action and keeps the title bar, navigation, toolbar, and status bar
+visible. A native fullscreen transition that arrives from outside the app no
+longer changes `Breeze::full_screen`. The status-bar Fullscreen and F11 controls
+keep their immersive behavior; on macOS they now use GPUI's simple borderless
+fullscreen so they do not create or consume the AppKit fullscreen Space.
+
+Automated coverage keeps native fullscreen outside the app action from hiding
+reader chrome and continues to cover entry and exit through the Fullscreen
+command. Native macOS inspection remains required for the green button's
+collection behavior because GPUI's test platform does not implement AppKit
+window behavior.
+
 ## October 15 reader toolbar matches the title bar at 34 px
 
 The reader toolbar and the navigation and document-panel headers that align with

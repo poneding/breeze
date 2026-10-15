@@ -1733,6 +1733,7 @@ fn fullscreen_shows_only_the_document_and_leaves_on_escape_or_f11(cx: &mut TestA
     .unwrap();
     cx.update_window(handle, |_, window, cx| {
         assert!(view.read(cx).full_screen);
+        #[cfg(not(target_os = "macos"))]
         assert!(window.is_fullscreen());
         window.render_frame(cx);
         // Immersive reading hides the title bar, both panels, the toolbar and the status bar.
@@ -1755,6 +1756,7 @@ fn fullscreen_shows_only_the_document_and_leaves_on_escape_or_f11(cx: &mut TestA
     .unwrap();
     cx.update_window(handle, |_, window, cx| {
         assert!(!view.read(cx).full_screen);
+        #[cfg(not(target_os = "macos"))]
         assert!(!window.is_fullscreen());
         window.render_frame(cx);
         assert!(window.find("status-scroll").visible());
@@ -1779,30 +1781,29 @@ fn fullscreen_shows_only_the_document_and_leaves_on_escape_or_f11(cx: &mut TestA
     .unwrap();
 }
 
-/// The green traffic light fullscreens the window without going through the
-/// reader's own Fullscreen control. The reader has to follow the window, or it
-/// keeps drawing the title bar inside the fullscreen Space, where the title
-/// bar's double click asks AppKit to zoom and shrinks the fullscreen window.
+/// A native fullscreen transition outside the Fullscreen command must not turn
+/// on immersive reading. macOS reserves that transition for the reader-only
+/// control; its green traffic light is configured as zoom instead.
 #[gpui_kit::test]
-fn native_fullscreen_adopts_document_only_reading(cx: &mut TestAppContext) {
+fn native_fullscreen_does_not_change_reader_layout(cx: &mut TestAppContext) {
     let page = rendered_sample();
     let (handle, view) = app(cx);
     cx.update_window(handle, |_, window, cx| {
         view.update(cx, |view, _| seed_rendered_page(view, page));
         window.render_frame(cx);
         assert!(window.find("titlebar-content").visible());
-        // AppKit fullscreens the window and this reader sees the new bounds.
+        // Simulate a native fullscreen transition that bypasses the app action.
         window.toggle_fullscreen();
     })
     .unwrap();
     cx.simulate_window_resize(handle, size(px(1512.), px(982.)));
     cx.update_window(handle, |_, window, cx| {
         assert!(window.is_fullscreen());
-        assert!(view.read(cx).full_screen);
+        assert!(!view.read(cx).full_screen);
         window.render_frame(cx);
-        for id in ["titlebar-content", "reader-toolbar", "status-scroll"] {
-            assert!(window.try_find(id).is_none(), "{id} must be hidden");
-        }
+        assert!(window.find("titlebar-content").visible());
+        assert!(window.find("reader-toolbar").visible());
+        assert!(window.find("status-scroll").visible());
         // Leaving fullscreen outside the app restores the reader chrome.
         window.toggle_fullscreen();
     })

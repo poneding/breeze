@@ -1,6 +1,8 @@
 #[macro_use]
 mod i18n;
 mod localization;
+#[cfg(target_os = "macos")]
+mod macos_window;
 mod updates;
 #[cfg(test)]
 use core::prelude::v1::test;
@@ -290,9 +292,6 @@ impl Breeze {
         let category_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(tr!("Category name")));
         let window_bounds_observer = cx.observe_window_bounds(window, |this, window, cx| {
-            // The green traffic light fullscreens the window without an app
-            // command, so the layout follows the window's own state.
-            this.adopt_window_full_screen(window, cx);
             this.on_native_window_bounds(window, cx)
         });
         let navigation_split = cx.new(|_| ResizableState::default());
@@ -821,8 +820,9 @@ impl Breeze {
         self.apply_theme(cx);
         cx.notify();
     }
-    /// Toggles immersive reading. Native fullscreen removes the OS chrome and
-    /// the immersive layout removes every application row, leaving the pages.
+    /// Toggles immersive reading. macOS uses borderless fullscreen so the
+    /// reader mode does not take over AppKit's fullscreen Space; other
+    /// platforms use their native fullscreen state.
     pub(crate) fn set_full_screen(
         &mut self,
         on: bool,
@@ -832,22 +832,15 @@ impl Breeze {
         if self.full_screen == on {
             return;
         }
+        #[cfg(target_os = "macos")]
+        if window.is_simple_fullscreen() != on {
+            window.toggle_simple_fullscreen();
+        }
+        #[cfg(not(target_os = "macos"))]
         if window.is_fullscreen() != on {
             window.toggle_fullscreen();
         }
         self.apply_full_screen(on, window, cx);
-    }
-    /// Adopts a fullscreen change the window made on its own, such as a click on
-    /// the green traffic light. The reader follows the window instead of only
-    /// its own command, so both entries leave the same document-only layout.
-    /// Keeping the custom title bar drawn inside a fullscreen window would
-    /// instead leave the title bar's double click to ask AppKit to zoom the
-    /// window, which shrinks it inside its own Space and exposes the desktop.
-    fn adopt_window_full_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let on = window.is_fullscreen();
-        if on != self.full_screen {
-            self.apply_full_screen(on, window, cx);
-        }
     }
     fn apply_full_screen(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.full_screen = on;
@@ -1127,6 +1120,8 @@ fn main() -> Result<()> {
             },
             cx,
             move |window, cx| {
+                #[cfg(target_os = "macos")]
+                macos_window::install(window, 3);
                 let view = cx.new(|cx| Breeze::new(worker, window, cx));
                 // Attach before draining so an event that arrives during
                 // startup is delivered to this window instead of waiting.
