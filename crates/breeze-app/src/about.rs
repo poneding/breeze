@@ -185,8 +185,8 @@ mod tests {
     /// The bundled raster is the only brand asset loaded at runtime, so a broken
     /// export would ship unnoticed: a rasterizer that composites onto an opaque
     /// background turns the icon into a tile on a white square. Check that the
-    /// decoded tile keeps its transparent margin, its charcoal tile, and its
-    /// ivory pages.
+    /// decoded tile keeps the clear corner of its canvas, its charcoal tile, and
+    /// its ivory pages.
     #[test]
     fn bundled_logo_keeps_its_transparent_margin_and_colours() {
         let logo = brand_logo().expect("bundled brand logo decodes");
@@ -198,14 +198,15 @@ mod tests {
         );
         let pixels = logo.as_bytes(0).expect("decoded frame pixels");
 
-        // GPUI frames are BGRA. Sample points are taken on the 1024 px master and
-        // scaled by 160 / 1024: the outer margin, the tile above the pages, the
-        // ivory left page, and the narrow spine between the two pages.
+        // GPUI frames are BGRA. Sample points sit on the decoded canvas: the clear
+        // corner outside the tile's rounded corner, the charcoal tile between the
+        // top edge and the pages, the ivory left page, and the narrow spine
+        // between the two pages.
         let at = |x: usize, y: usize| {
             let i = (y * LOGO_MAX_PIXELS as usize + x) * 4;
             [pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]]
         };
-        assert_eq!(at(0, 0), [0, 0, 0, 0], "outer margin stays transparent");
+        assert_eq!(at(0, 0), [0, 0, 0, 0], "canvas corner stays transparent");
         assert_eq!(at(80, 34), [44, 44, 44, 255], "tile stays charcoal");
         assert_eq!(at(58, 80), [232, 241, 245, 255], "page stays ivory");
         let spine = at(80, 80);
@@ -213,6 +214,44 @@ mod tests {
         assert!(
             spine[..3].iter().all(|channel| *channel < 100),
             "spine stays dark, not page-coloured: {spine:?}"
+        );
+    }
+
+    /// The Dock and a Windows taskbar draw the icon at the raster's own size, so a
+    /// generous margin makes the application look smaller than the system icons
+    /// beside it. macOS frames app icons on a 1024 px grid whose artwork covers
+    /// 824 px, and the bundled raster has to stay on that grid instead of drifting
+    /// back to a smaller tile.
+    #[test]
+    fn bundled_logo_fills_the_standard_icon_grid() {
+        let logo = brand_logo().expect("bundled brand logo decodes");
+        let pixels = logo.as_bytes(0).expect("decoded frame pixels");
+        let span = LOGO_MAX_PIXELS as usize;
+
+        // A 50% alpha threshold measures the tile's rounded square, which leaves
+        // the canvas margin and the corners out of the span.
+        let (mut min_x, mut min_y, mut max_x, mut max_y) = (span, span, 0, 0);
+        for y in 0..span {
+            for x in 0..span {
+                if pixels[(y * span + x) * 4 + 3] >= 128 {
+                    min_x = min_x.min(x);
+                    min_y = min_y.min(y);
+                    max_x = max_x.max(x);
+                    max_y = max_y.max(y);
+                }
+            }
+        }
+
+        let expected = 824. / 1024. * span as f32;
+        let (width, height) = ((max_x - min_x + 1) as f32, (max_y - min_y + 1) as f32);
+        assert!(
+            (width - expected).abs() <= 1.5 && (height - expected).abs() <= 1.5,
+            "tile spans {width}x{height} px of {span}, expected {expected:.2} px"
+        );
+        assert_eq!(
+            (min_x, min_y),
+            (span - 1 - max_x, span - 1 - max_y),
+            "the canvas keeps the tile centred"
         );
     }
 }
