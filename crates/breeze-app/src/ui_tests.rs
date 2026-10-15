@@ -3134,3 +3134,116 @@ fn epub_fixture(paragraphs: usize) -> Vec<u8> {
     );
     archive.finish().unwrap().into_inner()
 }
+
+/// Clicking the chapter arrows faster than a chapter renders must not drop
+/// clicks. The arrows are absolute jumps, so a click that arrived while the
+/// previous chapter was still rendering used to recompute the same target from
+/// the stale frame and be discarded: five clicks advanced one chapter.
+#[gpui_kit::test]
+fn rapid_chapter_clicks_all_land(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("chapters.epub");
+    std::fs::write(&path, epub_multi_chapter_fixture(8, 20)).unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "chapters.epub".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    // Wait for the first chapter to land.
+    assert!(
+        wait_for_epub(cx, handle, &view, |frame| frame.chapter == 0),
+        "the EPUB never produced its first chapter"
+    );
+
+    // Five clicks on the real toolbar arrow, with no waiting in between.
+    cx.update_window(handle, |_, window, cx| {
+        for _ in 0..5 {
+            window.click("next-chapter", cx);
+        }
+    })
+    .unwrap();
+    assert!(
+        wait_for_epub(cx, handle, &view, |frame| frame.chapter == 5),
+        "five rapid clicks landed on chapter {:?}, not 5",
+        cx.update_window(handle, |_, _, cx| view
+            .read(cx)
+            .reflow
+            .frame
+            .as_ref()
+            .map(|f| f.chapter))
+            .unwrap()
+    );
+}
+
+fn wait_for_epub(
+    cx: &mut TestAppContext,
+    handle: AnyWindowHandle,
+    view: &Entity<Breeze>,
+    done: impl Fn(&breeze_reflow::epub::Frame) -> bool,
+) -> bool {
+    for _ in 0..80 {
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| window.render_frame(cx))
+            .unwrap();
+        let reached = cx
+            .update_window(handle, |_, _, cx| {
+                view.read(cx).reflow.frame.as_ref().is_some_and(&done)
+            })
+            .unwrap();
+        if reached {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    false
+}
+
+fn epub_multi_chapter_fixture(chapters: usize, paragraphs: usize) -> Vec<u8> {
+    use std::io::{Cursor, Write};
+    use zip::{ZipWriter, write::SimpleFileOptions};
+    let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+    let write = |archive: &mut ZipWriter<Cursor<Vec<u8>>>, name: &str, text: &str| {
+        archive
+            .start_file(name, SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(text.as_bytes()).unwrap();
+    };
+    write(&mut archive, "mimetype", "application/epub+zip");
+    write(
+        &mut archive,
+        "META-INF/container.xml",
+        r#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#,
+    );
+    let items: String = (0..chapters)
+        .map(|i| {
+            format!(r#"<item id="c{i}" href="c{i}.xhtml" media-type="application/xhtml+xml"/>"#)
+        })
+        .collect();
+    let refs: String = (0..chapters)
+        .map(|i| format!(r#"<itemref idref="c{i}"/>"#))
+        .collect();
+    write(
+        &mut archive,
+        "OEBPS/content.opf",
+        &format!(
+            r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">breeze-chapters-fixture</dc:identifier><dc:title>Chapters</dc:title><dc:language>en</dc:language><meta property="dcterms:modified">2026-10-15T00:00:00Z</meta></metadata><manifest>{items}</manifest><spine>{refs}</spine></package>"#
+        ),
+    );
+    for chapter in 0..chapters {
+        let body: String = (0..paragraphs)
+            .map(|i| format!("<p>Chapter {chapter} paragraph {i}.</p>"))
+            .collect();
+        write(
+            &mut archive,
+            &format!("OEBPS/c{chapter}.xhtml"),
+            &format!(
+                r#"<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter {chapter}</title></head><body><h1>Chapter {chapter}</h1>{body}</body></html>"#
+            ),
+        );
+    }
+    archive.finish().unwrap().into_inner()
+}

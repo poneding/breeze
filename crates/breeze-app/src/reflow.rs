@@ -67,6 +67,15 @@ pub(super) struct ReflowView {
     pub active_block: usize,
     /// Wheel distance not yet worth a page turn, in logical pixels.
     scroll_accum: f32,
+    /// Pages the reader has asked for that are not on screen yet.
+    ///
+    /// A turn can only be resolved against a landed frame, because chapter
+    /// boundaries live in the layout. Without this, a second click while the
+    /// first was still rendering rebuilt the same request from the previous
+    /// position and was dropped, so clicking Next twice moved one page.
+    pending_turn: i8,
+    /// Chapter the reader last asked for, while it is still rendering.
+    pending_chapter: Option<usize>,
 }
 
 impl Default for ReflowView {
@@ -92,6 +101,8 @@ impl Default for ReflowView {
             outline_search: None,
             active_block: 0,
             scroll_accum: 0.,
+            pending_turn: 0,
+            pending_chapter: None,
         }
     }
 }
@@ -120,6 +131,8 @@ impl ReflowView {
         self.outline_search = None;
         self.active_block = 0;
         self.scroll_accum = 0.;
+        self.pending_turn = 0;
+        self.pending_chapter = None;
         self.worker = None;
         self.images.clear(cx);
         if let Some(image) = self.image.take() {
@@ -479,6 +492,14 @@ impl Breeze {
             return;
         }
         let (width, height, scale) = self.reflow.viewport;
+        // A turn is relative to the page the reader asked for last, not to the
+        // last page that finished rendering.
+        self.reflow.pending_turn = if turn == 0 {
+            0
+        } else {
+            self.reflow.pending_turn.saturating_add(turn)
+        };
+        let turn = self.reflow.pending_turn;
         let request = epub::Request {
             path: path.clone(),
             location: self.books[self.active].reflow.epub.clone(),
@@ -533,6 +554,8 @@ impl Breeze {
                                 }
                                 this.books[this.active].reflow.epub = frame.location.clone();
                                 this.books[this.active].reflow.progress = frame.progress;
+                                this.reflow.pending_turn = 0;
+                                this.reflow.pending_chapter = None;
                                 this.reflow.outline = Arc::new(
                                     frame
                                         .metadata
@@ -610,13 +633,15 @@ impl Breeze {
         let Some(worker) = &self.reflow.worker else {
             return;
         };
-        // The stored request already carries the viewport and text size the
-        // frame on screen was produced with, so the prefetch matches it exactly.
+        // Build the prefetch on the page now on screen: the stored request
+        // carries the viewport and text size it was produced with, but its
+        // location is the one the turn started from.
         let mut next = match &self.reflow.request {
             Some(request) => request.clone(),
             None => return,
         };
         next.path = path.clone();
+        next.location = self.books[self.active].reflow.epub.clone();
         next.turn = 1;
         next.scroll = 0.;
         next.find = None;
@@ -672,8 +697,12 @@ impl Breeze {
         let Some(frame) = &self.reflow.frame else {
             return;
         };
-        let index = (frame.chapter as i32 + delta)
-            .clamp(0, frame.metadata.chapters.len() as i32 - 1) as usize;
+        // Anchor on the chapter the reader last asked for. A second click while
+        // the first chapter is still rendering would otherwise recompute the
+        // same target from the stale frame and be dropped.
+        let base = self.reflow.pending_chapter.unwrap_or(frame.chapter) as i32;
+        let index = (base + delta).clamp(0, frame.metadata.chapters.len() as i32 - 1) as usize;
+        self.reflow.pending_chapter = Some(index);
         self.jump_reflow(frame.metadata.chapters[index].href.clone(), 0, cx);
     }
 

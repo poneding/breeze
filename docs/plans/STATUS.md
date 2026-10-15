@@ -1273,3 +1273,37 @@ with three ignored, and every PDF integration suite) and all-target Clippy with
 warnings denied pass in the working checkout. Native visual inspection was not
 performed because this session lacks Screen Recording permission. Windows/Linux
 native checks remain open.
+
+## October 15 native window verification of the EPUB reader
+
+The reader was driven through its real window, not only through the adapter: a
+release build in a throwaway `.app` bundle with its own bundle identifier and an
+isolated `BREEZE_DATA_DIR`, opened on the book that was reported broken (`从零构建
+大模型`, 119 chapters, 24.6 MB).
+
+What the window showed: the cover page renders its Chinese title, the author line
+and the pipeline figure; chapter 7 renders the Chinese prose with the
+publication's paragraph indentation, line spacing and justified wrapping; a
+figure page renders its JPEG and the caption beneath it; the chapter arrows move
+through the book and the status bar reports the chapter ("7 / 119"); the
+information panel reports the title, author, chapter count and reading progress.
+Ten scroll steps completed in 477 ms including the harness round trip. None of
+this is what a sparse page looked like before: the same chapter previously drew
+its Latin words and digits over 0.72 % ink with no Han glyph at all.
+
+Driving the window also found a defect the adapter tests could not see. Clicking
+the chapter arrows faster than a chapter renders dropped clicks: five rapid
+clicks advanced one chapter. The arrows are absolute jumps, and each click
+recomputed its target from the last frame that had landed, so every click after
+the first produced the request already in flight and was discarded. The arrows
+now anchor on the chapter the reader last asked for, and the status-bar/page-turn
+path accumulates its delta the same way.
+`rapid_chapter_clicks_all_land` clicks the real toolbar arrow five times without
+waiting and requires chapter 5; reverting only the anchor change reproduces
+"five rapid clicks landed on chapter Some(1), not 5".
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --offline` (app
+suite 174 passed, 16 core, 30 PDF with three ignored, 6 reflow unit, 6 reflow
+integration, and the remaining suites) and `cargo clippy --workspace
+--all-targets --offline -- -D warnings` pass. Interactive verification stopped
+when the display locked; the remaining chapters, Windows and Linux are unverified.
