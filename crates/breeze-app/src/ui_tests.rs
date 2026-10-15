@@ -2570,7 +2570,7 @@ fn markdown_reader_scrolls_and_records_its_position(cx: &mut TestAppContext) {
         assert_eq!(view.read(cx).books[0].reflow.progress, 1.);
         // The heading outline jumps and the text-size command remeasures the
         // list; both run outside the scroll dispatch and must keep working.
-        window.click(("reflow-heading", 4usize), cx);
+        window.click(("outline", 4usize), cx);
         window.render_frame(cx);
         let jumped = view.read(cx).books[0].reflow.markdown_offset;
         assert!(jumped < offset, "heading jump did not move back: {jumped}");
@@ -2680,6 +2680,290 @@ fn reflow_chrome_keeps_the_reader_layout(cx: &mut TestAppContext) {
         assert!(
             inset >= px(7.) && inset <= px(9.),
             "toggle inset {inset:?}, header {panel_header:?}, toggle {toggle:?}"
+        );
+    })
+    .unwrap();
+}
+
+/// A Markdown image that cannot be decoded is that image's problem: the reader
+/// reports it in the document information panel and leaves the status bar
+/// alone. Before this, any picture in a note turned the status line into
+/// "Image unavailable".
+#[gpui_kit::test]
+fn markdown_image_failure_stays_out_of_the_status_bar(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("notes.md");
+    std::fs::write(
+        &path,
+        "## Notes\n\n![diagram](missing.png)\n\n![remote](https://example.com/x.png)\n",
+    )
+    .unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "notes.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).reflow.markdown.is_some());
+        assert!(
+            view.read(cx).message.is_empty(),
+            "an image failure reached the reader message: {}",
+            view.read(cx).message
+        );
+        assert!(
+            window.try_find("reflow-status-notice").is_none(),
+            "the status bar still reports an image problem"
+        );
+        // The document pane carries the honest count instead.
+        view.update(cx, |view, _| {
+            view.document_panel.open = true;
+        });
+        window.render_frame(cx);
+        assert!(
+            view.read(cx).reflow.images.failures > 0,
+            "no image failure was recorded"
+        );
+    })
+    .unwrap();
+}
+
+/// The reflow outline must be indistinguishable from the PDF outline: same row
+/// height, same indentation at every depth, same header controls and the same
+/// nesting menu.
+#[gpui_kit::test]
+fn reflow_outline_matches_the_pdf_outline_style(cx: &mut TestAppContext) {
+    // A nested PDF outline, so both readers show the nesting chevron slot and
+    // the row geometry is directly comparable.
+    let worker = PdfWorker::new().unwrap();
+    let mut page = futures::executor::block_on(worker.request_metadata(Source::Sample, 0).unwrap())
+        .unwrap()
+        .unwrap();
+    page.outline = Arc::new(vec![
+        breeze_pdf::Outline {
+            title: "Title".into(),
+            page: Some(0),
+            depth: 0,
+        },
+        breeze_pdf::Outline {
+            title: "Section".into(),
+            page: Some(1),
+            depth: 1,
+        },
+    ]);
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.reading.sizes = page.page_sizes.clone();
+            let preview = Preview::from_page(page).unwrap();
+            view.reading.insert(0, preview.clone());
+            view.preview = Some(preview);
+            view.loading = true;
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    let measure = |_view: &Entity<Breeze>, window: &gpui_kit::Window| {
+        let content = window.find("navigation-content").bounds();
+        let geometry = |index: usize| {
+            let row = window.find(("outline", index)).bounds() - content.origin;
+            let toggle = window.try_find(("outline-toggle", index));
+            (
+                row.origin.x,
+                row.size.height,
+                toggle.map(|t| t.bounds().size),
+            )
+        };
+        (geometry(0), geometry(1), content.size.width)
+    };
+
+    let pdf = cx
+        .update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            window.render_frame(cx);
+            assert!(window.try_find("outline-search").is_some());
+            assert!(window.try_find("outline-more").is_some());
+            let _ = view;
+            measure(&view, window)
+        })
+        .unwrap();
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("outline.md");
+    std::fs::write(&path, "# Title\n\nintro\n\n## Section\n\nbody\n").unwrap();
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "outline.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).reflow.outline.len(), 2);
+        let markdown = measure(&view, window);
+        assert_eq!(
+            markdown, pdf,
+            "the reflow outline differs from the PDF outline: {markdown:?} vs {pdf:?}"
+        );
+
+        // The same header controls: title search, and the nesting menu.
+        assert!(window.try_find("outline-search").is_some());
+        assert!(
+            window.try_find("outline-more").is_some(),
+            "a nested reflow outline has no expand/collapse menu"
+        );
+
+        // A nested row jumps to its own section.
+        window.click(("outline", 1usize), cx);
+        window.render_frame(cx);
+        assert!(
+            view.read(cx).books[0].reflow.markdown_offset > 0,
+            "an outline row did not move the Markdown reader"
+        );
+
+        // The nesting chevron folds its children away, exactly like PDF.
+        window.click(("outline-toggle", 0usize), cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).reflow.outline_folds.contains(&0));
+        assert!(
+            window.try_find(("outline", 1usize)).is_none(),
+            "the folded child row is still shown"
+        );
+        // The menu is the same control PDF offers for nested outlines.
+        assert_eq!(
+            window.find("outline-more").label(),
+            Some(i18n::text("More outline actions"))
+        );
+    })
+    .unwrap();
+}
+
+/// Markdown scrolls, so it has no page-turn control, and the status bar carries
+/// a stateful width toggle between the readable measure and the full window.
+#[gpui_kit::test]
+fn markdown_has_no_paging_and_toggles_its_reading_width(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("width.md");
+    std::fs::write(&path, "# Title\n\nbody\n\n## Section\n\nmore\n").unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "width.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(view.read(cx).reflow.markdown.is_some());
+        // The PDF page-turn controls belong to fixed pages only.
+        assert!(window.try_find("reflow-previous").is_none());
+        assert!(window.try_find("reflow-next").is_none());
+
+        let status = window.find("reflow-status").bounds();
+        let toggle = window.find("reflow-width").bounds();
+        assert!(
+            toggle.top() >= status.top() && toggle.bottom() <= status.bottom(),
+            "the width toggle {toggle:?} left the status bar {status:?}"
+        );
+        assert!(!view.read(cx).books[0].reflow.full_width);
+        assert_eq!(
+            window.find("reflow-width").label(),
+            Some(i18n::text("Use the full window width"))
+        );
+        let narrow = window.find("markdown-measure").bounds().size.width;
+        assert!(
+            narrow <= px(760.),
+            "the default Markdown measure is {narrow:?}, wider than its maximum"
+        );
+
+        window.click("reflow-width", cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).books[0].reflow.full_width);
+        assert_eq!(
+            window.find("reflow-width").label(),
+            Some(i18n::text("Use the maximum reading width"))
+        );
+        let wide = window.find("markdown-measure").bounds().size.width;
+        assert!(
+            wide > narrow,
+            "full width {wide:?} is not wider than the reading measure {narrow:?}"
+        );
+
+        // The choice is per document and survives a reload.
+        window.click("reflow-width", cx);
+        window.render_frame(cx);
+        assert!(!view.read(cx).books[0].reflow.full_width);
+    })
+    .unwrap();
+}
+
+/// A picture that exists must be shown even when its Markdown reference is
+/// URL-encoded, which is what an editor writes for a name with a space. The
+/// reader used to open the literal `%20` path, fail, and report the image as
+/// unavailable.
+#[gpui_kit::test]
+fn markdown_shows_images_named_with_spaces(cx: &mut TestAppContext) {
+    use image::codecs::jpeg::JpegEncoder;
+    let directory = tempfile::tempdir().unwrap();
+    let image_path = directory.path().join("my shot.jpg");
+    let source = image::RgbImage::from_fn(64, 48, |x, y| {
+        image::Rgb([(x * 4) as u8, (y * 5) as u8, 128])
+    });
+    let mut bytes = Vec::new();
+    JpegEncoder::new_with_quality(&mut bytes, 85)
+        .encode_image(&source)
+        .unwrap();
+    std::fs::write(&image_path, &bytes).unwrap();
+
+    let notes = directory.path().join("notes.md");
+    std::fs::write(
+        &notes,
+        "# Notes\n\nScreenshot:\n\n![shot](my%20shot.jpg)\n\nafter the image\n",
+    )
+    .unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(notes.clone());
+            view.books[0].title = "notes.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    // The image resolves on a background thread, then the block remeasures.
+    for _ in 0..4 {
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| window.render_frame(cx))
+            .unwrap();
+    }
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            view.read(cx).reflow.images.failures,
+            0,
+            "a JPEG image was reported as unavailable: {:?}",
+            view.read(cx).reflow.images.last_failure
+        );
+        assert!(
+            view.read(cx).message.is_empty(),
+            "the reader reported {}",
+            view.read(cx).message
         );
     })
     .unwrap();

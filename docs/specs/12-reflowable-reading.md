@@ -45,13 +45,21 @@ toolbar's right edge. Zoom or text size sits at the right end of the status bar,
 after the reading-progress area. Both panel headers label themselves with icons
 and keep the panel toggle at their right edge.
 
+The navigation panel itself is shared: an outline list with the PDF reader's row
+height, per-depth indentation, active highlight, tooltip, nesting chevron, title
+search and expand/collapse menu, and an empty state that names the missing match.
+EPUB rows come from the publication navigation and fold by depth; Markdown rows
+come from headings. Because a reflowable document has no fixed pages, only the
+controls that need one are dropped.
+
 | Surface | PDF | EPUB | Markdown |
 |---|---|---|---|
 | Content toolbar | Read/annotate and existing tools | Chapter navigation | Nothing format-specific |
 | Left panel | Outline / thumbnails | Publication contents | Heading outline |
 | Right panel | Information, annotations, search | Publication information / search | Document information / search |
-| Status | Pages, zoom, fit, layout, rotation | Chapter and reading progress, text size | Reading progress and text size; no page count |
+| Status | Pages, zoom, fit, layout, rotation | Chapter and reading progress, text size | Reading progress, text size, reading width; no page-turn controls |
 | Position | Page plus PDF view settings | Chapter href plus an in-chapter position | Source block/offset and scroll position |
+| Reading width | Not applicable | Not applicable; the page is laid out at the viewport | Centred maximum measure by default, toggleable to the full window |
 
 The titlebar, 38 px content headers, 32 px status bar, panel sizing, library,
 categories, favorites and opening policies remain shared. Actions must be
@@ -71,6 +79,11 @@ locations/preferences across format switches.
   visible blocks with bounded lookahead rather than measuring the whole document.
 - Preserve native text shaping and original EPUB colors. Changing UI themes
   must not invert publication images or page colors.
+- A Markdown image target is a URI: resolve percent-encoded names and drop a
+  query or fragment before opening the file. A reference that still cannot be
+  opened is a property of that one image — record it, show nothing in its place,
+  and report the count in the document panel rather than in the status bar,
+  which describes the document as a whole.
 - Report current backend limits openly. Do not claim EPUB 3 multimedia,
   JavaScript, fixed-layout fidelity, MathML, or all Markdown extensions without
   corresponding implementation and fixtures.

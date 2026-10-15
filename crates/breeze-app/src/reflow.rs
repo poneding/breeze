@@ -1,17 +1,42 @@
 //! Native reflow readers share chrome, not PDF navigation or annotation state.
 use crate::*;
+
+/// Comfortable measure for Markdown text in logical pixels.
+const MARKDOWN_MAX_WIDTH: f32 = 760.;
 use breeze_reflow::{EpubWorker, epub, markdown};
 use gpui_kit::base::{TextView, TextViewState};
 use gpui_kit::component::{
-    ElementExt, h_resizable, resizable_panel,
+    ElementExt, h_resizable,
+    menu::{DropdownMenu, PopupMenuItem},
+    resizable_panel,
     tab::{Tab, TabBar},
     tooltip::Tooltip,
 };
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 
 struct TextBlock {
     index: usize,
     state: Entity<TextViewState>,
+    _subscription: Subscription,
+}
+
+/// One row of the navigation panel. EPUB chapters and Markdown headings share
+/// this shape so both render exactly like the PDF outline: the same row height,
+/// indentation, active highlight and nesting controls.
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct OutlineEntry {
+    pub title: String,
+    pub depth: usize,
+    pub href: String,
+    pub block: usize,
+}
+
+/// The navigation-outline title search. Mirrors the PDF reader's
+/// `reading::OutlineSearch`.
+struct OutlineSearch {
+    input: Entity<InputState>,
+    collapsed: HashSet<usize>,
+    saved_offset: Point<gpui_kit::Pixels>,
     _subscription: Subscription,
 }
 
@@ -30,6 +55,15 @@ pub(super) struct ReflowView {
     queued: bool,
     pub hits: Vec<(String, usize, String)>,
     pub images: reflow_images::Images,
+    /// Outline rows for the open document, built once when it loads.
+    pub outline: Arc<Vec<OutlineEntry>>,
+    /// Folded outline rows, addressed by their index in `outline`.
+    pub outline_folds: HashSet<usize>,
+    pub outline_scroll: UniformListScrollHandle,
+    outline_search: Option<OutlineSearch>,
+    /// Block index at the top of the Markdown view, kept from the list's own
+    /// scroll reports so rendering never re-borrows the list.
+    pub active_block: usize,
 }
 
 impl Default for ReflowView {
@@ -49,11 +83,23 @@ impl Default for ReflowView {
             queued: false,
             hits: Vec::new(),
             images: Default::default(),
+            outline: Arc::new(Vec::new()),
+            outline_folds: HashSet::new(),
+            outline_scroll: UniformListScrollHandle::new(),
+            outline_search: None,
+            active_block: 0,
         }
     }
 }
 
 impl ReflowView {
+    fn outline_folds(&self) -> &HashSet<usize> {
+        match &self.outline_search {
+            Some(search) => &search.collapsed,
+            None => &self.outline_folds,
+        }
+    }
+
     pub fn clear(&mut self, cx: &mut App) {
         self.epoch += 1;
         self.task = None;
@@ -64,6 +110,11 @@ impl ReflowView {
         self.frame = None;
         self.blocks.clear();
         self.hits.clear();
+        self.outline = Arc::new(Vec::new());
+        self.outline_folds.clear();
+        self.outline_scroll = UniformListScrollHandle::new();
+        self.outline_search = None;
+        self.active_block = 0;
         self.worker = None;
         self.images.clear(cx);
         if let Some(image) = self.image.take() {
@@ -242,6 +293,15 @@ impl Breeze {
                     _ => String::new(),
                 },
             ))
+            // A Markdown image that could not be shown is a property of that one
+            // image. It is reported here rather than as a status notice, which
+            // describes the document as a whole.
+            .when(self.reflow.images.failures > 0, |info| {
+                info.child(field(
+                    tr!("Images not shown"),
+                    self.reflow.images.failures.to_string(),
+                ))
+            })
             .child(
                 div()
                     .text_size(px(11.))
@@ -342,10 +402,24 @@ impl Breeze {
                                 )
                                 .with_uniform_item_height(px(72.));
                                 let position = &this.books[this.active].reflow;
+                                let restored = document.block_at_offset(position.markdown_offset);
                                 list.scroll_to(ListOffset {
-                                    item_ix: document.block_at_offset(position.markdown_offset),
+                                    item_ix: restored,
                                     offset_in_item: px(position.scroll_offset),
                                 });
+                                this.reflow.active_block = restored;
+                                this.reflow.outline = Arc::new(
+                                    document
+                                        .headings
+                                        .iter()
+                                        .map(|heading| OutlineEntry {
+                                            title: heading.title.clone(),
+                                            depth: heading.level.saturating_sub(1),
+                                            href: heading.anchor.clone(),
+                                            block: heading.block,
+                                        })
+                                        .collect(),
+                                );
                                 let view = cx.entity().downgrade();
                                 list.set_scroll_handler(move |event, _, cx| {
                                     // Kit dispatches this handler while the list's own
@@ -452,6 +526,19 @@ impl Breeze {
                                 }
                                 this.books[this.active].reflow.epub = frame.location.clone();
                                 this.books[this.active].reflow.progress = frame.progress;
+                                this.reflow.outline = Arc::new(
+                                    frame
+                                        .metadata
+                                        .outline
+                                        .iter()
+                                        .map(|entry| OutlineEntry {
+                                            title: entry.title.clone(),
+                                            depth: entry.depth,
+                                            href: entry.href.clone(),
+                                            block: 0,
+                                        })
+                                        .collect(),
+                                );
                                 this.reflow.frame = Some(frame);
                                 this.message.clear();
                             }
@@ -486,6 +573,7 @@ impl Breeze {
             return;
         }
         let index = block.min(document.blocks.len() - 1);
+        self.reflow.active_block = index;
         let source_start = document.blocks[index].source.start;
         let position = &mut self.books[self.active].reflow;
         position.markdown_offset = source_start;
@@ -535,6 +623,7 @@ impl Breeze {
             };
             self.request_epub(0, 0., None, cx);
         } else {
+            self.reflow.active_block = block;
             self.reflow.list.scroll_to(ListOffset {
                 item_ix: block,
                 offset_in_item: px(0.),
@@ -649,13 +738,18 @@ impl Breeze {
                     .border_t_1()
                     .border_color(p.line)
                     .bg(p.bg)
-                    .child(self.command(
-                        "reflow-previous",
-                        IconName::ChevronLeft,
-                        tr!("Previous"),
-                        &PreviousPage,
-                        cx,
-                    ))
+                    // A reflowable page has no page-turn control. EPUB keeps
+                    // chapter skip buttons in the toolbar; Markdown scrolls, so
+                    // the status bar starts with the reading position.
+                    .when(epub, |bar| {
+                        bar.child(self.command(
+                            "reflow-previous",
+                            IconName::ChevronLeft,
+                            tr!("Previous"),
+                            &PreviousPage,
+                            cx,
+                        ))
+                    })
                     .child(
                         div()
                             .id("reflow-position")
@@ -664,13 +758,15 @@ impl Breeze {
                             .text_size(px(12.))
                             .child(self.reflow_position_text()),
                     )
-                    .child(self.command(
-                        "reflow-next",
-                        IconName::ChevronRight,
-                        tr!("Next"),
-                        &NextPage,
-                        cx,
-                    ))
+                    .when(epub, |bar| {
+                        bar.child(self.command(
+                            "reflow-next",
+                            IconName::ChevronRight,
+                            tr!("Next"),
+                            &NextPage,
+                            cx,
+                        ))
+                    })
                     .child(
                         div()
                             .flex_1()
@@ -687,6 +783,36 @@ impl Breeze {
                                 )
                             }),
                     )
+                    .when(!epub, |bar| {
+                        let full_width = self.books[self.active].reflow.full_width;
+                        bar.child(
+                            Button::new("reflow-width")
+                                .ghost()
+                                .small()
+                                .icon(if full_width {
+                                    IconName::ChevronsRightLeft
+                                } else {
+                                    IconName::ChevronsLeftRight
+                                })
+                                .selected(full_width)
+                                .accessibility_label(if full_width {
+                                    tr!("Use the maximum reading width")
+                                } else {
+                                    tr!("Use the full window width")
+                                })
+                                .tooltip(if full_width {
+                                    tr!("Use the maximum reading width")
+                                } else {
+                                    tr!("Use the full window width")
+                                })
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let full = &mut this.books[this.active].reflow.full_width;
+                                    *full = !*full;
+                                    this.reflow.list.remeasure();
+                                    cx.notify();
+                                })),
+                        )
+                    })
                     .child(
                         Button::new("text-smaller")
                             .ghost()
@@ -779,32 +905,172 @@ impl Breeze {
         }
     }
 
+    /// Which outline row the reader is inside of.
+    ///
+    /// EPUB rows match the open chapter; Markdown rows are the last heading at
+    /// or before the block at the top of the view.
+    fn reflow_active_outline(&self) -> Option<usize> {
+        let entries = &self.reflow.outline;
+        if entries.is_empty() {
+            return None;
+        }
+        match self.books[self.active].format() {
+            Some(DocumentFormat::Epub) => {
+                let frame = self.reflow.frame.as_ref()?;
+                let chapter = &frame.metadata.chapters[frame.chapter].href;
+                entries
+                    .iter()
+                    .position(|entry| entry.href.split('#').next() == Some(chapter.as_str()))
+                    .or(Some(0))
+            }
+            _ => entries
+                .iter()
+                .rposition(|entry| entry.block <= self.reflow.active_block),
+        }
+    }
+
+    fn reflow_outline_search_open(&self) -> bool {
+        self.reflow.outline_search.is_some()
+    }
+
+    fn reflow_toggle_outline_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(search) = self.reflow.outline_search.take() {
+            let mut scroll = self.reflow.outline_scroll.0.borrow_mut();
+            scroll.deferred_scroll_to_item = None;
+            scroll.base_handle.set_offset(search.saved_offset);
+            window.focus(&self.focus, cx);
+        } else {
+            let input =
+                cx.new(|cx| InputState::new(window, cx).placeholder(tr!("Search outline titles")));
+            let subscription = cx.subscribe(&input, |this, input, event, cx| {
+                if matches!(event, InputEvent::Change)
+                    && let Some(search) = &mut this.reflow.outline_search
+                    && search.input == input
+                {
+                    search.collapsed = if input.read(cx).value().trim().is_empty() {
+                        this.reflow.outline_folds.clone()
+                    } else {
+                        HashSet::new()
+                    };
+                    this.reflow
+                        .outline_scroll
+                        .scroll_to_item(0, ScrollStrategy::Top);
+                    cx.notify();
+                }
+            });
+            input.update(cx, |input, cx| input.focus(window, cx));
+            self.reflow.outline_search = Some(OutlineSearch {
+                input,
+                collapsed: self.reflow.outline_folds.clone(),
+                saved_offset: self.reflow.outline_scroll.0.borrow().base_handle.offset(),
+                _subscription: subscription,
+            });
+        }
+        cx.notify();
+    }
+
+    fn reflow_outline_search_bar(&self, cx: &mut Context<Self>) -> Option<AnyElement> {
+        let search = self.reflow.outline_search.as_ref()?;
+        Some(
+            search::search_row(self.p(cx).line)
+                .id("outline-search-bar")
+                .test_support()
+                .w_full()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .child(Input::new(&search.input).small()),
+                )
+                .child(
+                    Button::new("close-outline-search")
+                        .ghost()
+                        .small()
+                        .icon(IconName::X)
+                        .accessibility_label(tr!("Close outline search"))
+                        .tooltip(tr!("Close outline search"))
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            this.reflow_toggle_outline_search(window, cx)
+                        })),
+                )
+                .on_action(cx.listener(
+                    |this, _: &gpui_kit::component::input::Escape, window, cx| {
+                        this.reflow_toggle_outline_search(window, cx);
+                    },
+                ))
+                .into_any_element(),
+        )
+    }
+
+    fn reflow_outline_menu(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let view = cx.entity();
+        Button::new("outline-more")
+            .ghost()
+            .small()
+            .icon(IconName::EllipsisVertical)
+            .accessibility_label(tr!("More outline actions"))
+            .tooltip(tr!("More outline actions"))
+            .dropdown_menu(move |menu, window, _| {
+                menu.item(
+                    PopupMenuItem::new(tr!("Expand all"))
+                        .icon(IconName::ListChevronsUpDown)
+                        .on_click(window.listener_for(&view, |this, _, _, cx| {
+                            this.reflow_set_outline_expanded(true, cx);
+                        })),
+                )
+                .item(
+                    PopupMenuItem::new(tr!("Collapse all"))
+                        .icon(IconName::ListChevronsDownUp)
+                        .on_click(window.listener_for(&view, |this, _, _, cx| {
+                            this.reflow_set_outline_expanded(false, cx);
+                        })),
+                )
+            })
+    }
+
+    fn reflow_set_outline_expanded(&mut self, expanded: bool, cx: &mut Context<Self>) {
+        let outline = self.reflow.outline.clone();
+        self.reflow.outline_folds.clear();
+        if !expanded {
+            self.reflow
+                .outline_folds
+                .extend((0..outline.len()).filter(|&index| outline_has_children(&outline, index)));
+        }
+        self.reflow
+            .outline_scroll
+            .scroll_to_item(0, ScrollStrategy::Top);
+        cx.notify();
+    }
+
+    fn reflow_toggle_outline(&mut self, index: usize, cx: &mut Context<Self>) {
+        if !self.reflow.outline_folds.insert(index) {
+            self.reflow.outline_folds.remove(&index);
+        }
+        cx.notify();
+    }
+
+    fn jump_reflow_outline(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(entry) = self.reflow.outline.get(index).cloned() else {
+            return;
+        };
+        if self.books[self.active].format() == Some(DocumentFormat::Epub) {
+            self.jump_reflow(entry.href, 0, cx);
+        } else {
+            self.jump_reflow(String::new(), entry.block, cx);
+        }
+    }
+
     fn reflow_navigation(&self, cx: &mut Context<Self>) -> AnyElement {
         let p = self.p(cx);
-        let entries: Vec<(String, usize, String, usize)> = if let Some(doc) = &self.reflow.markdown
-        {
-            doc.headings
-                .iter()
-                .map(|h| {
-                    (
-                        h.title.clone(),
-                        h.level.saturating_sub(1),
-                        String::new(),
-                        h.block,
-                    )
-                })
-                .collect()
-        } else if let Some(frame) = &self.reflow.frame {
-            frame
-                .metadata
-                .outline
-                .iter()
-                .map(|h| (h.title.clone(), h.depth, h.href.clone(), 0))
-                .collect()
-        } else {
-            Vec::new()
-        };
-        let entries = Arc::new(entries);
+        let query = self
+            .reflow
+            .outline_search
+            .as_ref()
+            .map(|search| search.input.read(cx).value().trim().to_lowercase())
+            .unwrap_or_default();
+        let nested = (0..self.reflow.outline.len())
+            .any(|index| outline_has_children(&self.reflow.outline, index));
+        let visible = visible_outline(&self.reflow.outline, self.reflow.outline_folds(), &query);
         column()
             .size_full()
             .min_w_0()
@@ -820,7 +1086,8 @@ impl Breeze {
                     .border_b_1()
                     .border_color(p.line)
                     // The leading slot pins the collapse control to the header's
-                    // left edge, the way the PDF reader's panel header does.
+                    // left edge, the way the PDF reader's panel header does, and
+                    // the trailing slot right-aligns the outline search.
                     .child(
                         row()
                             .id("navigation-header-leading")
@@ -854,56 +1121,150 @@ impl Breeze {
                                     }),
                             ),
                     )
-                    .child(div().flex_1()),
+                    .child(
+                        row()
+                            .id("navigation-header-trailing")
+                            .test_support()
+                            .flex_1()
+                            .min_w_0()
+                            .justify_end()
+                            .child(
+                                row()
+                                    .gap(px(4.))
+                                    .flex_shrink_0()
+                                    .child(
+                                        Button::new("outline-search")
+                                            .ghost()
+                                            .small()
+                                            .icon(IconName::Search)
+                                            .selected(self.reflow_outline_search_open())
+                                            .accessibility_label(tr!("Search outline titles"))
+                                            .tooltip(tr!("Search outline titles"))
+                                            .on_click(cx.listener(|this, _, window, cx| {
+                                                this.reflow_toggle_outline_search(window, cx);
+                                            })),
+                                    )
+                                    .when(nested, |actions| {
+                                        actions.child(self.reflow_outline_menu(cx))
+                                    }),
+                            ),
+                    ),
             )
+            .children(self.reflow_outline_search_bar(cx))
             .child(
-                div()
+                column()
                     .id("navigation-content")
                     .test_support()
                     .flex_1()
                     .min_h_0()
-                    .when(entries.is_empty(), |panel| {
-                        panel.child(
-                            div()
-                                .p_3()
-                                .text_size(px(12.))
-                                .text_color(p.muted)
-                                .child(tr!("No outline entries")),
-                        )
-                    })
-                    .child(
-                        uniform_list(
-                            "reflow-outline",
-                            entries.len(),
-                            cx.processor(move |_, range: std::ops::Range<usize>, _, cx| {
-                                range
-                                    .map(|index| {
-                                        let (title, depth, href, block) = entries[index].clone();
-                                        let label = title.clone();
-                                        Button::new(("reflow-heading", index))
+                    .child(self.reflow_outline_view(visible, cx)),
+            )
+            .into_any_element()
+    }
+
+    fn reflow_outline_view(&self, visible: Vec<usize>, cx: &mut Context<Self>) -> AnyElement {
+        if visible.is_empty() {
+            return div()
+                .id("outline-no-results")
+                .test_support()
+                .p_2()
+                .text_color(self.p(cx).muted)
+                .child(tr!("No matching outline titles"))
+                .into_any_element();
+        }
+        let outline = self.reflow.outline.clone();
+        let nested = (0..outline.len()).any(|index| outline_has_children(&outline, index));
+        let active = self.reflow_active_outline();
+        let active = visible_active_outline(&visible, active);
+        let folds = self.reflow.outline_folds();
+        let folds = folds.clone();
+        div()
+            .size_full()
+            .pt_1()
+            .child(
+                // A distinct id keeps this list from inheriting the PDF
+                // outline element's cached measurements when a library switches
+                // between a PDF and a reflowable document.
+                uniform_list(
+                    "reflow-outline-list",
+                    visible.len(),
+                    cx.processor(move |_this, range: std::ops::Range<usize>, _, cx| {
+                        range
+                            .map(|row_index| {
+                                let index = visible[row_index];
+                                let item = &outline[index];
+                                let has_children = outline_has_children(&outline, index);
+                                let collapsed = folds.contains(&index);
+                                row()
+                                    .w_full()
+                                    .h(px(24.))
+                                    .px_2()
+                                    .pl(px(8. + item.depth.min(12) as f32 * 10.))
+                                    .when(nested, |row| {
+                                        row.child(if has_children {
+                                            Button::new(("outline-toggle", index))
+                                                .ghost()
+                                                .small()
+                                                .size(px(24.))
+                                                .flex_shrink_0()
+                                                .icon(if collapsed {
+                                                    IconName::ChevronRight
+                                                } else {
+                                                    IconName::ChevronDown
+                                                })
+                                                .accessibility_label(format!(
+                                                    "{}：{}",
+                                                    if collapsed {
+                                                        tr!("Expand")
+                                                    } else {
+                                                        tr!("Collapse")
+                                                    },
+                                                    item.title
+                                                ))
+                                                .tooltip(if collapsed {
+                                                    tr!("Expand child entries")
+                                                } else {
+                                                    tr!("Collapse child entries")
+                                                })
+                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                                    this.reflow_toggle_outline(index, cx)
+                                                }))
+                                                .into_any_element()
+                                        } else {
+                                            div().w(px(24.)).flex_shrink_0().into_any_element()
+                                        })
+                                    })
+                                    .child(
+                                        Button::new(("outline", index))
                                             .ghost()
                                             .small()
-                                            .w_full()
-                                            .justify_start()
-                                            .accessibility_label(label)
-                                            .tooltip(title.clone())
+                                            .h(px(24.))
+                                            .flex_1()
+                                            .min_w_0()
+                                            .px_1()
+                                            .accessibility_label(item.title.clone())
                                             .child(
-                                                div()
-                                                    .w_full()
-                                                    .pl(px((depth.min(8) * 12) as f32))
-                                                    .text_left()
-                                                    .text_ellipsis()
-                                                    .child(title),
+                                                row().w_full().child(
+                                                    div()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .text_ellipsis()
+                                                        .text_left()
+                                                        .child(item.title.clone()),
+                                                ),
                                             )
+                                            .selected(active == Some(index))
+                                            .tooltip(item.title.clone())
                                             .on_click(cx.listener(move |this, _, _, cx| {
-                                                this.jump_reflow(href.clone(), block, cx)
-                                            }))
-                                    })
-                                    .collect::<Vec<_>>()
-                            }),
-                        )
-                        .size_full(),
-                    ),
+                                                this.jump_reflow_outline(index, cx)
+                                            })),
+                                    )
+                            })
+                            .collect::<Vec<_>>()
+                    }),
+                )
+                .track_scroll(&self.reflow.outline_scroll)
+                .size_full(),
             )
             .into_any_element()
     }
@@ -960,13 +1321,37 @@ impl Breeze {
                 );
             }
         } else if self.reflow.markdown.is_some() {
+            // Markdown reads at a comfortable measure by default. The status bar
+            // toggles the full window width; the text column stays centred when
+            // the maximum applies.
+            let full_width = self.books[self.active].reflow.full_width;
             content = content.child(
-                list(
-                    self.reflow.list.clone(),
-                    cx.processor(|this, index: usize, _, cx| this.markdown_block(index, cx)),
-                )
-                .with_sizing_behavior(ListSizingBehavior::Auto)
-                .size_full(),
+                div()
+                    .id("markdown-column")
+                    .test_support()
+                    .flex()
+                    .size_full()
+                    .min_h_0()
+                    .justify_center()
+                    .child(
+                        div()
+                            .id("markdown-measure")
+                            .test_support()
+                            .h_full()
+                            .min_h_0()
+                            .w_full()
+                            .when(!full_width, |column| column.max_w(px(MARKDOWN_MAX_WIDTH)))
+                            .child(
+                                list(
+                                    self.reflow.list.clone(),
+                                    cx.processor(|this, index: usize, _, cx| {
+                                        this.markdown_block(index, cx)
+                                    }),
+                                )
+                                .with_sizing_behavior(ListSizingBehavior::Auto)
+                                .size_full(),
+                            ),
+                    ),
             );
         }
         if self.loading || (self.reflow.frame.is_none() && self.reflow.markdown.is_none()) {
@@ -1073,4 +1458,76 @@ impl Breeze {
             self.open_path(parent.join(href.split('#').next().unwrap_or(href)), cx);
         }
     }
+}
+/// Whether the row owns nested rows, the same test the PDF outline uses.
+fn outline_has_children(outline: &[OutlineEntry], index: usize) -> bool {
+    outline
+        .get(index)
+        .zip(outline.get(index + 1))
+        .is_some_and(|(item, next)| next.depth > item.depth)
+}
+
+/// Outline rows to show, honouring folds and an optional title search. A row is
+/// kept when it matches or when an ancestor matches, exactly like the PDF
+/// outline filter.
+fn visible_outline(
+    outline: &[OutlineEntry],
+    collapsed: &HashSet<usize>,
+    query: &str,
+) -> Vec<usize> {
+    let visible = visible_outline_rows(outline, collapsed);
+    if query.is_empty() {
+        return visible;
+    }
+    let mut ancestors: Vec<usize> = Vec::new();
+    let mut parents = Vec::with_capacity(outline.len());
+    let mut included = Vec::with_capacity(outline.len());
+    for (index, item) in outline.iter().enumerate() {
+        while ancestors
+            .last()
+            .is_some_and(|&parent| outline[parent].depth >= item.depth)
+        {
+            ancestors.pop();
+        }
+        parents.push(ancestors.last().copied());
+        included.push(item.title.to_lowercase().contains(query));
+        ancestors.push(index);
+    }
+    for index in (0..outline.len()).rev() {
+        if included[index]
+            && let Some(parent) = parents[index]
+        {
+            included[parent] = true;
+        }
+    }
+    visible
+        .into_iter()
+        .filter(|&index| included[index])
+        .collect()
+}
+
+fn visible_outline_rows(outline: &[OutlineEntry], collapsed: &HashSet<usize>) -> Vec<usize> {
+    let mut hidden_below = None;
+    outline
+        .iter()
+        .enumerate()
+        .filter_map(|(index, item)| {
+            if hidden_below.is_some_and(|depth| item.depth > depth) {
+                return None;
+            }
+            hidden_below = collapsed.contains(&index).then_some(item.depth);
+            Some(index)
+        })
+        .collect()
+}
+
+/// A hidden active row belongs to the last visible ancestor preceding it.
+fn visible_active_outline(visible: &[usize], active: Option<usize>) -> Option<usize> {
+    active.and_then(|active| {
+        visible
+            .iter()
+            .rev()
+            .find(|&&index| index <= active)
+            .copied()
+    })
 }

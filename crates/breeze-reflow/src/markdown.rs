@@ -1,6 +1,6 @@
 //! One pull-parse per source revision; complete semantic blocks can be laid out lazily.
 use crate::{fingerprint, read_bounded};
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
 use std::{collections::HashMap, ops::Range, path::Path, sync::Arc};
 
@@ -145,6 +145,24 @@ impl Document {
             .map(|heading| heading.block)
     }
 
+    /// Resolve a Markdown image reference against the document's directory.
+    ///
+    /// A Markdown image target is a URL, not a filesystem path: editors write
+    /// spaces as `%20`, and a target may carry a query or fragment. Resolving
+    /// the raw text opens the wrong file, which is why a note whose picture
+    /// exists could still report that the image was unavailable.
+    pub fn resolve_image(document: &Path, uri: &str) -> Result<std::path::PathBuf> {
+        let target = uri.split(['?', '#']).next().unwrap_or(uri).trim();
+        ensure!(!target.is_empty(), "The image reference is empty");
+        ensure!(
+            !target.contains(':') && !target.starts_with("//") && !Path::new(target).is_absolute(),
+            "Only relative local images are supported: {uri}"
+        );
+        let decoded = percent_encoding::percent_decode_str(target).decode_utf8()?;
+        let parent = document.parent().context("The document has no directory")?;
+        Ok(parent.join(decoded.as_ref()))
+    }
+
     pub fn search(&self, query: &str) -> Vec<(usize, String)> {
         if query.is_empty() || query.len() > 256 {
             return Vec::new();
@@ -208,6 +226,39 @@ mod tests {
         assert_eq!(doc.anchor_block("标题-1"), Some(2));
         assert_eq!(doc.block_at_offset(doc.source_bytes), doc.blocks.len() - 1);
         assert!(doc.blocks.last().unwrap().html.contains("two"));
+    }
+
+    #[test]
+    fn image_references_follow_markdown_uri_rules() {
+        let document = Path::new("/notes/readme.md");
+        assert_eq!(
+            Document::resolve_image(document, "shots/first.png").unwrap(),
+            std::path::PathBuf::from("/notes/shots/first.png")
+        );
+        assert_eq!(
+            Document::resolve_image(document, "my%20shot.png").unwrap(),
+            std::path::PathBuf::from("/notes/my shot.png")
+        );
+        assert_eq!(
+            Document::resolve_image(document, "chart.png?raw=1#page=2").unwrap(),
+            std::path::PathBuf::from("/notes/chart.png")
+        );
+        assert_eq!(
+            Document::resolve_image(document, "%E5%9B%BE.png").unwrap(),
+            std::path::PathBuf::from("/notes/图.png")
+        );
+        for rejected in [
+            "https://example.com/x.png",
+            "mailto:someone",
+            "/absolute/x.png",
+            "//host/x.png",
+            "",
+        ] {
+            assert!(
+                Document::resolve_image(document, rejected).is_err(),
+                "{rejected} should not resolve to a local image"
+            );
+        }
     }
 
     #[test]

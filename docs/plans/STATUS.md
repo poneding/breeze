@@ -1074,3 +1074,46 @@ panel header. The app was launched against an isolated `BREEZE_DATA_DIR` with a
 Markdown argument and stayed running for about a minute without a panic, but the
 resulting chrome was not inspected visually: this session lacks Screen Recording
 permission. Windows/Linux native checks remain open.
+
+## October 15 reflow outline, Markdown measure and image references
+
+The EPUB and Markdown navigation panel now uses the PDF outline's own row
+geometry and controls instead of a reduced list: 24 px rows, 8 px plus 10 px per
+depth of indentation, the active row highlighted, the title as its tooltip, a
+nesting chevron that folds children, the outline title search on the header's
+right, and the expand/collapse menu when the outline is nested. The reflow
+outline list has its own element id, so a library that switches between a PDF and
+a reflowable document cannot inherit the other list's cached measurements.
+
+Markdown no longer offers page-turn buttons — it scrolls — and its status bar
+carries a stateful reading-width toggle instead: `chevrons-left-right` switches
+from the centred 760 px measure to the full window width and `chevrons-right-left`
+switches back, per document and persisted with its reading state.
+
+A Markdown image reference is a URI, not a path. Opening the literal text meant a
+name written as `my%20shot.jpg` never found `my shot.jpg`, so the reader reported
+"Image unavailable" for a picture that existed. References are now percent-decoded
+and stripped of a query or fragment before the file is opened, and an image that
+still cannot be shown no longer writes to the reader's status notice: it is
+counted in the document panel as "Images not shown", cached per URI so it is not
+retried every frame, and other images keep loading because the single-flight
+`busy` flag was replaced with per-URI tracking.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --offline` (app
+suite 170 passed with three new component tests and one new adapter test, 16
+core, 30 PDF with three ignored, and the remaining suites) and `cargo clippy
+--workspace --all-targets --offline -- -D warnings` pass.
+`reflow_outline_matches_the_pdf_outline_style` renders a nested PDF outline and a
+nested Markdown outline in the same window and asserts identical row origin,
+height and chevron geometry plus the shared header controls and folding;
+`markdown_has_no_paging_and_toggles_its_reading_width` asserts the status bar has
+no page-turn control, that the toggle reports its state, and that the measured
+column widens when enabled; `markdown_shows_images_named_with_spaces` decodes a
+real JPEG named with a space; `markdown_image_failure_stays_out_of_the_status_bar`
+asserts a missing or remote image leaves the status bar empty. Reverting only the
+resolver reproduces `my%20shot.jpg: No such file or directory`, and reverting only
+the scroll-handler change reproduces the earlier list borrow panic. The app was
+also launched against an isolated `BREEZE_DATA_DIR` with a Markdown file holding
+that image and stayed running without a panic; the resulting chrome and image were
+not inspected visually because this session lacks Screen Recording permission.
+Windows/Linux native checks remain open.

@@ -65,6 +65,9 @@ pub struct ReflowState {
     pub scroll_offset: f32,
     pub progress: f32,
     pub font_size: u8,
+    /// Markdown only: read with the full window width instead of the readable
+    /// maximum. EPUB ignores it; a reflowed page is laid out at the viewport.
+    pub full_width: bool,
 }
 
 impl Default for ReflowState {
@@ -75,6 +78,7 @@ impl Default for ReflowState {
             scroll_offset: 0.,
             progress: 0.,
             font_size: 18,
+            full_width: false,
         }
     }
 }
