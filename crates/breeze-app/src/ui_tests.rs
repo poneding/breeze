@@ -2581,3 +2581,106 @@ fn markdown_reader_scrolls_and_records_its_position(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+/// The reflow reader must place its chrome exactly where the PDF reader does:
+/// the navigation toggle stays at the panel header's left edge, the text-size
+/// controls live in the status bar where PDF keeps zoom, search and the
+/// favorite control are right-aligned in the content toolbar, and both panel
+/// headers label themselves with icons instead of words.
+#[gpui_kit::test]
+fn reflow_chrome_keeps_the_reader_layout(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("chrome.md");
+    std::fs::write(&path, "## One\n\ntext\n\n## Two\n\ntext\n").unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "chrome.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+
+        // Navigation is open, so its toggle belongs to that header's left edge
+        // and the outline is an icon, not a word.
+        assert!(view.read(cx).sidebar);
+        let header = window.find("navigation-header").bounds();
+        let collapse = window.find("collapse").bounds();
+        assert!(
+            collapse.left() - header.left() < px(12.),
+            "collapse {collapse:?} is not at the left of the panel header {header:?}"
+        );
+        let outline = window.within("reflow-nav-tabs").find(0usize);
+        assert_eq!(outline.label(), Some(i18n::text("Outline")));
+        let tabs = outline.bounds();
+        assert!(
+            tabs.left() >= collapse.right() && tabs.right() <= header.right(),
+            "the outline icon tab {tabs:?} is not inside the header {header:?}"
+        );
+
+        // Collapsing navigation returns its toggle to the toolbar's left edge.
+        window.click("collapse", cx);
+        window.render_frame(cx);
+        assert!(!view.read(cx).sidebar);
+        let toolbar = window.find("reader-toolbar").bounds();
+        let collapse = window.find("collapse").bounds();
+        assert!(
+            collapse.left() - toolbar.left() < px(12.),
+            "collapse {collapse:?} is not at the left of the toolbar {toolbar:?}"
+        );
+
+        // Search and the favorite control share the toolbar's right half,
+        // ordered search, favorite, document-panel toggle.
+        let search = window.find("reader-search").bounds();
+        let favorite = window.find("reader-star").bounds();
+        let toggle = window.find("document-panel-toggle").bounds();
+        assert!(
+            search.left() > toolbar.center().x,
+            "search {search:?} is not in the right half of {toolbar:?}"
+        );
+        assert!(
+            search.right() <= favorite.left() && favorite.right() <= toggle.left(),
+            "toolbar order is search {search:?}, favorite {favorite:?}, toggle {toggle:?}"
+        );
+        assert!(
+            toggle.right() <= toolbar.right() - px(4.),
+            "the document panel toggle {toggle:?} left the toolbar's right edge"
+        );
+
+        // Text size belongs to the status bar, exactly where PDF keeps zoom.
+        let status = window.find("reflow-status").bounds();
+        for id in ["text-smaller", "text-size", "text-larger"] {
+            let control = window.find(id).bounds();
+            assert!(
+                control.top() >= status.top() && control.bottom() <= status.bottom(),
+                "{id} {control:?} is not inside the status bar {status:?}"
+            );
+            assert!(
+                control.top() >= toolbar.bottom(),
+                "{id} {control:?} still sits in the toolbar {toolbar:?}"
+            );
+        }
+
+        // The document panel header labels itself with the information icon.
+        window.click("document-panel-toggle", cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).document_panel.open);
+        let panel_header = window.find("document-panel-header").bounds();
+        let information = window.find("document-panel-information").bounds();
+        assert!(
+            information.left() - panel_header.left() < px(12.),
+            "information {information:?} is not at the left of {panel_header:?}"
+        );
+        let toggle = window.find("document-panel-toggle").bounds();
+        let inset = panel_header.right() - toggle.right();
+        assert!(
+            inset >= px(7.) && inset <= px(9.),
+            "toggle inset {inset:?}, header {panel_header:?}, toggle {toggle:?}"
+        );
+    })
+    .unwrap();
+}

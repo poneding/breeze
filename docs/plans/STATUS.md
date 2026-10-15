@@ -1048,3 +1048,29 @@ text size; reverting only the handler change reproduces the original panic at
 without a panic, but the scroll gesture itself was not driven through the
 native window: this session lacks Screen Recording permission. Windows/Linux
 native checks remain open.
+
+## October 15 reflow reader chrome matches the PDF reader
+
+The EPUB and Markdown readers had put the navigation toggle at the right of the
+content toolbar, kept search and favorite left of centre, moved text size into
+the toolbar, and labelled the outline and information panel headers with words.
+They now follow the PDF reader's placement: the toggle sits at the left edge of
+its panel header and returns to the toolbar's left edge while collapsed, search
+and favorite are right-aligned in the toolbar ahead of the document-panel
+toggle, text size occupies the status bar's right end where PDF keeps zoom, and
+the navigation header shows the outline icon tab while the document panel header
+shows the information icon. A shared `flex_1` slot absorbs the middle of each
+row, so the two formats keep the same control order at any window width.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --offline`
+(app suite 166 passed with the new layout test, 16 core, 30 PDF with three
+ignored, and the remaining suites) and `cargo clippy --workspace --all-targets
+--offline -- -D warnings` pass. `reflow_chrome_keeps_the_reader_layout` asserts
+the toggle's left edge in both the panel header and the toolbar, the toolbar's
+search/favorite/toggle order and right alignment, that all three text-size
+controls resolve inside `reflow-status` and below the toolbar, the outline icon
+tab's accessible name, and the information icon at the left of the document
+panel header. The app was launched against an isolated `BREEZE_DATA_DIR` with a
+Markdown argument and stayed running for about a minute without a panic, but the
+resulting chrome was not inspected visually: this session lacks Screen Recording
+permission. Windows/Linux native checks remain open.

@@ -37,12 +37,20 @@ to add first-party unsafe FFI or silently reduce rendering quality.
 
 ## Model and UI
 
+Reflowable formats keep PDF's control placement; only the format-specific
+controls inside those slots differ. The navigation toggle lives at the left edge
+of the panel header it controls and returns to the toolbar's left edge while the
+panel is collapsed. Search, favorite and the document-panel toggle occupy the
+toolbar's right edge. Zoom or text size sits at the right end of the status bar,
+after the reading-progress area. Both panel headers label themselves with icons
+and keep the panel toggle at their right edge.
+
 | Surface | PDF | EPUB | Markdown |
 |---|---|---|---|
-| Content toolbar | Read/annotate and existing tools | Text size, chapter navigation, search, favorite | Text size, search, favorite |
+| Content toolbar | Read/annotate and existing tools | Chapter navigation | Nothing format-specific |
 | Left panel | Outline / thumbnails | Publication contents | Heading outline |
 | Right panel | Information, annotations, search | Publication information / search | Document information / search |
-| Status | Pages, zoom, fit, layout, rotation | Chapter and reading progress, reading navigation | Reading progress and text information; no page count |
+| Status | Pages, zoom, fit, layout, rotation | Chapter and reading progress, text size | Reading progress and text size; no page count |
 | Position | Page plus PDF view settings | Chapter href plus an in-chapter position | Source block/offset and scroll position |
 
 The titlebar, 38 px content headers, 32 px status bar, panel sizing, library,

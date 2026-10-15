@@ -2,7 +2,11 @@
 use crate::*;
 use breeze_reflow::{EpubWorker, epub, markdown};
 use gpui_kit::base::{TextView, TextViewState};
-use gpui_kit::component::{ElementExt, h_resizable, resizable_panel};
+use gpui_kit::component::{
+    ElementExt, h_resizable, resizable_panel,
+    tab::{Tab, TabBar},
+    tooltip::Tooltip,
+};
 use std::collections::VecDeque;
 
 struct TextBlock {
@@ -266,19 +270,33 @@ impl Breeze {
                     .when(self.search_open, |bar| bar.child(self.search_bar(cx)))
                     .when(!self.search_open, |bar| {
                         bar.child(
-                            div()
-                                .flex_1()
-                                .text_size(px(12.))
-                                .child(tr!("Document information")),
+                            Button::new("document-panel-information")
+                                .ghost()
+                                .small()
+                                .icon(IconName::Info)
+                                .selected(true)
+                                .accessibility_label(tr!("Document information"))
+                                .tooltip(tr!("Document information"))
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.cancel_search();
+                                    this.search_open = false;
+                                    this.search_restore_document_panel_open = None;
+                                    this.document_panel.open = true;
+                                    cx.notify();
+                                })),
                         )
+                        .child(div().flex_1())
                     })
-                    .child(self.command(
-                        "document-panel-toggle",
-                        IconName::PanelRight,
-                        tr!("Document sidebar"),
-                        &ToggleDocumentPanel,
-                        cx,
-                    )),
+                    .child(
+                        self.command(
+                            "document-panel-toggle",
+                            IconName::PanelRight,
+                            tr!("Document sidebar"),
+                            &ToggleDocumentPanel,
+                            cx,
+                        )
+                        .selected(true),
+                    ),
             )
             .child(if self.search_open {
                 self.reflow_search_results(cx).into_any_element()
@@ -586,36 +604,7 @@ impl Breeze {
                                 .on_click(cx.listener(|this, _, _, cx| this.change_chapter(1, cx))),
                         )
                     })
-                    .child(
-                        Button::new("text-smaller")
-                            .ghost()
-                            .small()
-                            .icon(IconName::Minus)
-                            .accessibility_label(tr!("Decrease text size"))
-                            .tooltip(tr!("Decrease text size"))
-                            .disabled(self.books[self.active].reflow.font_size <= 12)
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.resize_reflow_text(-1, cx)),
-                            ),
-                    )
-                    .child(
-                        div()
-                            .id("text-size")
-                            .test_support()
-                            .text_size(px(12.))
-                            .child(format!("{} px", self.books[self.active].reflow.font_size)),
-                    )
-                    .child(
-                        Button::new("text-larger")
-                            .ghost()
-                            .small()
-                            .icon(IconName::Plus)
-                            .accessibility_label(tr!("Increase text size"))
-                            .tooltip(tr!("Increase text size"))
-                            .disabled(self.books[self.active].reflow.font_size >= 32)
-                            .on_click(cx.listener(|this, _, _, cx| this.resize_reflow_text(1, cx))),
-                    )
-                    .child(div().w(px(1.)).h(px(18.)).mx_1().bg(p.line))
+                    .child(div().flex_1())
                     .child(
                         self.command(
                             "reader-search",
@@ -638,7 +627,6 @@ impl Breeze {
                             self.books[self.active].favorite,
                         )),
                     )
-                    .child(div().flex_1())
                     .when(!self.document_panel.open, |bar| {
                         bar.child(self.command(
                             "document-panel-toggle",
@@ -657,18 +645,10 @@ impl Breeze {
                     .h(px(32.))
                     .flex_shrink_0()
                     .px_2()
-                    .gap_2()
+                    .gap_1()
                     .border_t_1()
                     .border_color(p.line)
-                    .text_size(px(11.))
-                    .text_color(p.muted)
-                    .child(self.books[self.active].format_label())
-                    .child(self.reflow_status_text())
-                    .child(div().flex_1())
-                    .child(format!(
-                        "{:.0}%",
-                        self.books[self.active].reflow.progress * 100.
-                    ))
+                    .bg(p.bg)
                     .child(self.command(
                         "reflow-previous",
                         IconName::ChevronLeft,
@@ -676,13 +656,69 @@ impl Breeze {
                         &PreviousPage,
                         cx,
                     ))
+                    .child(
+                        div()
+                            .id("reflow-position")
+                            .test_support()
+                            .min_w(px(56.))
+                            .text_size(px(12.))
+                            .child(self.reflow_position_text()),
+                    )
                     .child(self.command(
                         "reflow-next",
                         IconName::ChevronRight,
                         tr!("Next"),
                         &NextPage,
                         cx,
-                    )),
+                    ))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(50.))
+                            .overflow_hidden()
+                            .text_size(px(11.))
+                            .text_color(p.muted)
+                            .when_some(self.reflow_notice(), |area, notice| {
+                                area.child(
+                                    div()
+                                        .id("reflow-status-notice")
+                                        .test_support()
+                                        .child(notice),
+                                )
+                            }),
+                    )
+                    .child(
+                        Button::new("text-smaller")
+                            .ghost()
+                            .small()
+                            .icon(IconName::Minus)
+                            .accessibility_label(tr!("Decrease text size"))
+                            .tooltip(tr!("Decrease text size"))
+                            .disabled(self.books[self.active].reflow.font_size <= 12)
+                            .on_click(
+                                cx.listener(|this, _, _, cx| this.resize_reflow_text(-1, cx)),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("text-size")
+                            .test_support()
+                            .min_w(px(48.))
+                            .text_center()
+                            .text_size(px(12.))
+                            .child(format!("{} px", self.books[self.active].reflow.font_size)),
+                    )
+                    .child(
+                        Button::new("text-larger")
+                            .ghost()
+                            .small()
+                            .icon(IconName::Plus)
+                            .accessibility_label(tr!("Increase text size"))
+                            .tooltip(tr!("Increase text size"))
+                            .disabled(self.books[self.active].reflow.font_size >= 32)
+                            .on_click(cx.listener(|this, _, _, cx| this.resize_reflow_text(1, cx))),
+                    )
+                    .child(self.fullscreen_button(cx)),
             );
         let center = if self.sidebar {
             h_resizable("reader-split")
@@ -716,13 +752,10 @@ impl Breeze {
             })
     }
 
-    fn reflow_status_text(&self) -> String {
-        if self.loading {
-            return tr!("Reading…").into();
-        }
-        if !self.message.is_empty() {
-            return self.message.clone();
-        }
+    /// The primary reading position for the status bar: a chapter for EPUB and
+    /// a percentage for Markdown. Reflowable documents have no page number, so
+    /// this never invents one.
+    fn reflow_position_text(&self) -> String {
         if let Some(frame) = &self.reflow.frame {
             return tf!(
                 "Chapter {} / {}",
@@ -730,11 +763,20 @@ impl Breeze {
                 frame.metadata.chapters.len()
             );
         }
-        self.reflow
-            .markdown
-            .as_ref()
-            .map(|doc| tf!("{} characters", doc.characters))
-            .unwrap_or_default()
+        format!("{:.0}%", self.books[self.active].reflow.progress * 100.)
+    }
+
+    /// The one status notice the reflow reader shows, or `None` when there is
+    /// nothing to report. A healthy document leaves the area empty instead of
+    /// announcing that nothing is wrong.
+    fn reflow_notice(&self) -> Option<String> {
+        if self.loading {
+            Some(tr!("Reading…").into())
+        } else if !self.message.is_empty() {
+            Some(self.message.clone())
+        } else {
+            None
+        }
     }
 
     fn reflow_navigation(&self, cx: &mut Context<Self>) -> AnyElement {
@@ -774,17 +816,45 @@ impl Breeze {
                     .test_support()
                     .h(px(38.))
                     .flex_shrink_0()
-                    .px_2()
+                    .px(px(8.))
                     .border_b_1()
                     .border_color(p.line)
-                    .child(div().flex_1().text_size(px(12.)).child(tr!("Outline")))
-                    .child(self.command(
-                        "collapse",
-                        IconName::PanelLeft,
-                        tr!("Navigation panel"),
-                        &ToggleSidebar,
-                        cx,
-                    )),
+                    // The leading slot pins the collapse control to the header's
+                    // left edge, the way the PDF reader's panel header does.
+                    .child(
+                        row()
+                            .id("navigation-header-leading")
+                            .test_support()
+                            .flex_1()
+                            .min_w_0()
+                            .justify_start()
+                            .child(
+                                self.command(
+                                    "collapse",
+                                    IconName::PanelLeft,
+                                    tr!("Navigation panel"),
+                                    &ToggleSidebar,
+                                    cx,
+                                )
+                                .selected(true),
+                            ),
+                    )
+                    .child(
+                        TabBar::new("reflow-nav-tabs")
+                            .segmented()
+                            .small()
+                            .flex_shrink_0()
+                            .selected_index(0)
+                            .child(
+                                Tab::new()
+                                    .icon(IconName::TableOfContents)
+                                    .aria_label(tr!("Outline"))
+                                    .tooltip(|window, cx| {
+                                        Tooltip::new(tr!("Outline")).build(window, cx)
+                                    }),
+                            ),
+                    )
+                    .child(div().flex_1()),
             )
             .child(
                 div()
