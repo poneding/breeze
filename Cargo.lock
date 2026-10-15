@@ -763,6 +763,7 @@ dependencies = [
  "sys-locale",
  "tempfile",
  "ureq",
+ "zip",
 ]
 
 [[package]]
@@ -796,6 +797,7 @@ dependencies = [
  "futures",
  "mupdf",
  "percent-encoding",
+ "png 0.18.1",
  "pulldown-cmark",
  "quick-xml 0.42.0",
  "rbook",

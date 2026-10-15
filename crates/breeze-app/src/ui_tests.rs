@@ -976,7 +976,7 @@ fn chrome_heights_and_left_navigation_are_preserved(cx: &mut TestAppContext) {
             window.find("titlebar-content").bounds().size.height,
             px(33.) // The native 34 px title bar includes its 1 px bottom border.
         );
-        assert_eq!(window.find("reader-toolbar").bounds().size.height, px(38.));
+        assert_eq!(window.find("reader-toolbar").bounds().size.height, px(32.));
         assert_eq!(window.find("status-scroll").bounds().size.height, px(32.));
         assert_eq!(window.find("home-tab").bounds().size.height, px(22.5));
         view.update(cx, |view, cx| view.show_home(cx));
@@ -1102,7 +1102,7 @@ fn navigation_tabs_follow_the_current_outline(cx: &mut TestAppContext) {
         );
         assert_eq!(
             window.find("navigation-header").bounds().size.height,
-            px(38.)
+            px(32.)
         );
 
         view.update(cx, |view, _| {
@@ -2994,4 +2994,143 @@ fn markdown_shows_images_named_with_spaces(cx: &mut TestAppContext) {
         );
     })
     .unwrap();
+}
+
+/// One wheel swipe must not re-render the EPUB page per event, and the pages it
+/// crosses must actually be crossed. Every wheel event used to launch a fresh
+/// full-page render that superseded the previous one, which is what made turning
+/// a page crawl.
+#[gpui_kit::test]
+fn epub_wheel_turns_pages_without_a_render_per_event(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("book.epub");
+    std::fs::write(&path, epub_fixture(60)).unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "book.epub".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    // The EPUB page arrives from a dedicated worker thread, so pump the frame
+    // loop until it lands rather than assuming one parked pass is enough.
+    let mut rendered = false;
+    for _ in 0..60 {
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| window.render_frame(cx))
+            .unwrap();
+        rendered = cx
+            .update_window(handle, |_, _, cx| view.read(cx).reflow.frame.is_some())
+            .unwrap();
+        if rendered {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    assert!(rendered, "the EPUB never produced a frame");
+    // A scroll delta shorter than a page accumulates instead of re-rendering.
+    let (chapter_page, pages, renders) = cx
+        .update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            let view = view.read(cx);
+            assert!(
+                view.reflow.frame.is_some(),
+                "the EPUB did not render: {}",
+                view.message
+            );
+            let frame = view.reflow.frame.as_ref().unwrap();
+            (frame.chapter_page, frame.chapter_pages, view.reflow.epoch)
+        })
+        .unwrap();
+    assert!(pages > 3, "the fixture needs several pages, got {pages}");
+    assert_eq!(chapter_page, 0);
+
+    cx.update_window(handle, |_, window, cx| {
+        // One notch of a mouse wheel: far less than a page.
+        window.scroll("reflow-viewport", ScrollDelta::Lines(point(0., -3.)), cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            view.read(cx).reflow.epoch,
+            renders,
+            "a partial scroll launched a page render"
+        );
+    })
+    .unwrap();
+
+    // Enough scroll to cross a page does turn exactly one page.
+    cx.update_window(handle, |_, window, cx| {
+        for _ in 0..12 {
+            window.scroll("reflow-viewport", ScrollDelta::Lines(point(0., -3.)), cx);
+        }
+    })
+    .unwrap();
+    for _ in 0..60 {
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| window.render_frame(cx))
+            .unwrap();
+        let turned = cx
+            .update_window(handle, |_, _, cx| {
+                view.read(cx)
+                    .reflow
+                    .frame
+                    .as_ref()
+                    .is_some_and(|frame| frame.chapter_page >= 1)
+            })
+            .unwrap();
+        if turned {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let view = view.read(cx);
+        let frame = view.reflow.frame.as_ref().unwrap();
+        assert!(
+            frame.chapter_page >= 1,
+            "a full page of scrolling stayed on page {}",
+            frame.chapter_page
+        );
+    })
+    .unwrap();
+}
+
+/// A usable EPUB with one chapter of `paragraphs` paragraphs.
+fn epub_fixture(paragraphs: usize) -> Vec<u8> {
+    use std::io::{Cursor, Write};
+    use zip::{ZipWriter, write::SimpleFileOptions};
+    let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+    let write = |archive: &mut ZipWriter<Cursor<Vec<u8>>>, name: &str, text: &str| {
+        archive
+            .start_file(name, SimpleFileOptions::default())
+            .unwrap();
+        archive.write_all(text.as_bytes()).unwrap();
+    };
+    write(&mut archive, "mimetype", "application/epub+zip");
+    write(
+        &mut archive,
+        "META-INF/container.xml",
+        r#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#,
+    );
+    write(
+        &mut archive,
+        "OEBPS/content.opf",
+        r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">breeze-wheel-fixture</dc:identifier><dc:title>Wheel</dc:title><dc:language>en</dc:language><meta property="dcterms:modified">2026-10-15T00:00:00Z</meta></metadata><manifest><item id="ch" href="ch1.xhtml" media-type="application/xhtml+xml"/></manifest><spine><itemref idref="ch"/></spine></package>"#,
+    );
+    let body: String = (0..paragraphs)
+        .map(|index| format!("<p>Paragraph {index} of a long chapter.</p>"))
+        .collect();
+    write(
+        &mut archive,
+        "OEBPS/ch1.xhtml",
+        &format!(
+            r#"<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter</title></head><body>{body}</body></html>"#
+        ),
+    );
+    archive.finish().unwrap().into_inner()
 }

@@ -61,7 +61,7 @@ controls that need one are dropped.
 | Position | Page plus PDF view settings | Chapter href plus an in-chapter position | Source block/offset and scroll position |
 | Reading width | Not applicable | Not applicable; the page is laid out at the viewport | Centred maximum measure by default, toggleable to the full window |
 
-The titlebar, 38 px content headers, 32 px status bar, panel sizing, library,
+The titlebar, 32 px content headers, 32 px status bar, panel sizing, library,
 categories, favorites and opening policies remain shared. Actions must be
 guarded at dispatch as well as hidden visually. PDF sidecars and export remain
 PDF-only. Session persistence must accept old snapshots and retain independent
@@ -102,3 +102,22 @@ locations/preferences across format switches.
 
 Implementation and measurements are tracked separately in
 [work package 24](../plans/24-reflowable-reading.md) and [STATUS](../plans/STATUS.md).
+
+## EPUB chapter packaging
+
+MuPDF lays out one chapter at a time, so the adapter repackages that chapter as a
+temporary publication. That package must carry everything the chapter's markup
+and stylesheets reference, transitively:
+
+- A resolved reference path is percent-encoded while a package manifest is keyed
+  by decoded hrefs, so lookup decodes first. Comparing the raw path against
+  decoded keys silently dropped every stylesheet, image and font whose name
+  contained a space or a non-ASCII character, which is what made a chapter
+  render unstyled and sparse.
+- A reference the manifest does not declare is still a real archive entry and is
+  included, with its media type inferred from the extension.
+- `url(...)` inside a `style` attribute, `@import`, and `@font-face` sources
+  count as references; at-imported stylesheets are followed.
+- The package carries the publication's language and, for right-to-left
+  publications, `page-progression-direction="rtl"`.
+- A declared-but-absent file is skipped rather than failing the chapter.

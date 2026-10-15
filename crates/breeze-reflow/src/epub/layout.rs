@@ -19,6 +19,71 @@ pub(super) struct ChapterLayout {
 }
 type Resource = (String, String, Vec<u8>);
 
+/// Media type for an archive path.
+///
+/// The original package's manifest is the authority, but it is keyed by decoded
+/// hrefs while a resolved URL is percent-encoded: `my%20sheet.css` must find the
+/// manifest entry for `my sheet.css`. A reference that the manifest does not
+/// declare at all is still a real file in the archive, and dropping it is how a
+/// stylesheet or image silently disappeared, so its type is inferred instead.
+fn media_type_for(manifest: &HashMap<String, String>, decoded: &str) -> Option<String> {
+    let trimmed = decoded.trim_start_matches('/');
+    if let Some(media_type) = manifest
+        .get(trimmed)
+        .or_else(|| manifest.get(decoded))
+        .or_else(|| manifest.get(&format!("/{trimmed}")))
+    {
+        return Some(media_type.clone());
+    }
+    let extension = Path::new(trimmed)
+        .extension()
+        .and_then(|value| value.to_str())?
+        .to_ascii_lowercase();
+    Some(
+        match extension.as_str() {
+            "css" => "text/css",
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            "gif" => "image/gif",
+            "webp" => "image/webp",
+            "svg" => "image/svg+xml",
+            "otf" => "application/vnd.ms-opentype",
+            "ttf" => "application/font-sfnt",
+            "woff" => "font/woff",
+            "woff2" => "font/woff2",
+            "xhtml" | "html" | "htm" => return None,
+            _ => "application/octet-stream",
+        }
+        .to_owned(),
+    )
+}
+
+/// Read one archive entry by its decoded path.
+///
+/// Archives normally store the decoded name, but a producer that stored the
+/// percent-encoded text is tolerated here rather than losing the resource.
+fn read_entry(archive: &mut ZipArchive<Cursor<Arc<[u8]>>>, path: &str) -> Option<Vec<u8>> {
+    let encoded =
+        percent_encoding::utf8_percent_encode(path, percent_encoding::NON_ALPHANUMERIC).to_string();
+    // Resolve the index first: a `ZipFile` borrows the archive, so probing by
+    // name and then reopening would need two live mutable borrows.
+    let index = archive
+        .index_for_name(path)
+        .or_else(|| archive.index_for_name(&encoded))?;
+    let entry = archive.by_index(index).ok()?;
+    if entry.encrypted() || entry.size() > 16 * 1024 * 1024 {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(entry.size() as usize);
+    entry
+        .take(16 * 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)
+        .ok()?;
+    (bytes.len() <= 16 * 1024 * 1024).then_some(bytes)
+}
+
+/// Local references in markup: `href`, `src`, and `url(...)` inside a `style`
+/// attribute, which is where a background image on a paragraph hides.
 fn local_references(source: &str, base: &Url) -> Result<Vec<Url>> {
     let mut reader = XmlReader::from_str(source);
     let mut references = Vec::new();
@@ -28,10 +93,14 @@ fn local_references(source: &str, base: &Url) -> Result<Vec<Url>> {
                 for attribute in element.attributes().with_checks(true) {
                     let attribute = attribute?;
                     let name = attribute.key.local_name();
+                    let value = attribute.normalized_value(XmlVersion::Implicit1_0)?;
+                    if name.as_ref() == "style" {
+                        references.extend(css_references(&value, base)?);
+                        continue;
+                    }
                     if name.as_ref() != "href" && name.as_ref() != "src" {
                         continue;
                     }
-                    let value = attribute.normalized_value(XmlVersion::Implicit1_0)?;
                     if value.is_empty() || value.starts_with('#') || value.starts_with("data:") {
                         continue;
                     }
@@ -53,6 +122,10 @@ fn local_references(source: &str, base: &Url) -> Result<Vec<Url>> {
     Ok(references)
 }
 
+/// Local references in a stylesheet: `url(...)` and `@import "..."`.
+///
+/// At-imports pull in the rest of a publication's styles, so missing them
+/// leaves the chapter with only part of its stylesheet.
 fn css_references(source: &str, base: &Url) -> Result<Vec<Url>> {
     let lower = source.to_ascii_lowercase();
     let mut cursor = 0;
@@ -77,12 +150,38 @@ fn css_references(source: &str, base: &Url) -> Result<Vec<Url>> {
             "EPUB stylesheet references too many resources"
         );
     }
+    cursor = 0;
+    while let Some(offset) = lower[cursor..].find("@import") {
+        let start = cursor + offset + "@import".len();
+        let tail = source[start..].trim_start();
+        let value = if let Some(rest) = tail.strip_prefix("url(") {
+            let Some(end) = rest.find(')') else { break };
+            rest[..end].trim().trim_matches(['\'', '"']).to_owned()
+        } else if let Some(rest) = tail.strip_prefix(['\'', '"']) {
+            let quote = tail.chars().next().unwrap_or('\'');
+            rest[..rest.find(quote).unwrap_or(rest.len())].to_owned()
+        } else {
+            String::new()
+        };
+        if !value.is_empty()
+            && !value.starts_with("data:")
+            && let Ok(url) = base.join(&value)
+            && url.host_str() == Some("breeze.invalid")
+        {
+            references.push(url);
+        }
+        cursor = start + 1;
+        ensure!(
+            references.len() <= 4096,
+            "EPUB stylesheet imports too many resources"
+        );
+    }
     Ok(references)
 }
 
+/// Every resource the chapter needs, read out of the publication archive.
 fn referenced_resources(
     book: &Book,
-    chapter: usize,
     chapter_url: &Url,
     source: &str,
 ) -> Result<(Vec<Resource>, usize)> {
@@ -92,7 +191,7 @@ fn referenced_resources(
         .iter()
         .map(|entry| {
             (
-                entry.href().decode().into_owned(),
+                entry.href().decode().trim_start_matches('/').to_owned(),
                 entry.media_type().to_owned(),
             )
         })
@@ -103,30 +202,21 @@ fn referenced_resources(
     let mut resources = Vec::new();
     let mut resource_bytes = 0usize;
     while let Some(url) = pending.pop_front() {
-        if !visited.insert(url.path().to_owned()) {
+        // The archive path is decoded, and it is also the manifest key.
+        let decoded = percent_encoding::percent_decode_str(url.path().trim_start_matches('/'))
+            .decode_utf8()?
+            .into_owned();
+        if !visited.insert(decoded.clone()) {
             continue;
         }
-        let Some(media_type) = manifest.get(url.path()) else {
+        let Some(media_type) = media_type_for(&manifest, &decoded) else {
             continue;
         };
-        if media_type == "application/xhtml+xml" || media_type == "text/html" {
+        let Some(bytes) = read_entry(&mut archive, &decoded) else {
+            // A declared-but-absent file is not fatal: the rest of the chapter
+            // still has to render, and the reference is reported by its absence.
             continue;
-        }
-        let decoded = percent_encoding::percent_decode_str(url.path().trim_start_matches('/'))
-            .decode_utf8()?;
-        let entry = archive
-            .by_name(decoded.as_ref())
-            .with_context(|| format!("Missing EPUB resource {decoded}"))?;
-        ensure!(
-            !entry.encrypted() && entry.size() <= 16 * 1024 * 1024,
-            "Encrypted or oversized EPUB resource: {decoded}"
-        );
-        let mut bytes = Vec::with_capacity(entry.size() as usize);
-        entry.take(16 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
-        ensure!(
-            bytes.len() <= 16 * 1024 * 1024,
-            "EPUB resource exceeds its input limit"
-        );
+        };
         resource_bytes = resource_bytes
             .checked_add(bytes.len())
             .context("EPUB resource size overflow")?;
@@ -138,17 +228,12 @@ fn referenced_resources(
             let css = std::str::from_utf8(&bytes).context("EPUB stylesheet is not UTF-8")?;
             pending.extend(css_references(css, &url)?);
         }
-        resources.push((
-            url.path().trim_start_matches('/').to_owned(),
-            media_type.clone(),
-            bytes,
-        ));
+        resources.push((decoded, media_type, bytes));
         ensure!(
             resources.len() <= 4096,
             "EPUB chapter references too many resources"
         );
     }
-    let _ = chapter;
     Ok((resources, resource_bytes))
 }
 
@@ -175,7 +260,7 @@ fn chapter_epub(book: &Book, chapter: usize) -> Result<Vec<u8>> {
         source.len() <= 16 * 1024 * 1024,
         "EPUB chapter exceeds its input limit"
     );
-    let (resources, resource_bytes) = referenced_resources(book, chapter, &chapter_url, &source)?;
+    let (resources, resource_bytes) = referenced_resources(book, &chapter_url, &source)?;
     ensure!(
         source.len() + resource_bytes <= 64 * 1024 * 1024,
         "EPUB chapter package exceeds its resource limit"
@@ -210,8 +295,21 @@ fn chapter_epub(book: &Book, chapter: usize) -> Result<Vec<u8>> {
     }
     let identifier = escape_xml(book.publication.package().unique_identifier());
     let title = escape_xml(&book.metadata.title);
+    let language = escape_xml(
+        book.publication
+            .metadata()
+            .language()
+            .map(|language| language.value().to_owned())
+            .unwrap_or_else(|| "und".to_owned())
+            .as_str(),
+    );
+    let direction = if book.publication.spine().page_direction().is_rtl() {
+        " page-progression-direction=\"rtl\""
+    } else {
+        ""
+    };
     let opf = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">{identifier}</dc:identifier><dc:title>{title}</dc:title><dc:language>und</dc:language></metadata><manifest>{items}</manifest><spine><itemref idref="chapter"/></spine></package>"#
+        r#"<?xml version="1.0" encoding="UTF-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">{identifier}</dc:identifier><dc:title>{title}</dc:title><dc:language>{language}</dc:language></metadata><manifest>{items}</manifest><spine{direction}><itemref idref="chapter"/></spine></package>"#
     );
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     writer.start_file(
@@ -294,6 +392,8 @@ pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
         .position(|entry| entry.href == href)
         .unwrap_or(0);
     prepare(book, request, chapter)?;
+    // `turn` is a page delta, not a direction: one fast flick can cross
+    // several pages.
     let mut target = (book
         .layout
         .as_ref()
@@ -301,7 +401,7 @@ pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
         .pages
         .saturating_sub(1)) as f32
         * request.location.progression
-        + f32::from(request.turn.signum())
+        + f32::from(request.turn)
         + request.scroll / request.height;
     let current_pages = book
         .layout
@@ -396,11 +496,141 @@ pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
         chapter_pages: count,
         width,
         height,
-        bgra: Arc::new(bgra),
+        bgra,
         text,
         progress,
         links,
         scroll_offset: target,
         scroll_extent: count.saturating_sub(1) as f32,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Cursor, Write};
+    use zip::{ZipWriter, write::SimpleFileOptions};
+
+    /// Build a publication whose stylesheet and image names contain a space, so
+    /// the package manifest stores them percent-encoded.
+    fn encoded_resource_publication() -> Vec<u8> {
+        let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+        fn write(archive: &mut ZipWriter<Cursor<Vec<u8>>>, path: &str, text: &str) {
+            archive
+                .start_file(path, SimpleFileOptions::default())
+                .unwrap();
+            archive.write_all(text.as_bytes()).unwrap();
+        }
+        fn write_bytes(archive: &mut ZipWriter<Cursor<Vec<u8>>>, path: &str, bytes: &[u8]) {
+            archive
+                .start_file(path, SimpleFileOptions::default())
+                .unwrap();
+            archive.write_all(bytes).unwrap();
+        }
+        write(&mut archive, "mimetype", "application/epub+zip");
+        write(
+            &mut archive,
+            "META-INF/container.xml",
+            r#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#,
+        );
+        write(
+            &mut archive,
+            "OEBPS/content.opf",
+            r#"<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="bookid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="bookid">breeze-encoded-fixture</dc:identifier><dc:title>Encoded resources</dc:title><dc:language>zh</dc:language><meta property="dcterms:modified">2026-10-15T00:00:00Z</meta></metadata><manifest><item id="ch" href="ch1.xhtml" media-type="application/xhtml+xml"/><item id="css" href="Styles/main%20sheet.css" media-type="text/css"/><item id="img" href="Images/cover%20art.png" media-type="image/png"/><item id="extra" href="fonts/Body.otf" media-type="application/vnd.ms-opentype"/></manifest><spine><itemref idref="ch"/></spine></package>"#,
+        );
+        write(
+            &mut archive,
+            "OEBPS/Styles/main sheet.css",
+            "@font-face { font-family: Body; src: url('../fonts/Body.otf'); } p { color: #c02020; } @import \"extra.css\"; body { background-image: url('../Images/cover%20art.png'); }",
+        );
+        // An at-imported stylesheet and an undeclared font: both are real files
+        // the chapter needs, and neither may be dropped.
+        write(
+            &mut archive,
+            "OEBPS/Styles/extra.css",
+            "h1 { margin: 30px 0; }",
+        );
+        write(
+            &mut archive,
+            "OEBPS/fonts/Body.otf",
+            "not a real font, but a declared resource",
+        );
+        write_bytes(&mut archive, "OEBPS/Images/cover art.png", &[0u8; 8]);
+        write(
+            &mut archive,
+            "OEBPS/ch1.xhtml",
+            r#"<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Chapter</title><link rel="stylesheet" type="text/css" href="Styles/main%20sheet.css"/></head><body><p style="background-image: url('Images/cover%20art.png')">Styled paragraph</p></body></html>"#,
+        );
+        archive.finish().unwrap().into_inner()
+    }
+
+    fn packaged(publication: Vec<u8>) -> Vec<String> {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("fixture.epub");
+        std::fs::write(&path, &publication).unwrap();
+        let book = Book::open(&path).unwrap();
+        let bytes = chapter_epub(&book, 0).unwrap();
+        let archive = ZipArchive::new(Cursor::new(bytes)).unwrap();
+        (0..archive.len())
+            .map(|index| archive.name_for_index(index).unwrap().unwrap().into_owned())
+            .collect()
+    }
+
+    #[test]
+    fn encoded_references_keep_their_stylesheets_images_and_fonts() {
+        let names = packaged(encoded_resource_publication());
+        for expected in [
+            "OEBPS/Styles/main sheet.css",
+            "OEBPS/Styles/extra.css",
+            "OEBPS/Images/cover art.png",
+            "OEBPS/fonts/Body.otf",
+        ] {
+            assert!(
+                names.iter().any(|name| name == expected),
+                "{expected} was dropped from the chapter package; entries: {names:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn undeclared_but_present_assets_are_still_packaged() {
+        // Remove the image from the manifest while keeping the file: the
+        // stylesheet still references it, so the chapter needs it.
+        let publication = remove_manifest_item(encoded_resource_publication(), "img");
+        let names = packaged(publication);
+        assert!(
+            names
+                .iter()
+                .any(|name| name == "OEBPS/Images/cover art.png"),
+            "an undeclared asset was dropped; entries: {names:?}"
+        );
+    }
+
+    /// Rewrite the OPF inside the archive, dropping one manifest item.
+    fn remove_manifest_item(publication: Vec<u8>, id: &str) -> Vec<u8> {
+        let mut archive = ZipArchive::new(Cursor::new(publication)).unwrap();
+        let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+        for index in 0..archive.len() {
+            let mut entry = archive.by_index(index).unwrap();
+            let name = entry.name().unwrap().into_owned();
+            let mut bytes = Vec::new();
+            entry.read_to_end(&mut bytes).unwrap();
+            if name == "OEBPS/content.opf" {
+                let text = String::from_utf8(bytes).unwrap();
+                let marker = format!(r#"<item id="{id}" href="#);
+                let start = text.find(&marker).unwrap();
+                let end = text[start..].find("/>").unwrap() + start + 2;
+                bytes = text.replacen(&text[start..end], "", 1).into_bytes();
+            }
+            files.push((name, bytes));
+        }
+        let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, bytes) in files {
+            writer
+                .start_file(name, SimpleFileOptions::default())
+                .unwrap();
+            writer.write_all(&bytes).unwrap();
+        }
+        writer.finish().unwrap().into_inner()
+    }
 }

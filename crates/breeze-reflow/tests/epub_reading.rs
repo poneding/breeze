@@ -103,3 +103,47 @@ fn encrypted_and_unsafe_packages_are_rejected_before_layout() {
         );
     }
 }
+
+/// A page delta must move that many pages: the reader turns several pages when a
+/// fast flick crosses more than one, and treating the delta as a mere direction
+/// silently dropped the rest.
+#[test]
+fn page_delta_moves_the_requested_number_of_pages() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("book.epub");
+    std::fs::write(&path, common::publication(1, 60)).unwrap();
+    let mut book = Book::open(&path).unwrap();
+    let mut request = Request {
+        path: path.clone(),
+        location: EpubLocation::default(),
+        width: 600.,
+        height: 800.,
+        scale: 1.,
+        font_size: 18.,
+        turn: 0,
+        scroll: 0.,
+        find: None,
+    };
+    let first = book.render(&request).unwrap();
+    assert!(
+        first.chapter_pages >= 4,
+        "the fixture needs several pages, got {}",
+        first.chapter_pages
+    );
+    request.location = first.location.clone();
+    request.turn = 1;
+    let one = book.render(&request).unwrap();
+    assert_eq!(one.chapter_page, 1);
+    request.location = first.location.clone();
+    request.turn = 3;
+    let three = book.render(&request).unwrap();
+    assert_eq!(
+        three.chapter_page, 3,
+        "a three-page delta moved to page {}",
+        three.chapter_page
+    );
+    request.location = three.location.clone();
+    request.turn = -2;
+    let back = book.render(&request).unwrap();
+    assert_eq!(back.chapter_page, 1);
+}

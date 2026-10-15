@@ -1141,3 +1141,51 @@ with three ignored, and every PDF integration suite) and all-target Clippy with
 warnings denied pass in the working checkout. Native visual inspection of the
 colours was not performed because this session lacks Screen Recording permission.
 Windows/Linux native checks remain open.
+
+## October 15 EPUB chapter resources and page-turn latency
+
+EPUB reading had two real defects behind the reported "sparse, broken layout"
+and "slow page turns".
+
+Layout: the adapter repackages each chapter as a temporary publication for
+MuPDF, and resolved a reference by comparing its percent-encoded URL path against
+the package manifest's decoded hrefs. Any stylesheet, image or font whose name
+contained a space or a non-ASCII character — the ordinary case, because editors
+write `my%20shot.jpg` — was therefore dropped. A resource the manifest did not
+declare was dropped too, as were at-imported stylesheets and `url(...)` inside a
+`style` attribute. The chapter consequently reached the layout engine with no CSS
+at all, which is exactly what a sparse, disordered page looks like. Lookups now
+decode first, fall back to the archive for undeclared files, infer a media type
+from the extension, follow `@import` and `@font-face`, scan style attributes, and
+carry the publication's language and page-progression-direction into the
+generated package.
+
+Latency: three separate costs. Every wheel event launched its own full-page
+render, so a single trackpad swipe superseded itself dozens of times; scrolling
+now accumulates until a third of a viewport has been crossed and requests one
+turn (the magnitude is honoured, so a fast flick still crosses several pages).
+Each delivered frame copied ten megabytes of pixels on the UI thread to build the
+texture; the buffer is now owned and moved. And every turn waited for a fresh
+rasterization of the whole page; the worker now keeps a four-page, 96 MiB raster
+cache and prefetches the next page after a frame is shown.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --offline` (app
+suite 173 passed, 16 core, 30 PDF with three ignored, 6 reflow unit, 5 reflow
+integration, and the remaining suites) and `cargo clippy --workspace
+--all-targets --offline -- -D warnings` pass.
+`encoded_references_keep_their_stylesheets_images_and_fonts` and
+`undeclared_but_present_assets_are_still_packaged` assert the packaged chapter
+contains a percent-encoded stylesheet, its `@import`, a percent-encoded image
+reachable from both a `link` and a `style` attribute, and an `@font-face` source;
+`page_delta_moves_the_requested_number_of_pages` pins that a delta is a count, not
+a direction; `epub_wheel_turns_pages_without_a_render_per_event` asserts a partial
+scroll launches no render and a full page of scrolling advances exactly one page.
+Release probe, Apple M1 Pro, macOS 15.8.1, 600×800 viewport at scale 2, font 18,
+100-chapter authored fixture: first open 303 ms; warm page (cached layout,
+re-rasterized) p50 60 ms, p95 69 ms; a chapter holds 7 pages at about 1035
+characters per page; a prefetched page turn returns in p95 0.26 ms where an
+unprefetched one waits p95 63 ms. The app was launched against an isolated
+`BREEZE_DATA_DIR` with a six-chapter Chinese fixture whose stylesheet name
+contains a space and stayed running; the rendered page was not inspected visually
+because this session lacks Screen Recording permission. Windows/Linux native
+checks remain open.

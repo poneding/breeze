@@ -51,7 +51,8 @@ pub(super) struct ReflowView {
     task: Option<Task<()>>,
     request: Option<epub::Request>,
     viewport: (f32, f32, f32),
-    epoch: u64,
+    /// Render generation, so a stale worker result can be discarded.
+    pub epoch: u64,
     queued: bool,
     pub hits: Vec<(String, usize, String)>,
     pub images: reflow_images::Images,
@@ -64,6 +65,8 @@ pub(super) struct ReflowView {
     /// Block index at the top of the Markdown view, kept from the list's own
     /// scroll reports so rendering never re-borrows the list.
     pub active_block: usize,
+    /// Wheel distance not yet worth a page turn, in logical pixels.
+    scroll_accum: f32,
 }
 
 impl Default for ReflowView {
@@ -88,6 +91,7 @@ impl Default for ReflowView {
             outline_scroll: UniformListScrollHandle::new(),
             outline_search: None,
             active_block: 0,
+            scroll_accum: 0.,
         }
     }
 }
@@ -115,6 +119,7 @@ impl ReflowView {
         self.outline_scroll = UniformListScrollHandle::new();
         self.outline_search = None;
         self.active_block = 0;
+        self.scroll_accum = 0.;
         self.worker = None;
         self.images.clear(cx);
         if let Some(image) = self.image.take() {
@@ -322,7 +327,7 @@ impl Breeze {
                 row()
                     .id("document-panel-header")
                     .test_support()
-                    .h(px(38.))
+                    .h(px(style::TOOLBAR_HEIGHT))
                     .flex_shrink_0()
                     .px_2()
                     .border_b_1()
@@ -514,11 +519,13 @@ impl Breeze {
                     .map_err(anyhow::Error::from)
                     .and_then(|result| result)
                 {
-                    Ok(frame) => {
+                    Ok(mut frame) => {
+                        // The buffer is moved into the texture: copying the page
+                        // on the UI thread is what made a turn stutter.
                         match texture(Pixels {
                             width: frame.width,
                             height: frame.height,
-                            bgra: frame.bgra.as_ref().clone(),
+                            bgra: std::mem::take(&mut frame.bgra),
                         }) {
                             Ok(image) => {
                                 if let Some(old) = this.reflow.image.replace(image) {
@@ -540,7 +547,9 @@ impl Breeze {
                                         .collect(),
                                 );
                                 this.reflow.frame = Some(frame);
+                                this.reflow.scroll_accum = 0.;
                                 this.message.clear();
+                                this.prefetch_epub(cx);
                             }
                             Err(error) => this.message = format!("{error:#}"),
                         }
@@ -589,6 +598,32 @@ impl Breeze {
     /// Remember the current position after a command moved the list.
     ///
     /// Commands run outside Kit's scroll dispatch, so this may read the list.
+    /// Prepare the next page while the reader looks at this one, so a turn
+    /// hands over a raster that already exists.
+    fn prefetch_epub(&mut self, cx: &mut Context<Self>) {
+        if self.books[self.active].format() != Some(DocumentFormat::Epub) {
+            return;
+        }
+        let Source::File(path) = &self.books[self.active].source else {
+            return;
+        };
+        let Some(worker) = &self.reflow.worker else {
+            return;
+        };
+        // The stored request already carries the viewport and text size the
+        // frame on screen was produced with, so the prefetch matches it exactly.
+        let mut next = match &self.reflow.request {
+            Some(request) => request.clone(),
+            None => return,
+        };
+        next.path = path.clone();
+        next.turn = 1;
+        next.scroll = 0.;
+        next.find = None;
+        let _ = worker.prefetch(next);
+        let _ = cx;
+    }
+
     fn remember_markdown_position(&mut self, cx: &mut Context<Self>) {
         let top = self.reflow.list.logical_scroll_top();
         let at_end = self.reflow.list.is_scrolled_to_end() == Some(true);
@@ -656,7 +691,7 @@ impl Breeze {
                 row()
                     .id("reader-toolbar")
                     .test_support()
-                    .h(px(38.))
+                    .h(px(style::TOOLBAR_HEIGHT))
                     .flex_shrink_0()
                     .px_2()
                     .gap_1()
@@ -1080,7 +1115,7 @@ impl Breeze {
                 row()
                     .id("navigation-header")
                     .test_support()
-                    .h(px(38.))
+                    .h(px(style::TOOLBAR_HEIGHT))
                     .flex_shrink_0()
                     .px(px(8.))
                     .border_b_1()
@@ -1310,8 +1345,28 @@ impl Breeze {
         if epub {
             content =
                 content.on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
+                    // A trackpad emits dozens of wheel events for one swipe.
+                    // Requesting a render for each of them re-laid out and
+                    // superseded the page continuously, so the accumulator only
+                    // turns a page when a whole viewport has been crossed.
                     let delta = event.delta.pixel_delta(px(20.));
-                    this.request_epub(0, -f32::from(delta.y), None, cx);
+                    // A third of a viewport per page: a mouse notch turns a page
+                    // after a few clicks, and a trackpad flick crosses one or two
+                    // without ever launching a render per event.
+                    let page = (this.reflow.viewport.1 / 3.).max(120.);
+                    this.reflow.scroll_accum -= f32::from(delta.y);
+                    let mut turn = 0i8;
+                    while this.reflow.scroll_accum >= page {
+                        this.reflow.scroll_accum -= page;
+                        turn = turn.saturating_add(1);
+                    }
+                    while this.reflow.scroll_accum <= -page {
+                        this.reflow.scroll_accum += page;
+                        turn = turn.saturating_sub(1);
+                    }
+                    if turn != 0 {
+                        this.request_epub(turn.clamp(-8, 8), 0., None, cx);
+                    }
                 }));
             if let Some(image) = &self.reflow.image {
                 content = content.child(

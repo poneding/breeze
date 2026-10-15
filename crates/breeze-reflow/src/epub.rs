@@ -68,7 +68,10 @@ pub struct Frame {
     pub chapter_pages: usize,
     pub width: u32,
     pub height: u32,
-    pub bgra: Arc<Vec<u8>>,
+    /// Premultiplied BGRA at the requested device scale. Owned rather than
+    /// shared so the UI thread can hand the buffer straight to the texture
+    /// instead of copying it once per page turn.
+    pub bgra: Vec<u8>,
     pub text: String,
     pub progress: f32,
     pub links: Vec<Link>,

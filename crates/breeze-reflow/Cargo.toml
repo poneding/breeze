@@ -21,6 +21,7 @@ zip = { version = "=9.0.1", default-features = false, features = ["deflate-flate
 
 [dev-dependencies]
 tempfile.workspace = true
+png = "0.18"
 
 [lints]
 workspace = true
