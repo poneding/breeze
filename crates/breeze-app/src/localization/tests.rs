@@ -89,7 +89,7 @@ fn language_select_changes_chrome_and_preserves_content(cx: &mut TestAppContext)
         });
         window.render_frame(cx);
         assert_eq!(window.within("nav-tabs").find(0usize).label(), Some("縮圖"));
-        assert_eq!(window.find("reader-toolbar").bounds().size.height, px(38.));
+        assert_eq!(window.find("reader-toolbar").bounds().size.height, px(32.));
         assert_eq!(window.find("status-scroll").bounds().size.height, px(32.));
         view.update(cx, |view, cx| {
             view.language = i18n::LanguagePreference::SimplifiedChinese as usize;

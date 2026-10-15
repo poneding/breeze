@@ -96,7 +96,7 @@ impl Breeze {
                 row()
                     .id("document-panel-header")
                     .test_support()
-                    .h(px(38.))
+                    .h(px(style::TOOLBAR_HEIGHT))
                     .flex_shrink_0()
                     .px_2()
                     .border_b_1()

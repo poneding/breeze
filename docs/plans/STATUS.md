@@ -1,5 +1,26 @@
 # Delivery Status
 
+## October 15 reader toolbar matches the status bar at 32 px
+
+The reader toolbar and the navigation and document-panel headers that align with
+it were 38 px while the status bar was 32 px, so the two horizontal control rows
+that bound the document had different heights. `style::TOOLBAR_HEIGHT` now holds
+32 px and the three headers, and both status bars, read that one constant.
+
+The reading viewport and the fit-to-document window policy subtract the same
+constant, so page geometry follows the shorter chrome instead of leaving a 6 px
+gap at the bottom of a fitted page. Component tests assert the toolbar, both
+headers and the status bar at 32 px in the PDF and reflow readers.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked`
+(173 app, 16 core, 30 PDF with three ignored, and the remaining suites) and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. A native
+run against an isolated `BREEZE_DATA_DIR` confirmed 32 px for the content
+toolbar and the 32 px status bar in both the PDF and Markdown readers: the
+toolbar's bottom border sits 32 pt below the title bar's, and the status bar's
+top border 32 pt above the window's bottom edge. Windows and Linux native checks
+remain open.
+
 ## October 15 macOS traffic-light fullscreen
 
 Reported on macOS: entering fullscreen with the green traffic light removed the

@@ -97,7 +97,7 @@ impl Breeze {
             .w_full()
             .child(
                 row()
-                    .h(px(38.))
+                    .h(px(style::TOOLBAR_HEIGHT))
                     .w_full()
                     .flex_shrink_0()
                     .px_1()

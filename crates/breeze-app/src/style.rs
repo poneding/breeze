@@ -38,6 +38,10 @@ pub fn apply(config: &Rc<ThemeConfig>, cx: &mut App) {
         theme.radius_lg = px(7.);
     });
 }
+/// Height of the reader toolbar and of the navigation and document-panel
+/// headers aligned with it. Kept equal to the status bar so the reading chrome
+/// keeps a single control density.
+pub const TOOLBAR_HEIGHT: f32 = 32.;
 /// The hover fill every ghost-style control shares: the theme accent, softened
 /// in dark mode exactly as Kit softens its own ghost-button hover. List rows
 /// reuse it instead of a list-specific fill so a row and a button read alike.

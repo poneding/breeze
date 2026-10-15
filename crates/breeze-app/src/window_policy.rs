@@ -30,7 +30,10 @@ fn calculate(
                 return Change::None;
             }
             let available = ((space.0 - 64.).max(1.), (space.1 - 96.).max(1.));
-            let chrome = (sidebar + properties + 24., 34. + 38. + 32. + 24.);
+            let chrome = (
+                sidebar + properties + 24.,
+                34. + style::TOOLBAR_HEIGHT + 32. + 24.,
+            );
             let scale = ((available.0 - chrome.0) / page.0)
                 .min((available.1 - chrome.1) / page.1)
                 .clamp(0.1, 96. / 72.);

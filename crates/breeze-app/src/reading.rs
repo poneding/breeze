@@ -1103,7 +1103,7 @@ impl Breeze {
             }
             - self.document_panel.width())
         .max(100.);
-        let height = (f32::from(viewport.height) - 34. - 38. - 32.).max(100.);
+        let height = (f32::from(viewport.height) - 34. - style::TOOLBAR_HEIGHT - 32.).max(100.);
         (width, height)
     }
     pub(super) fn page_display_scale(&self, page: usize, window: &Window) -> f32 {
@@ -1628,7 +1628,7 @@ mod tests {
             let search = window.find("outline-search").bounds();
             let more = window.find("outline-more").bounds();
             let collapse = window.find("collapse").bounds();
-            assert_eq!(header.size.height, px(38.));
+            assert_eq!(header.size.height, px(32.));
             assert!((view.read(cx).navigation_width - reader::NAVIGATION_MIN_WIDTH).abs() < 1.);
             assert!(header.right() <= window.find("navigation-content").bounds().right());
             assert!(collapse.left() - header.left() < px(12.));
