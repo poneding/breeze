@@ -45,4 +45,8 @@ cat > "$bundle/Contents/Info.plist" <<'PLIST'
 </dict></array>
 </dict></plist>
 PLIST
+# IconServices caches an application icon against the bundle's own modification
+# date, so a bundle rebuilt in place keeps showing the previous artwork in the
+# Dock and in Finder until the bundle root is touched again.
+touch "$bundle"
 printf 'Local review bundle: %s\n' "$bundle"
