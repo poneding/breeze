@@ -336,10 +336,28 @@ fn chapter_epub(book: &Book, chapter: usize) -> Result<Vec<u8>> {
     Ok(writer.finish()?.into_inner())
 }
 
+/// Pages a frame shows side by side: one, or a facing pair in two-page mode.
+fn columns(request: &Request) -> usize {
+    if request.spread { 2 } else { 1 }
+}
+
+/// One page of the chapter. Two-page reading paginates at half the viewport so
+/// the pair fills the content area and the combined raster keeps the same pixel
+/// budget as a single page.
+fn column_width(request: &Request) -> f32 {
+    request.width / columns(request) as f32
+}
+
+/// Reading steps a chapter holds: one per page, or one per facing pair.
+fn units(pages: usize, columns: usize) -> usize {
+    pages.div_ceil(columns)
+}
+
 fn prepare(book: &mut Book, request: &Request, chapter: usize) -> Result<()> {
+    let width = column_width(request);
     if book.layout.as_ref().is_some_and(|state| {
         state.chapter == chapter
-            && state.width == request.width
+            && state.width == width
             && state.height == request.height
             && state.font_size == request.font_size
     }) {
@@ -353,7 +371,7 @@ fn prepare(book: &mut Book, request: &Request, chapter: usize) -> Result<()> {
         "Encrypted or non-reflowable EPUB is not supported"
     );
     let mut document = document;
-    document.layout(request.width, request.height, request.font_size)?;
+    document.layout(width, request.height, request.font_size)?;
     let pages = usize::try_from(document.page_count()?)?;
     ensure!(
         (1..=20_000).contains(&pages),
@@ -361,7 +379,7 @@ fn prepare(book: &mut Book, request: &Request, chapter: usize) -> Result<()> {
     );
     book.layout = Some(ChapterLayout {
         chapter,
-        width: request.width,
+        width,
         height: request.height,
         font_size: request.font_size,
         document,
@@ -370,94 +388,37 @@ fn prepare(book: &mut Book, request: &Request, chapter: usize) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
-    ensure!(
-        request.location.progression.is_finite()
-            && (0.0..=1.0).contains(&request.location.progression),
-        "Invalid EPUB reading position"
-    );
-    ensure!(
-        (240.0..=4096.).contains(&request.width)
-            && (200.0..=4096.).contains(&request.height)
-            && (0.5..=4.).contains(&request.scale)
-            && (12.0..=32.).contains(&request.font_size)
-            && request.scroll.is_finite(),
-        "Unsupported EPUB viewport or text size"
-    );
-    let href = request.location.href.split('#').next().unwrap_or_default();
-    let mut chapter = book
-        .metadata
-        .chapters
-        .iter()
-        .position(|entry| entry.href == href)
-        .unwrap_or(0);
-    prepare(book, request, chapter)?;
-    // `turn` is a page delta, not a direction: one fast flick can cross
-    // several pages.
-    let mut target = (book
+fn layout_pages(book: &Book) -> Result<usize> {
+    Ok(book
         .layout
         .as_ref()
         .context("EPUB layout unavailable")?
-        .pages
-        .saturating_sub(1)) as f32
-        * request.location.progression
-        + f32::from(request.turn)
-        + request.scroll / request.height;
-    let current_pages = book
-        .layout
-        .as_ref()
-        .context("EPUB layout unavailable")?
-        .pages;
-    if target < 0. && chapter > 0 {
-        chapter -= 1;
-        prepare(book, request, chapter)?;
-        target += book
-            .layout
-            .as_ref()
-            .context("Previous EPUB chapter is unavailable")?
-            .pages as f32;
-    } else if target >= current_pages as f32 && chapter + 1 < book.metadata.chapters.len() {
-        chapter += 1;
-        prepare(book, request, chapter)?;
-        target -= current_pages as f32;
-    }
-    let state = book.layout.as_ref().context("EPUB layout unavailable")?;
-    target = target.clamp(0., state.pages.saturating_sub(1) as f32);
-    let mut page = target.round() as usize;
-    if let Some(query) = &request.find {
-        ensure!(
-            !query.is_empty() && query.len() <= 256,
-            "Invalid EPUB search term"
-        );
-        for candidate in 0..state.pages {
-            let text = state
-                .document
-                .load_page(candidate as i32)?
-                .to_text_page(TextPageFlags::empty())?
-                .to_text()?;
-            if text.to_lowercase().contains(&query.to_lowercase()) {
-                page = candidate;
-                target = candidate as f32;
-                break;
-            }
-        }
-    }
-    let native = state.document.load_page(i32::try_from(page)?)?;
-    // Opaque, so an unpainted area is the publication's own white background
-    // and the UI never has to composite a premultiplied transparent page.
-    let pixmap = native.to_pixmap(
-        &Matrix::new_scale(request.scale, request.scale),
+        .pages)
+}
+
+/// One page rasterized at the requested device scale, as opaque BGRA.
+struct Raster {
+    width: u32,
+    height: u32,
+    bgra: Vec<u8>,
+}
+
+/// The page is rendered opaque: device RGB yields three channels, and the
+/// texture needs BGRA, so the alpha byte is added here rather than making the
+/// page premultiplied and transparent.
+fn raster(page: &mupdf::Page, scale: f32) -> Result<Raster> {
+    let pixmap = page.to_pixmap(
+        &Matrix::new_scale(scale, scale),
         &Colorspace::device_rgb(),
         false,
         true,
     )?;
     let width = pixmap.width();
     let height = pixmap.height();
-    let pixels = u64::from(width) * u64::from(height);
-    ensure!(pixels <= MAX_PIXELS, "EPUB raster exceeds its limit");
-    // The page is rendered opaque: device RGB yields three channels, and the
-    // texture needs BGRA, so the alpha byte is added here rather than making the
-    // page premultiplied and transparent.
+    ensure!(
+        u64::from(width) * u64::from(height) <= MAX_PIXELS,
+        "EPUB raster exceeds its limit"
+    );
     let mut bgra = Vec::with_capacity(width as usize * height as usize * 4);
     match pixmap.n() {
         3 => {
@@ -481,28 +442,170 @@ pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
         }
         channels => anyhow::bail!("Unexpected EPUB raster channel count {channels}"),
     }
-    let text = native.to_text_page(TextPageFlags::empty())?.to_text()?;
-    let links = native
-        .links()?
-        .take(4096)
-        .map(|link| Link {
-            bounds: [
-                link.bounds.x0,
-                link.bounds.y0,
-                link.bounds.x1,
-                link.bounds.y1,
-            ],
-            href: link.uri,
-        })
-        .collect();
-    let count = state.pages;
-    let progression = if count > 1 {
-        target / (count - 1) as f32
+    Ok(Raster {
+        width,
+        height,
+        bgra,
+    })
+}
+
+/// Place one page inside a wider spread buffer at `offset_x`.
+fn blit(dst: &mut [u8], dst_width: u32, offset_x: u32, page: &Raster) {
+    let row_bytes = page.width as usize * 4;
+    let dst_stride = dst_width as usize * 4;
+    let offset = offset_x as usize * 4;
+    for row in 0..page.height as usize {
+        let source = &page.bgra[row * row_bytes..(row + 1) * row_bytes];
+        let start = row * dst_stride + offset;
+        dst[start..start + row_bytes].copy_from_slice(source);
+    }
+}
+
+/// The requested page, or that page and its facing page on white ground.
+///
+/// The pair shares one texture so a turn still hands the reader a single raster.
+/// Pages laid out by the same reflow document share their size, but a differing
+/// height is padded rather than allowed to leave a transparent band.
+fn spread_buffer(pages: Vec<Raster>) -> Result<(u32, u32, Vec<u8>)> {
+    let mut iter = pages.into_iter();
+    let Some(first) = iter.next() else {
+        anyhow::bail!("EPUB page is missing");
+    };
+    let Some(second) = iter.next() else {
+        return Ok((first.width, first.height, first.bgra));
+    };
+    let width = first.width + second.width;
+    let height = first.height.max(second.height);
+    ensure!(
+        u64::from(width) * u64::from(height) <= MAX_PIXELS,
+        "EPUB raster exceeds its limit"
+    );
+    // The publication's own page background is white, so the gutter is white
+    // too and never composites as a transparent or black band.
+    let mut bgra = vec![255u8; width as usize * height as usize * 4];
+    blit(&mut bgra, width, 0, &first);
+    blit(&mut bgra, width, first.width, &second);
+    Ok((width, height, bgra))
+}
+
+pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
+    ensure!(
+        request.location.progression.is_finite()
+            && (0.0..=1.0).contains(&request.location.progression),
+        "Invalid EPUB reading position"
+    );
+    ensure!(
+        (240.0..=4096.).contains(&request.width)
+            && (200.0..=4096.).contains(&request.height)
+            && (0.5..=4.).contains(&request.scale)
+            && (12.0..=32.).contains(&request.font_size)
+            && request.scroll.is_finite()
+            && column_width(request).is_finite(),
+        "Unsupported EPUB viewport or text size"
+    );
+    let columns = columns(request);
+    let href = request.location.href.split('#').next().unwrap_or_default();
+    let mut chapter = book
+        .metadata
+        .chapters
+        .iter()
+        .position(|entry| entry.href == href)
+        .unwrap_or(0);
+    prepare(book, request, chapter)?;
+    let mut pages = layout_pages(book)?;
+    let mut count = units(pages, columns);
+    // `turn` is a step delta, not a direction: one fast flick can cross several
+    // pages or spreads. The location names a page, so it is divided back into
+    // steps and, in two-page mode, snapped to the start of a spread before the
+    // delta applies. A location saved while single pages were laid out can
+    // otherwise name the second page of a face.
+    let mut target = (pages.saturating_sub(1) as f32 * request.location.progression
+        + request.scroll / request.height)
+        / columns as f32;
+    if columns > 1 {
+        target = target.floor();
+    }
+    target += f32::from(request.turn);
+    if target < 0. && chapter > 0 {
+        chapter -= 1;
+        prepare(book, request, chapter)?;
+        pages = layout_pages(book)?;
+        count = units(pages, columns);
+        target += count as f32;
+    } else if target >= count as f32 && chapter + 1 < book.metadata.chapters.len() {
+        target -= count as f32;
+        chapter += 1;
+        prepare(book, request, chapter)?;
+        pages = layout_pages(book)?;
+        count = units(pages, columns);
+    }
+    let target = target.clamp(0., count.saturating_sub(1) as f32).round();
+    let mut page = (target as usize * columns).min(pages.saturating_sub(1));
+    if let Some(query) = &request.find {
+        ensure!(
+            !query.is_empty() && query.len() <= 256,
+            "Invalid EPUB search term"
+        );
+        let document = &book
+            .layout
+            .as_ref()
+            .context("EPUB layout unavailable")?
+            .document;
+        for candidate in 0..pages {
+            let text = document
+                .load_page(candidate as i32)?
+                .to_text_page(TextPageFlags::empty())?
+                .to_text()?;
+            if text.to_lowercase().contains(&query.to_lowercase()) {
+                page = candidate / columns * columns;
+                break;
+            }
+        }
+    }
+    let document = &book
+        .layout
+        .as_ref()
+        .context("EPUB layout unavailable")?
+        .document;
+    let mut rasters = Vec::with_capacity(columns);
+    let mut text = String::new();
+    let mut links = Vec::new();
+    // Bounds of the next page are offset by the width of the pages before it, so
+    // a link in the right half keeps its position in the combined raster.
+    let mut left_points = 0f32;
+    for offset in 0..columns {
+        let index = page + offset;
+        if index >= pages {
+            break;
+        }
+        let native = document.load_page(i32::try_from(index)?)?;
+        if offset > 0 {
+            text.push('\n');
+        }
+        text.push_str(&native.to_text_page(TextPageFlags::empty())?.to_text()?);
+        for link in native.links()?.take(4096) {
+            links.push(Link {
+                bounds: [
+                    link.bounds.x0 + left_points,
+                    link.bounds.y0,
+                    link.bounds.x1 + left_points,
+                    link.bounds.y1,
+                ],
+                href: link.uri,
+            });
+        }
+        left_points += native.bounds()?.width();
+        rasters.push(raster(&native, request.scale)?);
+    }
+    let (width, height, bgra) = spread_buffer(rasters)?;
+    let progression = if pages > 1 {
+        page as f32 / (pages - 1) as f32
     } else {
         0.
     };
-    let progress =
-        (chapter as f32 + (page as f32 + 1.) / count as f32) / book.metadata.chapters.len() as f32;
+    let progress = (chapter as f32
+        + (page as f32 + columns.min(pages - page) as f32) / pages as f32)
+        / book.metadata.chapters.len() as f32;
     Ok(Frame {
         metadata: book.metadata.clone(),
         location: EpubLocation {
@@ -511,15 +614,16 @@ pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
         },
         chapter,
         chapter_page: page,
-        chapter_pages: count,
+        chapter_pages: pages,
+        columns,
         width,
         height,
         bgra,
         text,
         progress,
         links,
-        scroll_offset: target,
-        scroll_extent: count.saturating_sub(1) as f32,
+        scroll_offset: page as f32,
+        scroll_extent: pages.saturating_sub(1) as f32,
     })
 }
 

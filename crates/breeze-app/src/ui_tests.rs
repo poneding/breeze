@@ -3271,6 +3271,156 @@ fn rapid_page_clicks_all_land(cx: &mut TestAppContext) {
 /// columns-2 button re-paginates the chapter at half the content width, fills
 /// the area with a facing pair, keeps its selected look while the spread is on,
 /// and turns by spreads instead of single pages.
+#[gpui_kit::test]
+fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("spread.epub");
+    std::fs::write(&path, epub_multi_chapter_fixture(1, 80)).unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "spread.epub".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+
+    // Opening starts from a placeholder viewport; wait for the frame the reader
+    // settles on so both readings are measured at one content size.
+    assert!(
+        wait_for_settled_epub(cx, handle, &view, |frame| frame.columns == 1),
+        "the EPUB never produced a settled single-page frame"
+    );
+    let single_text = cx
+        .update_window(handle, |_, _, cx| {
+            view.read(cx)
+                .reflow
+                .frame
+                .as_ref()
+                .map(|frame| frame.text.chars().count())
+        })
+        .unwrap()
+        .unwrap();
+
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        // The toggle belongs to the status bar and starts in single-page mode.
+        let status = window.find("reflow-status").bounds();
+        let toggle = window.find("reflow-spread").bounds();
+        assert!(
+            toggle.top() >= status.top() && toggle.bottom() <= status.bottom(),
+            "the two-page toggle {toggle:?} left the status bar {status:?}"
+        );
+        assert_eq!(window.find("reflow-spread").checked(), Some(false));
+        assert_eq!(
+            window.find("reflow-spread").label(),
+            Some(i18n::text("Two-page reading"))
+        );
+        assert!(!view.read(cx).books[0].reflow.spread);
+
+        window.click("reflow-spread", cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).books[0].reflow.spread);
+        assert_eq!(
+            window.find("reflow-spread").checked(),
+            Some(true),
+            "the toggle does not show that two-page reading is on"
+        );
+        assert_eq!(
+            window.find("reflow-spread").label(),
+            Some(i18n::text("Single-page reading"))
+        );
+    })
+    .unwrap();
+
+    assert!(
+        wait_for_settled_epub(cx, handle, &view, |frame| frame.columns == 2),
+        "the EPUB never produced a settled two-page frame"
+    );
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let view = view.read(cx);
+        let frame = view.reflow.frame.as_ref().unwrap();
+        assert_eq!(frame.chapter_page % 2, 0, "the spread started mid-pair");
+        // The pair is re-paginated at half the content width and arrives as one
+        // raster, so it fills the area instead of doubling it.
+        let content = window.find("reflow-viewport").bounds().size;
+        assert!(
+            (frame.width as f32 - f32::from(content.width) * window.scale_factor()).abs() <= 2.,
+            "the spread raster is {} px wide in a {} px area",
+            frame.width,
+            content.width
+        );
+        // Both facing pages were rendered, not the first one twice.
+        assert!(
+            frame.text.chars().count() > single_text,
+            "the spread carries {} characters, one page carries {single_text}",
+            frame.text.chars().count()
+        );
+        // The position reports the pair, not only its first page.
+        let position = window.find("reflow-position");
+        let position = position.label().unwrap_or_default().to_owned();
+        assert!(
+            position.starts_with(&format!("1\u{2013}2 / {}", frame.chapter_pages)),
+            "the position does not report the pair: {position}"
+        );
+
+        // Turning once advances a whole spread.
+        window.click("reflow-next", cx);
+    })
+    .unwrap();
+    assert!(
+        wait_for_epub(cx, handle, &view, |frame| frame.chapter_page >= 2),
+        "a turn in two-page mode did not advance a spread"
+    );
+
+    // Turning the spread off returns the reader to single pages.
+    cx.update_window(handle, |_, window, cx| {
+        window.click("reflow-spread", cx);
+        window.render_frame(cx);
+        assert!(!view.read(cx).books[0].reflow.spread);
+        assert_eq!(window.find("reflow-spread").checked(), Some(false));
+    })
+    .unwrap();
+    assert!(
+        wait_for_epub(cx, handle, &view, |frame| frame.columns == 1),
+        "the reader did not return to single pages"
+    );
+}
+
+/// Pump frames until the reader holds a frame rasterized at the content area the
+/// window currently shows. The first EPUB frame is laid out at a placeholder
+/// viewport, so a plain wait can observe a page the reader has already replaced.
+fn wait_for_settled_epub(
+    cx: &mut TestAppContext,
+    handle: AnyWindowHandle,
+    view: &Entity<Breeze>,
+    done: impl Fn(&breeze_reflow::epub::Frame) -> bool,
+) -> bool {
+    for _ in 0..80 {
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| window.render_frame(cx))
+            .unwrap();
+        let reached = cx
+            .update_window(handle, |_, window, cx| {
+                let content = window.find("reflow-viewport").bounds().size.width;
+                let expected = f32::from(content) * window.scale_factor();
+                view.read(cx)
+                    .reflow
+                    .frame
+                    .as_ref()
+                    .is_some_and(|frame| done(frame) && (frame.width as f32 - expected).abs() <= 2.)
+            })
+            .unwrap();
+        if reached {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    false
+}
+
 fn wait_for_epub(
     cx: &mut TestAppContext,
     handle: AnyWindowHandle,

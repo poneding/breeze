@@ -38,6 +38,7 @@ fn main() -> anyhow::Result<()> {
         turn: 0,
         scroll: 0.,
         find: None,
+        spread: false,
     };
     let start = Instant::now();
     let mut book = Book::open(&path)?;

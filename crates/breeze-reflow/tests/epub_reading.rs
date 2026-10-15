@@ -21,6 +21,7 @@ fn publication_navigation_reflow_pixels_and_source_integrity() {
         turn: 0,
         scroll: 0.,
         find: None,
+        spread: false,
     };
     let first = book.render(&request).unwrap();
     assert_eq!(first.chapter, 0);
@@ -123,6 +124,7 @@ fn page_delta_moves_the_requested_number_of_pages() {
         turn: 0,
         scroll: 0.,
         find: None,
+        spread: false,
     };
     let first = book.render(&request).unwrap();
     assert!(
@@ -148,6 +150,69 @@ fn page_delta_moves_the_requested_number_of_pages() {
     assert_eq!(back.chapter_page, 1);
 }
 
+/// Two-page reading paginates the chapter at half the viewport and returns the
+/// facing pair in one raster, so a single texture still covers a page turn. A
+/// turn then advances a whole spread rather than one page.
+#[test]
+fn two_page_reading_returns_a_facing_pair() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("spread.epub");
+    std::fs::write(&path, common::publication(1, 80)).unwrap();
+    let mut book = Book::open(&path).unwrap();
+    let mut request = Request {
+        path: path.clone(),
+        location: EpubLocation::default(),
+        width: 600.,
+        height: 800.,
+        scale: 1.,
+        font_size: 18.,
+        turn: 0,
+        scroll: 0.,
+        find: None,
+        spread: false,
+    };
+    let single = book.render(&request).unwrap();
+    request.spread = true;
+    let spread = book.render(&request).unwrap();
+    assert_eq!(spread.columns, 2);
+    assert_eq!(spread.chapter_page, 0);
+    assert!(spread.chapter_pages > 2, "the fixture needs several pages");
+    assert!(spread.text.contains("Chapter 0"));
+    // The pair fills the content area, so the combined raster keeps the
+    // single-page size instead of doubling it.
+    assert_eq!(spread.width, single.width);
+    assert_eq!(spread.height, single.height);
+    assert_eq!(
+        spread.bgra.len(),
+        spread.width as usize * spread.height as usize * 4
+    );
+    // Half the width holds one page, so the chapter needs at least as many
+    // pages as it did at the full width.
+    println!(
+        "single={} spread={}",
+        single.chapter_pages, spread.chapter_pages
+    );
+    assert!(
+        spread.chapter_pages >= single.chapter_pages,
+        "half-width pagination shrank the chapter from {} to {} pages",
+        single.chapter_pages,
+        spread.chapter_pages
+    );
+
+    request.location = spread.location.clone();
+    request.turn = 1;
+    let next = book.render(&request).unwrap();
+    assert_eq!(
+        next.chapter_page,
+        spread.chapter_page + 2,
+        "a turn moved one page instead of one spread"
+    );
+    assert_ne!(
+        next.text, spread.text,
+        "the second spread repeats the first"
+    );
+}
+
 /// Chinese prose must actually be drawn. Without a CJK font every Han character
 /// is a failed lookup: the page keeps only its Latin words and digits, and each
 /// lookup costs about a millisecond, which is what made an EPUB look sparse and
@@ -168,6 +233,7 @@ fn chinese_prose_is_drawn_with_its_own_stylesheet() {
         turn: 0,
         scroll: 0.,
         find: None,
+        spread: false,
     };
     let start = std::time::Instant::now();
     let frame = book.render(&request).unwrap();

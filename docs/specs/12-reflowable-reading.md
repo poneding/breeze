@@ -61,6 +61,14 @@ controls that need one are dropped.
 | Position | Page plus PDF view settings | Chapter href plus an in-chapter position | Source block/offset and scroll position |
 | Reading width | Not applicable | Not applicable; the page is laid out at the viewport | Centred maximum measure by default, toggleable to the full window |
 
+EPUB also reads as a two-page spread. The status bar's `columns-2` toggle is a
+view state, not a second renderer: it re-paginates the chapter at half the
+content width and shows the facing pair, so a turn advances a spread instead of a
+page and the pair fills the content area. Both pages share one raster, which
+keeps the pixel budget of a spread equal to that of a single page. A location is
+a fraction of the chapter, so toggling the spread preserves the reading position
+the way a viewport or text-size change does.
+
 The titlebar, 34 px content headers, 32 px status bar, panel sizing, library,
 categories, favorites and opening policies remain shared. Actions must be
 guarded at dispatch as well as hidden visually. PDF sidecars and export remain

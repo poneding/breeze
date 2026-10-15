@@ -509,6 +509,8 @@ impl Breeze {
             turn: step,
             scroll,
             find,
+            // Two-page reading is the document's own setting.
+            spread: self.books[self.active].reflow.spread,
         };
         if self.reflow.request.as_ref() == Some(&request) && self.reflow.task.is_some() {
             return;
@@ -672,6 +674,23 @@ impl Breeze {
         cx.notify();
     }
 
+    /// Two-page EPUB reading.
+    ///
+    /// The chapter is re-paginated at half the content width, so a toggle is a
+    /// new layout rather than a re-scale of the page already on screen. Only the
+    /// fraction read is preserved, exactly as when the viewport or text size
+    /// changes.
+    pub(super) fn toggle_reflow_spread(&mut self, cx: &mut Context<Self>) {
+        if self.books[self.active].format() != Some(DocumentFormat::Epub) {
+            return;
+        }
+        let spread = &mut self.books[self.active].reflow.spread;
+        *spread = !*spread;
+        self.reflow.scroll_accum = 0.;
+        self.request_epub(0, 0., None, cx);
+        cx.notify();
+    }
+
     pub(super) fn resize_reflow_text(&mut self, delta: i16, cx: &mut Context<Self>) {
         let current = &mut self.books[self.active].reflow.font_size;
         *current = (*current as i16 + delta).clamp(12, 32) as u8;
@@ -830,6 +849,34 @@ impl Breeze {
                                 )
                             }),
                     )
+                    .when(epub, |bar| {
+                        // Two-page reading is a view state: the button keeps the
+                        // pressed look while the spread is on.
+                        let spread = self.books[self.active].reflow.spread;
+                        bar.child(
+                            Button::new("reflow-spread")
+                                .ghost()
+                                .small()
+                                .icon(IconName::Columns2)
+                                // The pressed look and the toggle state are
+                                // separate in Kit: one paints, one is announced.
+                                .selected(spread)
+                                .toggled(spread)
+                                .accessibility_label(if spread {
+                                    tr!("Single-page reading")
+                                } else {
+                                    tr!("Two-page reading")
+                                })
+                                .tooltip(if spread {
+                                    tr!("Single-page reading")
+                                } else {
+                                    tr!("Two-page reading")
+                                })
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.toggle_reflow_spread(cx)),
+                                ),
+                        )
+                    })
                     .when(!epub, |bar| {
                         let full_width = self.books[self.active].reflow.full_width;
                         bar.child(
@@ -934,11 +981,13 @@ impl Breeze {
     /// keeps reporting its reading progress.
     fn reflow_position_text(&self) -> String {
         if let Some(frame) = &self.reflow.frame {
-            return format!(
-                "{} / {}",
-                frame.chapter_page + 1,
-                frame.chapter_pages
-            );
+            let left = frame.chapter_page + 1;
+            let right = (frame.chapter_page + frame.columns).min(frame.chapter_pages);
+            return if right > left {
+                format!("{left}\u{2013}{right} / {}", frame.chapter_pages)
+            } else {
+                format!("{left} / {}", frame.chapter_pages)
+            };
         }
         format!("{:.0}%", self.books[self.active].reflow.progress * 100.)
     }
@@ -951,7 +1000,7 @@ impl Breeze {
         };
         let first = frame.chapter == 0 && frame.chapter_page == 0;
         let last_chapter = frame.chapter + 1 == frame.metadata.chapters.len();
-        let last = last_chapter && frame.chapter_page + 1 >= frame.chapter_pages;
+        let last = last_chapter && frame.chapter_page + frame.columns >= frame.chapter_pages;
         (first, last)
     }
 

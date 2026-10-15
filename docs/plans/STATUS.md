@@ -1356,3 +1356,32 @@ status-bar button five times without waiting and requires the fifth page;
 reverting only the queue reproduces "five rapid clicks landed on chapter Some(1),
 not 5". The window was also driven directly: the tooltip reads "下一页 Page
 Down", the position reads `1 / 2`, and six rapid presses advanced six chapters.
+
+## October 16 EPUB two-page reading
+
+The EPUB reader can show a facing pair. The status bar's `columns-2` button is a
+view state — pressed while the spread is on, with a tooltip that names the
+opposite action — and the choice is stored per document in `ReflowState::spread`
+beside the text size, so it survives a reload and older snapshots still load with
+single-page reading.
+
+The page is not scaled down. With the toggle on, `breeze-reflow` paginates the
+chapter at half the content width and returns the two pages as one raster, so the
+pair fills the content area and the buffer keeps the single-page pixel budget. A
+turn then advances a spread instead of a page: `turn` counts steps, and a page
+location is snapped to the start of its pair before the delta applies, so a
+location saved in single-page mode does not open half way through a spread. The
+status bar reports the pair (`3–4 / 12`) and Next is disabled on the last spread,
+where the visible pages reach the end of the chapter.
+`two_page_reading_returns_a_facing_pair` asserts the combined raster, the even
+left page and a two-page turn in the adapter.
+`epub_two_page_reading_fills_the_content_area` drives the real window: it asserts
+the button is inside the status bar, checks the toggled state through
+accessibility metadata, and requires the settled spread raster to match the
+content width.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked` (app
+176 passed, 16 core, 30 PDF with three ignored, 6 reflow unit, 7 reflow
+integration, 7 storage, and the remaining suites) and `cargo clippy --workspace
+--all-targets --locked -- -D warnings` pass. Native visual inspection was not
+performed in this session, and Windows and Linux remain unverified.

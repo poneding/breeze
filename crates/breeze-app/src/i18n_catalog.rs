@@ -237,6 +237,8 @@ catalog! {
     "{} matching sections" => ("{} 个匹配章节", "{} 個符合章節"),
     "Decrease text size" => ("减小字号", "縮小字號"),
     "Increase text size" => ("增大字号", "放大字號"),
+    "Two-page reading" => ("双页阅读", "雙頁閱讀"),
+    "Single-page reading" => ("单页阅读", "單頁閱讀"),
     "Use the full window width" => ("切换为全宽", "切換為全寬"),
     "Use the maximum reading width" => ("切换为最佳阅读宽度", "切換為最佳閱讀寬度"),
     "Image unavailable" => ("图片无法显示", "圖片無法顯示"),

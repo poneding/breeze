@@ -68,6 +68,9 @@ pub struct ReflowState {
     /// Markdown only: read with the full window width instead of the readable
     /// maximum. EPUB ignores it; a reflowed page is laid out at the viewport.
     pub full_width: bool,
+    /// EPUB only: read two consecutive pages side by side. The chapter is
+    /// paginated at half the viewport width, so the pair fills the content area.
+    pub spread: bool,
 }
 
 impl Default for ReflowState {
@@ -79,6 +82,7 @@ impl Default for ReflowState {
             progress: 0.,
             font_size: 18,
             full_width: false,
+            spread: false,
         }
     }
 }

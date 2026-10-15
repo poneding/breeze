@@ -51,6 +51,9 @@ pub struct Request {
     pub turn: i8,
     pub scroll: f32,
     pub find: Option<String>,
+    /// Two consecutive pages side by side. The chapter is paginated at half the
+    /// viewport width, and a turn then advances a spread rather than a page.
+    pub spread: bool,
 }
 
 #[derive(Clone)]
@@ -66,6 +69,9 @@ pub struct Frame {
     pub chapter: usize,
     pub chapter_page: usize,
     pub chapter_pages: usize,
+    /// Pages the frame shows side by side: 1 for single-page reading, 2 for a
+    /// spread. `chapter_page` is the left page of the pair.
+    pub columns: usize,
     pub width: u32,
     pub height: u32,
     /// Premultiplied BGRA at the requested device scale. Owned rather than
