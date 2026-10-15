@@ -1775,6 +1775,44 @@ fn fullscreen_shows_only_the_document_and_leaves_on_escape_or_f11(cx: &mut TestA
     .unwrap();
 }
 
+/// The green traffic light fullscreens the window without going through the
+/// reader's own Fullscreen control. The reader has to follow the window, or it
+/// keeps drawing the title bar inside the fullscreen Space, where the title
+/// bar's double click asks AppKit to zoom and shrinks the fullscreen window.
+#[gpui_kit::test]
+fn native_fullscreen_adopts_document_only_reading(cx: &mut TestAppContext) {
+    let page = rendered_sample();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| seed_rendered_page(view, page));
+        window.render_frame(cx);
+        assert!(window.find("titlebar-content").visible());
+        // AppKit fullscreens the window and this reader sees the new bounds.
+        window.toggle_fullscreen();
+    })
+    .unwrap();
+    cx.simulate_window_resize(handle, size(px(1512.), px(982.)));
+    cx.update_window(handle, |_, window, cx| {
+        assert!(window.is_fullscreen());
+        assert!(view.read(cx).full_screen);
+        window.render_frame(cx);
+        for id in ["titlebar-content", "reader-toolbar", "status-scroll"] {
+            assert!(window.try_find(id).is_none(), "{id} must be hidden");
+        }
+        // Leaving fullscreen outside the app restores the reader chrome.
+        window.toggle_fullscreen();
+    })
+    .unwrap();
+    cx.simulate_window_resize(handle, size(px(1000.), px(700.)));
+    cx.update_window(handle, |_, window, cx| {
+        assert!(!view.read(cx).full_screen);
+        window.render_frame(cx);
+        assert!(window.find("titlebar-content").visible());
+        assert!(window.find("status-scroll").visible());
+    })
+    .unwrap();
+}
+
 #[gpui_kit::test]
 fn modified_wheel_zooms_without_scrolling_and_plain_wheel_still_scrolls(cx: &mut TestAppContext) {
     let page = rendered_sample();

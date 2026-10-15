@@ -254,6 +254,9 @@ impl Breeze {
         let category_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(tr!("Category name")));
         let window_bounds_observer = cx.observe_window_bounds(window, |this, window, cx| {
+            // The green traffic light fullscreens the window without an app
+            // command, so the layout follows the window's own state.
+            this.adopt_window_full_screen(window, cx);
             this.on_native_window_bounds(window, cx)
         });
         let navigation_split = cx.new(|_| ResizableState::default());
@@ -776,10 +779,25 @@ impl Breeze {
         if self.full_screen == on {
             return;
         }
-        self.full_screen = on;
         if window.is_fullscreen() != on {
             window.toggle_fullscreen();
         }
+        self.apply_full_screen(on, window, cx);
+    }
+    /// Adopts a fullscreen change the window made on its own, such as a click on
+    /// the green traffic light. The reader follows the window instead of only
+    /// its own command, so both entries leave the same document-only layout.
+    /// Keeping the custom title bar drawn inside a fullscreen window would
+    /// instead leave the title bar's double click to ask AppKit to zoom the
+    /// window, which shrinks it inside its own Space and exposes the desktop.
+    fn adopt_window_full_screen(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let on = window.is_fullscreen();
+        if on != self.full_screen {
+            self.apply_full_screen(on, window, cx);
+        }
+    }
+    fn apply_full_screen(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
+        self.full_screen = on;
         if on {
             // The controls that used to hold focus are gone; keep keys on the reader.
             window.focus(&self.focus, cx);

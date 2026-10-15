@@ -1,5 +1,6 @@
 //! Bindings are the single source of truth for command buttons and Kit's Kbd tooltips.
 use crate::*;
+use gpui_kit::base::InteractiveElementExt as _;
 use gpui_kit::component::{TitleBar, button::ButtonCustomVariant};
 
 pub fn bind(cx: &mut App) {
@@ -405,6 +406,17 @@ impl Breeze {
             .child(
                 row()
                     .id("titlebar-content")
+                    // Must stay ahead of `test_support`, like Kit's own
+                    // double-click handler, because it is a stateful element
+                    // method. Kit's title bar asks AppKit to zoom the window on
+                    // a double click; a fullscreen window already fills its
+                    // Space, so that zoom shrinks the window inside the Space
+                    // and exposes the desktop above and below it. macOS shows
+                    // no title bar in fullscreen to double click, so the
+                    // gesture does nothing there.
+                    .when(window.is_fullscreen(), |this| {
+                        this.on_double_click(|_, _, cx| cx.stop_propagation())
+                    })
                     .test_support()
                     // A zero basis prevents Kit's nonshrinking titlebar wrapper
                     // from requesting the tabs' combined intrinsic width.

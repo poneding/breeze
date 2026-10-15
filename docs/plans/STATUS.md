@@ -1,5 +1,50 @@
 # Delivery Status
 
+## October 15 macOS traffic-light fullscreen
+
+Reported on macOS: entering fullscreen with the green traffic light removed the
+only way back out with the pointer, because the traffic lights never reappeared
+when the pointer moved to the top of the screen; F11 was needed. A second
+double-click on the title bar then shrank the window, leaving a strip of the
+desktop above and below the page.
+
+Two causes, both measured on this checkout:
+
+- The reader followed only its own Fullscreen command. A window fullscreened by
+  AppKit left `Breeze::full_screen` false, so the reader kept drawing the title
+  bar inside a fullscreen window instead of the document-only immersive layout.
+- With that title bar present, its double click reached
+  `Window::titlebar_double_click`, which reads `AppleActionOnDoubleClick` and
+  calls AppKit's `_zoomFill:` (`Fill` on this machine) or `zoom:`. A probe built
+  against AppKit directly reproduced the shrink: a 1512×945 fullscreen window
+  became 1512×891 at y=53 inside a 1512×982 Space, which is the desktop strip the
+  user saw. A real fullscreen window in a stock macOS application does not have a
+  title bar to double click.
+
+The reader now adopts the window's own fullscreen state from its existing bounds
+observer, so the green traffic light and the status-bar control leave the same
+document-only layout and the same exits (Escape, F11, and the green light). The
+title bar ignores a double click while the window is fullscreen, which covers
+Home, where chrome stays visible.
+
+Verification: `cargo fmt --all -- --check`, the full workspace suite (163 app,
+14 core, 30 PDF plus 3 ignored probes, 8 PDF integration, 5 storage, plus the
+single-test binaries) and `cargo clippy --workspace --all-targets --locked -- -D
+warnings` pass on a tree containing only this change. The new component test
+`native_fullscreen_adopts_document_only_reading` fails without the state
+adoption. The title-bar guard has no automated regression test: the pinned test
+platform's `titlebar_double_click` is a no-op, so the shrunken-window effect is
+only observable natively.
+
+Native visual acceptance of the fixed build is still pending. The machine was in
+an active Tencent Meeting session for the whole verification window, so the
+screen was not driven; an earlier native pass on the pre-fix build reproduced
+the missing traffic lights on the external display (the window-server titlebar
+overlay stayed at zero alpha while a Finder fullscreen window on the same
+display revealed its own), and the AppKit probes above established the shrink
+mechanism. Do not treat this phase as visually accepted until the fixed build has
+been inspected natively on the affected display.
+
 ## MuPDF Migration — October 14, 2026
 
 This section is authoritative for the current checkout. Earlier October 14
