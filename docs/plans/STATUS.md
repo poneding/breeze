@@ -36,14 +36,26 @@ adoption. The title-bar guard has no automated regression test: the pinned test
 platform's `titlebar_double_click` is a no-op, so the shrunken-window effect is
 only observable natively.
 
-Native visual acceptance of the fixed build is still pending. The machine was in
-an active Tencent Meeting session for the whole verification window, so the
-screen was not driven; an earlier native pass on the pre-fix build reproduced
-the missing traffic lights on the external display (the window-server titlebar
-overlay stayed at zero alpha while a Finder fullscreen window on the same
-display revealed its own), and the AppKit probes above established the shrink
-mechanism. Do not treat this phase as visually accepted until the fixed build has
-been inspected natively on the affected display.
+Native checks on the fixed build:
+
+- Clicking the green traffic light now leaves the document-only layout: the
+  captured top strip holds page pixels only, with no application title bar or
+  toolbar row, where the pre-fix build still showed both.
+- With the pointer driven to the top edge of the built-in display, the traffic
+  lights appeared at the system position, matching a stock application on the
+  same display in the same session.
+
+The auto-hide reveal is not entirely under application control. On the external
+Mi Monitor (2048×1152 points) neither the fixed build nor a fullscreen TextEdit
+window revealed its title bar: both kept the window-server titlebar overlay at
+`y = -44` with `alpha = 0` while the pointer pressed against the top edge. The
+same check on the built-in display revealed for Breeze and for Finder. Treat a
+missing reveal on a given display as a macOS/display condition, not proof of a
+reader defect, and check a stock application there before investigating Breeze.
+
+The double-click shrink has no native regression check yet: the guarded path on
+Home needs the same traffic-light/layout observation. Do not treat it as
+visually accepted until a fullscreen Home window has been double-clicked.
 
 ## MuPDF Migration — October 14, 2026
 
