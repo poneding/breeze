@@ -213,7 +213,7 @@ impl Breeze {
             sidebar: self.sidebar,
             width: self
                 .navigation_width
-                .clamp(reader::NAVIGATION_MIN_WIDTH, 360.),
+                .clamp(reader::NAVIGATION_MIN_WIDTH, reader::NAVIGATION_MAX_WIDTH),
             thumbnails: self.thumbs,
             remember_files: self.remember_files,
             remember_position: self.remember_position,

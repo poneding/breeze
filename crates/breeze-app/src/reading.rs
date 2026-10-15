@@ -848,7 +848,14 @@ impl Breeze {
             )
             .into_any_element()
     }
+    /// Adopt the width the navigation panel is laid out with.
+    ///
+    /// Kit's divider redistributes both panels proportionally when the window
+    /// changes size, which can report a sidebar wider than the panel is allowed
+    /// to show; the thumbnail grid has to follow the panel, so cap the reported
+    /// width here and let [`Self::adopt_navigation_width`] correct the rest.
     pub(super) fn resize_navigation(&mut self, width: f32) {
+        let width = width.min(reader::NAVIGATION_MAX_WIDTH);
         let old = ThumbnailGrid::new(self.navigation_width);
         let new = ThumbnailGrid::new(width);
         self.navigation_width = width;
@@ -942,10 +949,33 @@ impl Breeze {
             }))
     }
 
+    /// Adopt the width the navigation panel was really laid out with.
+    ///
+    /// Kit's divider widths are preferences: a window that is tight beside the
+    /// document sidebar leaves the navigation panel less room than the divider
+    /// asked for, and the panel decides. The frame that measures a different
+    /// width therefore defers the reflow the measured width needs instead of
+    /// rebuilding rows that were already laid out with the older one.
+    fn adopt_navigation_width(&mut self, measured: f32, frame_width: f32, cx: &mut Context<Self>) {
+        let view = cx.entity();
+        cx.defer(move |cx| {
+            view.update(cx, |this, cx| {
+                // A drag or a window resize that landed after this frame owns
+                // the width now; only the width this frame was built with is
+                // stale.
+                if (this.navigation_width - frame_width).abs() <= 0.5 {
+                    this.resize_navigation(measured);
+                    cx.notify();
+                }
+            })
+        });
+    }
+
     pub(super) fn thumbnails_view(&self, cx: &mut Context<Self>) -> AnyElement {
         let total = self.books[self.active].state.navigation.total();
-        let grid = ThumbnailGrid::new(self.navigation_width);
-        uniform_list(
+        let panel_width = self.navigation_width;
+        let grid = ThumbnailGrid::new(panel_width);
+        let list = uniform_list(
             "thumbnail-list",
             total.div_ceil(grid.columns),
             cx.processor(move |this, range: Range<usize>, _, cx| {
@@ -989,8 +1019,22 @@ impl Breeze {
             }),
         )
         .track_scroll(&self.reading.thumbs_scroll)
-        .size_full()
-        .into_any_element()
+        .size_full();
+        div()
+            .size_full()
+            .on_prepaint({
+                let view = cx.entity();
+                move |bounds, _, cx| {
+                    let measured = f32::from(bounds.size.width);
+                    if (measured - panel_width).abs() > 0.5 {
+                        view.update(cx, |this, cx| {
+                            this.adopt_navigation_width(measured, panel_width, cx)
+                        });
+                    }
+                }
+            })
+            .child(list)
+            .into_any_element()
     }
     fn page_item(
         &self,
@@ -1353,6 +1397,97 @@ impl Breeze {
 mod tests {
     use super::*;
 
+    /// A reader showing the bundled sample with the thumbnail tab selected.
+    /// Geometry is deterministic because the asynchronous loader waits.
+    fn thumbnail_layout_fixture(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
+        use gpui_kit::test::TestWindowExt;
+        let worker = PdfWorker::new().unwrap();
+        let mut page =
+            futures::executor::block_on(worker.request_metadata(Source::Sample, 0).unwrap())
+                .unwrap()
+                .unwrap();
+        page.outline = Arc::new(Vec::new());
+        let (handle, view) = crate::ui_tests::app(cx);
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, _| {
+                view.reading.source = Some(Source::Sample);
+                view.reading.fingerprint = page.fingerprint.clone();
+                view.reading.sizes = page.page_sizes.clone();
+                let preview = Preview::from_page(page).unwrap();
+                view.reading.insert(0, preview.clone());
+                view.preview = Some(preview);
+                view.loading = true;
+            });
+            window.render_frame(cx);
+        })
+        .unwrap();
+        (handle, view)
+    }
+
+    /// The divider's number is not the width the panel ends up with: growing
+    /// the window redistributes the splitter proportionally, and a window that
+    /// is tight beside the document sidebar leaves the panel less room than it
+    /// asked for. The grid has to follow the panel either way, or cards are
+    /// clipped at both edges of a narrower panel.
+    #[gpui_kit::test]
+    async fn thumbnail_grid_follows_the_panel_the_reader_lays_out(cx: &mut TestAppContext) {
+        use gpui_kit::test::TestWindowExt;
+        let (handle, view) = thumbnail_layout_fixture(cx);
+        let drag_to_maximum = |cx: &mut TestAppContext| {
+            cx.update_window(handle, |_, window, cx| {
+                let split = view.read(cx).navigation_split.clone();
+                split.update(cx, |state, cx| {
+                    state.resize_panel(0, px(reader::NAVIGATION_MAX_WIDTH), window, cx)
+                });
+            })
+            .unwrap();
+        };
+        let assert_row_fits = |cx: &mut TestAppContext, case: &str| {
+            cx.update_window(handle, |_, window, cx| {
+                // Widths travel through the splitter's settling frame, so let
+                // the reader reach the layout the user would see.
+                window.render_frame(cx);
+                window.render_frame(cx);
+                window.render_frame(cx);
+                let width = view.read(cx).navigation_width;
+                let grid = ThumbnailGrid::new(width);
+                let panel = window.find("navigation-content").bounds();
+                assert!(
+                    (f32::from(panel.size.width) - width).abs() <= 0.5,
+                    "{case}: grid is laid out for {width} px, panel is {} px",
+                    f32::from(panel.size.width)
+                );
+                for column in 0..grid.columns {
+                    let card = window.find(("thumbnail", column)).bounds();
+                    assert!(
+                        card.left() >= panel.left() && card.right() <= panel.right(),
+                        "{case}: card {column} {card:?} leaves the panel {panel:?}"
+                    );
+                }
+                assert_eq!(view.read(cx).books[0].state.navigation.page(), 0);
+            })
+            .unwrap();
+        };
+        drag_to_maximum(cx);
+        cx.simulate_window_resize(handle, size(px(1600.), px(900.)));
+        assert_row_fits(cx, "window grown after the drag");
+        // The document sidebar takes its 256 px from the same row, so the
+        // navigation panel is squeezed below its own minimum preference.
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, _| view.document_panel.open = true);
+            window.render_frame(cx);
+        })
+        .unwrap();
+        cx.simulate_window_resize(handle, size(px(900.), px(650.)));
+        assert_row_fits(cx, "document sidebar at the minimum window width");
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, _| view.document_panel.open = false);
+            window.render_frame(cx);
+        })
+        .unwrap();
+        assert_row_fits(cx, "document sidebar closed again");
+    }
+
     #[gpui_kit::test]
     async fn thumbnails_without_outline_load_every_visible_grid_column(cx: &mut TestAppContext) {
         use gpui_kit::test::TestWindowExt;
@@ -1372,7 +1507,12 @@ mod tests {
                 let preview = Preview::from_page(page).unwrap();
                 view.reading.insert(0, preview.clone());
                 view.preview = Some(preview);
-                view.navigation_width = 360.;
+            });
+            // Widen the panel itself: the grid follows the panel the reader
+            // lays out, not a width assigned to the view field.
+            let split = view.read(cx).navigation_split.clone();
+            split.update(cx, |state, cx| {
+                state.resize_panel(0, px(reader::NAVIGATION_MAX_WIDTH), window, cx)
             });
             window.render_frame(cx);
         })

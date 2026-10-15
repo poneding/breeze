@@ -10,6 +10,7 @@ use gpui_kit::component::{
 use std::rc::Rc;
 
 pub(super) const NAVIGATION_MIN_WIDTH: f32 = 192.;
+pub(super) const NAVIGATION_MAX_WIDTH: f32 = 360.;
 
 fn navigation_handle_appearance(p: Palette) -> ResizeHandleRenderer {
     Rc::new(move |handle, window, cx| {
@@ -181,7 +182,7 @@ impl Breeze {
                 .child(
                     resizable_panel()
                         .size(px(self.navigation_width))
-                        .size_range(px(NAVIGATION_MIN_WIDTH)..px(360.))
+                        .size_range(px(NAVIGATION_MIN_WIDTH)..px(NAVIGATION_MAX_WIDTH))
                         .child(self.navigation(cx)),
                 )
                 .child(
