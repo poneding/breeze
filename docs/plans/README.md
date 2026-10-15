@@ -14,6 +14,8 @@ Stages are independently testable, not a promise that every PDF can be read with
 
 ## Invariants
 
+EPUB and Markdown reading are authorized in [work package 24](24-reflowable-reading.md).
+
 - Preserve the accepted compact layout and GPUI Kit components.
 - Do not write to the original PDF while drawing annotations.
 - Do not silently discard corrupted state or overwrite changed source/sidecar files.
