@@ -270,7 +270,7 @@ catalog! {
     "Switch tabs" => ("切换标签", "切換分頁"),
     "Delete selected annotation" => ("删除选中批注", "刪除選中批注"),
     "Cancel editing" => ("取消编辑", "取消編輯"),
-    "System association · Unavailable" => ("系统关联 · 待接入", "系統關聯 · 待接入"),
+    "Offered under Open With · Choose the default in the system" => ("已在“打开方式”中提供 · 默认应用请在系统中选择", "已在「打開方式」中提供 · 預設應用程式請在系統中選擇"),
     "Interface language" => ("界面语言", "介面語言"),
     "Auto detect" => ("自动检测", "自動偵測"),
     "Languages" => ("语言", "語言"),

@@ -34,6 +34,15 @@ cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>LSMinimumSystemVersion</key><string>15.0</string>
+<!-- A viewer claim puts Breeze in Finder's Open With menu. The Alternate
+     handler rank means Launch Services never takes the default over. -->
+<key>CFBundleDocumentTypes</key><array><dict>
+<key>CFBundleTypeName</key><string>PDF Document</string>
+<key>CFBundleTypeRole</key><string>Viewer</string>
+<key>LSHandlerRank</key><string>Alternate</string>
+<key>LSItemContentTypes</key><array><string>com.adobe.pdf</string></array>
+<key>CFBundleTypeExtensions</key><array><string>pdf</string></array>
+</dict></array>
 </dict></plist>
 PLIST
 printf 'Local review bundle: %s\n' "$bundle"

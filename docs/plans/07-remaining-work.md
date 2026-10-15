@@ -32,8 +32,13 @@ This document turns the remaining product targets into implementation-sized work
 
 1. Inventory all visible strings, tooltips, errors, and dialogs. Route them through a Chinese/English catalog with format arguments and runtime switch tests.
 2. Keep user document titles, note contents, and paths unchanged. Test long English labels, CJK/IME input, keyboard access, and native dialog text.
-3. Integrate native OS file-open events and deliberate association registration in platform packaging. Show actual association state or link to OS-supported selection, never a fake boolean or forced takeover.
-4. Validate cold-open, already-running open, multiple files, missing files, and sandbox/permission errors on each OS.
+3. **Delivered in [work package 23](23-file-associations.md):** native macOS
+   open-url events, command-line documents, and deliberate PDF viewer
+   registration in macOS, Windows, and Linux packaging. Settings states that
+   the default handler stays a system choice instead of showing a fake boolean.
+4. Cold-open and already-running open are covered by tests and verified natively
+   on macOS. Multiple files, missing files, and sandbox/permission errors, plus
+   Windows and Linux registration, still need their own hosts.
 
 **Gate:** no complete-localization or association claim before all native paths pass.
 

@@ -163,6 +163,14 @@ class ReleaseTests(unittest.TestCase):
                     self.assertEqual(plist["CFBundleExecutable"], "Breeze")
                     self.assertEqual(plist["CFBundleIconFile"], "Breeze.icns")
                     self.assertEqual(plist["LSMinimumSystemVersion"], "15.0")
+                    claims = {
+                        claim["LSItemContentTypes"][0]: claim
+                        for claim in plist["CFBundleDocumentTypes"]
+                    }
+                    pdf = claims["com.adobe.pdf"]
+                    self.assertEqual(pdf["CFBundleTypeRole"], "Viewer")
+                    self.assertEqual(pdf["LSHandlerRank"], "Alternate")
+                    self.assertIn("pdf", pdf["CFBundleTypeExtensions"])
                     self.assertIn("Contents/Resources/Breeze.icns", files)
                     documents = "Contents/Resources"
                 elif target.endswith("windows-msvc"):
@@ -242,6 +250,32 @@ class ReleaseTests(unittest.TestCase):
         shortcut = root.find(".//w:Shortcut", WIX)
         self.assertEqual(shortcut.get("Target"), "[INSTALLFOLDER]breeze-app.exe")
 
+        # Breeze lists itself as a PDF viewer. Every registry value has to agree
+        # with the Inno script, and no entry may claim the default handler.
+        registry = {
+            (value.get("Key"), value.get("Name") or ""): value.get("Value") or ""
+            for value in root.findall(".//w:RegistryValue", WIX)
+        }
+        self.assertEqual(
+            registry[("Software\\Classes\\Breeze.Document", "")],
+            "Breeze PDF Document",
+        )
+        self.assertEqual(
+            registry[("Software\\Classes\\Breeze.Document\\shell\\open\\command", "")],
+            '"[INSTALLFOLDER]breeze-app.exe" "%1"',
+        )
+        self.assertEqual(
+            registry[("Software\\Classes\\Applications\\breeze-app.exe\\SupportedTypes", ".pdf")],
+            "",
+        )
+        self.assertIn(
+            ("Software\\Classes\\.pdf\\OpenWithProgids", "Breeze.Document"), registry
+        )
+        # The extension's own default value stays untouched: only the user can
+        # change the handler in Windows Settings.
+        self.assertNotIn(("Software\\Classes\\.pdf", ""), registry)
+        self.assertNotIn(("Software\\Classes\\.pdf\\shell\\open\\command", ""), registry)
+
         script = release.inno_script(version, WINDOWS, payload, icon, self.root)
         self.assertIn("AppId={{", script, "Inno needs an escaped literal brace")
         self.assertIn("AppVersion=1.2.3-rc.1", script)
@@ -251,6 +285,29 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("SetupIconFile=" + str(icon), script)
         self.assertIn("[Files]", script)
         self.assertIn("[Icons]", script)
+        self.assertIn("[Registry]", script)
+        self.assertIn("ChangesAssociations=yes", script)
+        for key in (
+            r"Software\Classes\Breeze.Document",
+            r"Software\Classes\.pdf\OpenWithProgids",
+            r"Software\Classes\Applications\breeze-app.exe\SupportedTypes",
+        ):
+            self.assertIn(key, script, key)
+        self.assertIn(
+            'Subkey: "Software\\Classes\\.pdf\\OpenWithProgids"; '
+            'ValueType: string; ValueName: "Breeze.Document"; ValueData: ""',
+            script,
+        )
+        self.assertIn(
+            'ValueData: ' + '"""' + r"{app}\breeze-app.exe" + '"" ""%1"""',
+            script,
+            "the open command must quote the executable and the document",
+        )
+        self.assertNotIn(
+            'Subkey: "Software\\Classes\\.pdf";',
+            script,
+            "the .pdf default value must stay with the user",
+        )
 
     def test_debian_metadata_follows_policy(self):
         payload, _ = self.payload(LINUX, "1.2.3-rc.1")
@@ -272,7 +329,7 @@ class ReleaseTests(unittest.TestCase):
         desktop = release.desktop_entry()
         self.assertIn("Exec=breeze-app %F", desktop)
         self.assertIn("Icon=breeze", desktop)
-        self.assertNotIn("MimeType", desktop, "file associations are unimplemented")
+        self.assertIn("MimeType=application/pdf;", desktop)
         self.assertTrue((payload / "usr/bin/breeze-app").is_file())
         self.assertTrue((payload / "usr/share/icons/hicolor/256x256/apps/breeze.png").is_file())
 

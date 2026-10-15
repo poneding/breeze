@@ -53,6 +53,44 @@ this pass. See [work package 22](22-mupdf-migration.md) for item-level status.
 Do not describe the migration as production accepted or claim measured
 memory/latency wins from the standalone probe.
 
+## OS file association and Open With — October 15, 2026
+
+Implemented in [work package 23](23-file-associations.md). The local macOS
+review bundle and every packaged platform now declare PDF viewing support, so
+the operating system's context menu offers Breeze:
+
+- macOS: `CFBundleDocumentTypes` with role `Viewer`, `LSHandlerRank`
+  `Alternate`, and `com.adobe.pdf` in both `scripts/bundle-macos.sh` and the
+  release packaging path. `Alternate` keeps Launch Services from taking a
+  default handler over.
+- Windows: MSI and Inno components register `Breeze.Document` under
+  `Software\\Classes`, add it to `.pdf\OpenWithProgids`, list `.pdf` in
+  `Applications\breeze-app.exe\SupportedTypes`, and uninstall those keys. The
+  `.pdf` default value itself is never written.
+- Linux: the shared desktop entry declares `MimeType=application/pdf;`; the
+  existing `%F` placeholder passes selected files to the command line.
+
+Delivery was fixed and covered by tests: `open_events` decodes `file:` URLs and
+command-line documents, queues requests that arrive before the reader window
+exists, and—after the first local check showed a warm open silently dropped the
+document—updates the reader entity instead of casting the window's `Root`
+wrapper. A queued request is also held until the saved library finishes
+restoring, and a launch that cannot take the data-directory lock still opens the
+requested document instead of discarding it. `settings.rs` no longer claims the
+association is "Unavailable"; it states that Breeze is offered under Open With
+and that the default stays a system choice.
+
+Validation on this macOS checkout: `cargo fmt --all -- --check`,
+`cargo test --workspace --locked` (162 app tests plus the other workspace
+suites) and `cargo clippy --workspace --all-targets --locked -- -D warnings`
+pass; `scripts/test_release.py` passes 14 tests with one Linux-only container
+test skipped. Native checks: the review bundle's Launch Services record reports
+`claimed UTIs: com.adobe.pdf` with `rank: Alternate` and `roles: Viewer`; opening
+a PDF while an isolated instance was already running (`open -a`) delivered and
+persisted the document; a spaced and CJK filename opened correctly. Windows and
+Linux "Open With" registration and default-app selection remain unverified on
+their own hosts, and no signed installer has been exercised.
+
 ### Review remediation
 
 Fixes from the post-migration code review, in commit order:
@@ -310,7 +348,9 @@ One controlled export fixture run took about 14.72 ms in the development profile
 
 - Renderer fidelity/corpus coverage, adaptive DPI/tiles, and representative-corpus layout/scroll performance acceptance. Fixed-raster continuous/spread layouts and virtualized navigation are implemented.
 - Importing/editing pre-existing PDF annotations without duplicate appearances.
-- Native localization acceptance outside macOS, OS file associations/open events, signed update/install delivery and production-ready installers/packages.
+- Native localization acceptance outside macOS; Windows and Linux Open With
+  registration and default-app selection on their own hosts; signed
+  update/install delivery and production-ready installers/packages.
 - Complete conflict recovery/reassociation UX and native three-platform/resource/fuzz acceptance.
 
 The remaining-work plan lists prerequisites and explicit gates; release automation does not waive them.

@@ -223,13 +223,14 @@ impl Breeze {
             window: self.window_policy,
         }
     }
-    pub(super) fn initialize_storage(&mut self, initial: Option<PathBuf>, cx: &mut Context<Self>) {
+    pub(super) fn initialize_storage(&mut self, initial: Vec<PathBuf>, cx: &mut Context<Self>) {
         self.restoring = true;
         let root = match breeze_storage::data_directory() {
             Ok(p) => p,
             Err(e) => {
                 self.storage_error = Some(format!("{e:#}"));
                 self.restoring = false;
+                self.open_requested(initial, cx);
                 return;
             }
         };
@@ -239,6 +240,7 @@ impl Breeze {
             Err(e) => {
                 self.storage_error = Some(format!("{e:#}"));
                 self.restoring = false;
+                self.open_requested(initial, cx);
                 return;
             }
         };
@@ -257,6 +259,7 @@ impl Breeze {
                         }) {
                             this.storage_error = Some(format!("{e:#}"));
                             this.storage = None;
+                            this.open_requested(initial, cx);
                         } else {
                             this.restore(state, cx);
                             this.storage_ready = true;
@@ -265,9 +268,12 @@ impl Breeze {
                             let observer =
                                 cx.observe(&cx.entity(), |this, _, cx| this.persist_if_changed(cx));
                             this._subscriptions.push(observer);
-                            if let Some(path) = initial {
-                                this.open_path(path, cx);
-                            } else if this.remember_files && this.books.iter().any(|b| b.opened) {
+                            // A document the user asked for wins over the
+                            // remembered reading session.
+                            if !this.open_requested(initial, cx)
+                                && this.remember_files
+                                && this.books.iter().any(|b| b.opened)
+                            {
                                 this.screen = Screen::Reader;
                                 this.pending_window_policy = true;
                                 this.load(cx);
@@ -280,16 +286,29 @@ impl Breeze {
                             format!("{:#}", e)
                         ));
                         this.storage = None;
+                        this.open_requested(initial, cx);
                     }
                     Err(_) => {
                         this.storage_error = Some(tr!("Local state worker is unavailable").into());
                         this.storage = None;
+                        this.open_requested(initial, cx);
                     }
                 }
                 cx.notify();
             });
         })
         .detach();
+    }
+    /// Open the documents this launch was asked for, even when local state is
+    /// unavailable — a second instance that cannot take the data-directory lock
+    /// still has to show the file the user opened. Returns whether anything was
+    /// requested, so a plain launch can fall back to the remembered session.
+    pub(super) fn open_requested(&mut self, initial: Vec<PathBuf>, cx: &mut Context<Self>) -> bool {
+        let mut requested = initial;
+        requested.extend(std::mem::take(&mut self.pending_opens));
+        let requested_documents = !requested.is_empty();
+        self.open_paths(requested, cx);
+        requested_documents
     }
     pub(super) fn restore(&mut self, mut state: SavedState, cx: &mut Context<Self>) {
         state.migrate_update_policy();

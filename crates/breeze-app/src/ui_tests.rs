@@ -342,6 +342,15 @@ fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext)
         assert_eq!(theme.size, language.size);
         assert_eq!(theme.size.width, px(220.));
         assert!(window.find("remember-files").visible());
+        // The association row reports what the installed app declares instead of
+        // claiming a disabled or unavailable feature.
+        assert!(window.try_find("file-association").is_none());
+        assert!(
+            window
+                .within("settings-body")
+                .find("default-pdf-app")
+                .visible()
+        );
         // Row-by-row explanations are gone; the update status lives in About.
         assert!(window.try_find("update-status").is_none());
         assert!(
@@ -2381,6 +2390,83 @@ fn status_bar_reports_only_real_notices(cx: &mut TestAppContext) {
         });
         window.render_frame(cx);
         assert!(window.try_find("reader-status").is_none());
+    })
+    .unwrap();
+}
+
+/// The OS can ask for a document while the saved library is still loading.
+/// Restore replaces the whole book list, so the request has to wait for it and
+/// then open the file the user asked for.
+#[gpui_kit::test]
+fn requested_documents_wait_for_restore_and_then_open(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    let sample = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/samples/field-notes.pdf")
+        .canonicalize()
+        .unwrap();
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.restoring = true;
+            view.open_paths(vec![sample.clone()], cx);
+            assert_eq!(view.pending_opens.as_slice(), [sample.as_path()]);
+            assert_eq!(view.books.len(), 1, "restore still owns the library");
+            view.restoring = false;
+            assert!(
+                view.open_requested(Vec::new(), cx),
+                "a queued document must not fall back to session restoration"
+            );
+            assert!(view.pending_opens.is_empty());
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let opened = view.read(cx);
+        assert_eq!(opened.books.len(), 2);
+        assert_eq!(
+            opened.books.last().map(|book| book.source.clone()),
+            Some(Source::File(sample.clone()))
+        );
+        assert_eq!(
+            opened.books.last().map(|book| book.title.as_str()),
+            Some("field-notes.pdf")
+        );
+    })
+    .unwrap();
+}
+
+/// A document the OS opens while Breeze is already running must land in the
+/// window, not just in the queue. This exercises the delivery path the macOS
+/// `application:openURLs:` event uses.
+#[gpui_kit::test]
+fn a_running_window_opens_delivered_documents(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    let sample = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../assets/samples/field-notes.pdf")
+        .canonicalize()
+        .unwrap();
+    let requests = crate::open_events::OpenRequests::new();
+    cx.update(|cx| {
+        requests.attach(cx.to_async(), handle, view.downgrade());
+    });
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.restoring = false;
+            cx.notify();
+        });
+    })
+    .unwrap();
+    requests.receive_urls(&[format!("file://{}", sample.display())]);
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let opened = view.read(cx);
+        assert_eq!(opened.books.len(), 2);
+        assert_eq!(
+            opened.books.last().map(|book| book.source.clone()),
+            Some(Source::File(sample))
+        );
     })
     .unwrap();
 }

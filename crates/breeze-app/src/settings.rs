@@ -115,10 +115,16 @@ impl Breeze {
                 ))
                 .child(Self::setting_row(
                     tr!("Default PDF app"),
-                    Button::new("file-association")
-                        .small()
-                        .label(tr!("System association · Unavailable"))
-                        .disabled(true),
+                    // Breeze declares PDF to the OS so file managers offer it
+                    // under Open With. Which application is the default stays a
+                    // system-owned choice this app must not fake or force.
+                    div()
+                        .id("default-pdf-app")
+                        .test_support()
+                        .text_color(p.muted)
+                        .child(tr!(
+                            "Offered under Open With · Choose the default in the system"
+                        )),
                     p,
                 )),
         )

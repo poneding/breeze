@@ -49,4 +49,7 @@ These work-package documents were written before the corresponding code changes.
 
 10. [16 — Page-turn presentation](16-page-turn-presentation.md): one device region per viewport and two predicted pages ahead, replacing the per-cell arrival that made page turns assemble block by block. Proposal, implementation, and measurements; the retained display list and native visual check remain open.
 
-11. [22 — MuPDF migration](22-mupdf-migration.md): publish the AGPL source/notice path, replace the PDF adapter while preserving app boundaries, add clipped device-region rendering, then verify fidelity and performance on all release platforms.
+11. [23 — File associations and Open With](23-file-associations.md): PDF viewer
+    registration in every installer plus macOS open-url delivery.
+
+12. [22 — MuPDF migration](22-mupdf-migration.md): publish the AGPL source/notice path, replace the PDF adapter while preserving app boundaries, add clipped device-region rendering, then verify fidelity and performance on all release platforms.

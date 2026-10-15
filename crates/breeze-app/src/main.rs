@@ -23,6 +23,7 @@ mod document_icons;
 mod document_panel;
 mod errors;
 mod home;
+mod open_events;
 mod raster;
 mod reader;
 mod reading;
@@ -165,6 +166,9 @@ struct Breeze {
     _subscriptions: Vec<Subscription>,
     books: Vec<Book>,
     active: usize,
+    /// Documents the operating system requested while the library was still
+    /// loading. Restore replaces the whole library, so they wait for it.
+    pending_opens: Vec<PathBuf>,
     screen: Screen,
     home_page: HomePage,
     brand_logo: Option<Arc<RenderImage>>,
@@ -340,6 +344,7 @@ impl Breeze {
             ],
             books: Vec::new(),
             active: 0,
+            pending_opens: Vec::new(),
             screen: Screen::Home,
             home_page: HomePage::Library,
             brand_logo: about::brand_logo(),
@@ -617,15 +622,40 @@ impl Breeze {
         .detach();
     }
     fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        self.open_paths(vec![path], cx);
+    }
+    /// Open the documents the operating system handed to this instance.
+    ///
+    /// Requests that arrive before the saved library has been restored are kept
+    /// aside: restore replaces the whole book list, so opening them earlier
+    /// would drop the document the user asked for.
+    pub(crate) fn open_paths(&mut self, paths: Vec<PathBuf>, cx: &mut Context<Self>) {
+        if paths.is_empty() {
+            return;
+        }
+        if self.restoring {
+            self.pending_opens.extend(paths);
+            return;
+        }
         let work = cx.background_spawn(async move {
-            std::fs::canonicalize(&path).map_err(|e| tf!("Cannot open {}: {}", path.display(), e))
+            let mut canonical = Vec::with_capacity(paths.len());
+            let mut failures = Vec::new();
+            for path in paths {
+                match std::fs::canonicalize(&path) {
+                    Ok(path) => canonical.push(path),
+                    Err(e) => failures.push(tf!("Cannot open {}: {}", path.display(), e)),
+                }
+            }
+            (canonical, failures)
         });
         cx.spawn(async move |this, cx| {
-            let result = work.await;
-            let _ = this.update(cx, |this, cx| match result {
-                Ok(path) => this.open_canonical_path(path, cx),
-                Err(error) => {
-                    this.message = error;
+            let (paths, failures) = work.await;
+            let _ = this.update(cx, |this, cx| {
+                for path in paths {
+                    this.open_canonical_path(path, cx);
+                }
+                if let Some(failure) = failures.into_iter().next() {
+                    this.message = failure;
                     cx.notify();
                 }
             });
@@ -985,76 +1015,84 @@ fn texture(p: Pixels) -> Result<Arc<RenderImage>> {
 }
 fn main() -> Result<()> {
     let worker = PdfWorker::new()?;
-    let initial = std::env::args_os().nth(1).map(PathBuf::from);
-    gpui_kit::application()
-        .with_assets(AllAssets)
-        .run(move |cx| {
-            gpui_kit::init(cx);
-            if let Err(error) = appearance::init(cx) {
-                eprintln!(
-                    "{}",
-                    tf!(
-                        "Cannot initialize bundled themes: {}",
-                        format!("{:#}", error)
-                    )
-                );
-                cx.quit();
-                return;
-            }
-            gpui_kit::component::set_locale("zh-CN");
-
-            commands::bind(cx);
-
-            cx.on_window_closed(|cx, _| {
-                if cx.windows().is_empty() {
-                    cx.quit();
-                }
-            })
-            .detach();
-            let result = gpui_kit::open_window(
-                WindowOptions {
-                    window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                        None,
-                        size(px(1340.), px(900.)),
-                        cx,
-                    ))),
-                    window_min_size: Some(size(px(900.), px(650.))),
-                    ..TitleBar::window_options()
-                },
-                cx,
-                move |window, cx| {
-                    let view = cx.new(|cx| Breeze::new(worker, window, cx));
-                    view.update(cx, |this, cx| {
-                        window.focus(&this.focus, cx);
-                        window.set_window_title(tr!("Breeze · Local reading workspace"));
-                        this.apply_theme(cx);
-                        this.initialize_storage(initial, cx);
-                    });
-                    let closing = view.downgrade();
-                    window.on_window_should_close(cx, move |window, cx| {
-                        closing
-                            .update(cx, |this, cx| this.request_close(window, cx))
-                            .unwrap_or(true)
-                    });
-                    let flushing = view.clone();
-                    cx.on_app_quit(move |cx| {
-                        let future = flushing.read(cx).flush_state();
-                        async move {
-                            if let Some(future) = future {
-                                future.await;
-                            }
-                        }
-                    })
-                    .detach();
-                    view
-                },
+    let requests = open_events::OpenRequests::new();
+    let requested = requests.clone();
+    let application = gpui_kit::application().with_assets(AllAssets);
+    // macOS hands documents to the running application through this event; it
+    // has no application context, so the queue delivers them to the window.
+    application.on_open_urls(move |urls| requested.receive_urls(&urls));
+    application.run(move |cx| {
+        gpui_kit::init(cx);
+        if let Err(error) = appearance::init(cx) {
+            eprintln!(
+                "{}",
+                tf!(
+                    "Cannot initialize bundled themes: {}",
+                    format!("{:#}", error)
+                )
             );
-            if let Err(error) = result {
-                eprintln!("{}", tf!("Cannot start Breeze: {}", format!("{:#}", error)));
+            cx.quit();
+            return;
+        }
+        gpui_kit::component::set_locale("zh-CN");
+
+        commands::bind(cx);
+
+        cx.on_window_closed(|cx, _| {
+            if cx.windows().is_empty() {
                 cx.quit();
             }
-            cx.activate(true);
-        });
+        })
+        .detach();
+        let result = gpui_kit::open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    None,
+                    size(px(1340.), px(900.)),
+                    cx,
+                ))),
+                window_min_size: Some(size(px(900.), px(650.))),
+                ..TitleBar::window_options()
+            },
+            cx,
+            move |window, cx| {
+                let view = cx.new(|cx| Breeze::new(worker, window, cx));
+                // Attach before draining so an event that arrives during
+                // startup is delivered to this window instead of waiting.
+                requests.attach(cx.to_async(), window.window_handle(), view.downgrade());
+                let mut initial = open_events::argument_paths(std::env::args_os().skip(1));
+                initial.extend(requests.take_pending());
+                view.update(cx, |this, cx| {
+                    window.focus(&this.focus, cx);
+                    window.set_window_title(tr!("Breeze · Local reading workspace"));
+                    this.apply_theme(cx);
+                    this.initialize_storage(initial, cx);
+                });
+                let closing = view.downgrade();
+                window.on_window_should_close(cx, move |window, cx| {
+                    closing
+                        .update(cx, |this, cx| this.request_close(window, cx))
+                        .unwrap_or(true)
+                });
+                let flushing = view.clone();
+                cx.on_app_quit(move |cx| {
+                    let future = flushing.read(cx).flush_state();
+                    async move {
+                        if let Some(future) = future {
+                            future.await;
+                        }
+                    }
+                })
+                .detach();
+                view
+            },
+        );
+        if let Err(error) = result {
+            eprintln!("{}", tf!("Cannot start Breeze: {}", format!("{:#}", error)));
+            cx.quit();
+        }
+        cx.activate(true);
+    });
     Ok(())
 }
 

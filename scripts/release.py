@@ -58,6 +58,15 @@ APP_NAME = "Breeze"
 DISPLAY_NAME = "Breeze"
 EXECUTABLE = "Breeze"
 LINUX_EXECUTABLE = "breeze-app"
+# PDF registration. Breeze declares that it can *view* this type so every file
+# manager lists it under "Open with"; none of these entries take the default
+# handler over, because only the user may change that through the OS.
+PDF_CONTENT_TYPE = "com.adobe.pdf"
+PDF_PROGID = "Breeze.Document"
+WINDOWS_PDF_EXTENSION = ".pdf"
+WINDOWS_EXECUTABLE = "breeze-app.exe"
+# Linux names the same format through the shared MIME database.
+PDF_MIME_TYPE = "application/pdf"
 LINUX_PACKAGE = "breeze"
 PUBLISHER = "Pone Ding <poneding@gmail.com>"
 HOMEPAGE = "https://github.com/poneding/breeze"
@@ -197,9 +206,10 @@ def _write_documents(destination: Path, version: str) -> None:
 def desktop_entry() -> str:
     """The Linux desktop entry shared by the deb and the AppImage.
 
-    No MimeType is declared: file associations are still unimplemented, so the
-    packages must not claim to own PDF documents. The `%F` placeholder is
-    accurate, because the application accepts a document path argument.
+    `MimeType` declares the PDF documents Breeze can view, which is what makes
+    file managers offer it under "Open with". The desktop environment's own
+    chooser still owns the default handler. `%F` passes one or more selected
+    files, matching the command-line arguments the application accepts.
     """
     return (
         "[Desktop Entry]\n"
@@ -210,6 +220,7 @@ def desktop_entry() -> str:
         f"Icon={LINUX_PACKAGE}\n"
         "Terminal=false\n"
         "Categories=Office;Viewer;\n"
+        f"MimeType={PDF_MIME_TYPE};\n"
     )
 
 
@@ -308,9 +319,42 @@ def wix_source(version: str, target: str, payload: Path, icon: Path) -> str:
 
     emit(payload, Path("."), 5)
 
+    # Shell registration. Both components keep a registry value as their key
+    # path, so Windows Installer removes the PDF association on uninstall
+    # without touching the user's chosen default application.
     shortcut = _identifier("cmp", f"{target}/shortcut")
+    progid = _identifier("cmp", f"{target}/pdf-progid")
+    open_with = _identifier("cmp", f"{target}/pdf-open-with")
+    command = f'"[INSTALLFOLDER]{WINDOWS_EXECUTABLE}" "%1"'
     lines.extend(
         [
+            f"          <Component Id={_attr(progid)} "
+            f"Guid={_attr(_guid('registry', target, 'pdf-progid'))}>",
+            f'            <RegistryValue Root="HKLM" '
+            f'Key={_attr(f"Software\\Classes\\{PDF_PROGID}")} Type="string" '
+            f'Value="Breeze PDF Document" KeyPath="yes" />',
+            f'            <RegistryValue Root="HKLM" '
+            f'Key={_attr(f"Software\\Classes\\{PDF_PROGID}\\DefaultIcon")} '
+            f'Type="string" Value={_attr(f"[INSTALLFOLDER]{WINDOWS_EXECUTABLE},0")} />',
+            f'            <RegistryValue Root="HKLM" '
+            f'Key={_attr(f"Software\\Classes\\{PDF_PROGID}\\shell\\open\\command")} '
+            f'Type="string" Value={_attr(command)} />',
+            "          </Component>",
+            f"          <Component Id={_attr(open_with)} "
+            f"Guid={_attr(_guid('registry', target, 'pdf-open-with'))}>",
+            f'            <RegistryValue Root="HKLM" '
+            f'Key={_attr(f"Software\\Classes\\{WINDOWS_PDF_EXTENSION}\\OpenWithProgids")} '
+            f'Name={_attr(PDF_PROGID)} Type="string" Value="" KeyPath="yes" />',
+            f'            <RegistryValue Root="HKLM" '
+            f'Key={_attr(f"Software\\Classes\\Applications\\{WINDOWS_EXECUTABLE}\\SupportedTypes")} '
+            f'Name={_attr(WINDOWS_PDF_EXTENSION)} Type="string" Value="" />',
+            f'            <RegistryValue Root="HKLM" '
+            f'Key={_attr(f"Software\\Classes\\Applications\\{WINDOWS_EXECUTABLE}")} '
+            f'Name="FriendlyAppName" Type="string" Value={_attr(DISPLAY_NAME)} />',
+            f'            <RegistryValue Root="HKLM" '
+            f'Key={_attr(f"Software\\Classes\\Applications\\{WINDOWS_EXECUTABLE}\\shell\\open\\command")} '
+            f'Type="string" Value={_attr(command)} />',
+            "          </Component>",
             "        </Directory>",
             "      </Directory>",
             '      <Directory Id="ProgramMenuFolder">',
@@ -336,6 +380,8 @@ def wix_source(version: str, target: str, payload: Path, icon: Path) -> str:
     for component in components:
         lines.append(f'      <ComponentRef Id="{component}" />')
     lines.append(f'      <ComponentRef Id="{shortcut}" />')
+    lines.append(f'      <ComponentRef Id="{progid}" />')
+    lines.append(f'      <ComponentRef Id="{open_with}" />')
     lines.extend(["    </Feature>", "  </Product>", "</Wix>", ""])
     return "\n".join(lines)
 
@@ -345,10 +391,37 @@ def inno_script(version: str, target: str, payload: Path, icon: Path, output: Pa
 
     Inno treats a single `{` as a constant reference, so a literal braced GUID
     needs the documented `{{GUID}` spelling, and the AppId must stay identical
-    across versions for an upgrade to replace an installed copy.
+    across versions for an upgrade to replace an installed copy. The registry
+    block matches the MSI's shell registration: Breeze appears under "Open
+    with" and is never installed as the PDF default handler.
     """
     core = _version_parts(version)["core"]
     app_id = "{{" + str(uuid.uuid5(GUID_NAMESPACE, f"inno-{target}")).upper() + "}"
+    executable = r"{app}\breeze-app.exe"
+    command = f'""{executable}"" ""%1""'
+    classes = r"Software\Classes"
+    registry = [
+        f'Root: HKLM; Subkey: "{classes}\\{PDF_PROGID}"; ValueType: string; '
+        f'ValueName: ""; ValueData: "Breeze PDF Document"; Flags: uninsdeletekey',
+        f'Root: HKLM; Subkey: "{classes}\\{PDF_PROGID}\\DefaultIcon"; '
+        f'ValueType: string; ValueName: ""; ValueData: "{executable},0"; '
+        "Flags: uninsdeletekey",
+        f'Root: HKLM; Subkey: "{classes}\\{PDF_PROGID}\\shell\\open\\command"; '
+        f'ValueType: string; ValueName: ""; ValueData: "{command}"; '
+        "Flags: uninsdeletekey",
+        f'Root: HKLM; Subkey: "{classes}\\{WINDOWS_PDF_EXTENSION}\\OpenWithProgids"; '
+        f'ValueType: string; ValueName: "{PDF_PROGID}"; ValueData: ""; '
+        "Flags: uninsdeletevalue",
+        f'Root: HKLM; Subkey: "{classes}\\Applications\\{WINDOWS_EXECUTABLE}"; '
+        f'ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{DISPLAY_NAME}"; '
+        "Flags: uninsdeletekey",
+        f'Root: HKLM; Subkey: "{classes}\\Applications\\{WINDOWS_EXECUTABLE}\\SupportedTypes"; '
+        f'ValueType: string; ValueName: "{WINDOWS_PDF_EXTENSION}"; ValueData: ""; '
+        "Flags: uninsdeletevalue",
+        f'Root: HKLM; Subkey: "{classes}\\Applications\\{WINDOWS_EXECUTABLE}\\shell\\open\\command"; '
+        f'ValueType: string; ValueName: ""; ValueData: "{command}"; '
+        "Flags: uninsdeletekey",
+    ]
     return (
         "[Setup]\n"
         f"AppId={app_id}\n"
@@ -366,6 +439,8 @@ def inno_script(version: str, target: str, payload: Path, icon: Path, output: Pa
         "PrivilegesRequired=admin\n"
         "ArchitecturesAllowed=x64compatible\n"
         "ArchitecturesInstallIn64BitMode=x64compatible\n"
+        # Explorer caches associations, so the setup asks for a refresh.
+        "ChangesAssociations=yes\n"
         "Compression=lzma2\n"
         "SolidCompression=yes\n"
         "WizardStyle=modern\n"
@@ -378,6 +453,9 @@ def inno_script(version: str, target: str, payload: Path, icon: Path, output: Pa
         "recursesubdirs createallsubdirs\n"
         "[Icons]\n"
         'Name: "{group}\\Breeze"; Filename: "{app}\\breeze-app.exe"\n'
+        "[Registry]\n"
+        + "\n".join(registry)
+        + "\n"
         "[Run]\n"
         'Filename: "{app}\\breeze-app.exe"; Description: "Launch Breeze"; '
         "Flags: nowait postinstall skipifsilent\n"
@@ -411,6 +489,18 @@ def build_payload(version: str, target: str, binary: Path, staging: Path) -> Pat
             "CFBundleExecutable": EXECUTABLE,
             "CFBundleIconFile": "Breeze.icns",
             "CFBundlePackageType": "APPL",
+            # A viewer claim puts Breeze in Finder's "Open With" menu.
+            # `Alternate` keeps Launch Services from taking a default handler
+            # over; changing the default stays a Finder user decision.
+            "CFBundleDocumentTypes": [
+                {
+                    "CFBundleTypeName": "PDF Document",
+                    "CFBundleTypeRole": "Viewer",
+                    "LSHandlerRank": "Alternate",
+                    "LSItemContentTypes": [PDF_CONTENT_TYPE],
+                    "CFBundleTypeExtensions": ["pdf"],
+                }
+            ],
             # Apple's bundle version fields cannot contain SemVer suffixes.
             "CFBundleShortVersionString": core,
             "CFBundleVersion": core,
