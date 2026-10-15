@@ -326,6 +326,8 @@ mod tests {
             include_str!("export.rs"),
             include_str!("search.rs"),
             include_str!("reading.rs"),
+            include_str!("reflow.rs"),
+            include_str!("reflow_images.rs"),
             include_str!("raster.rs"),
             include_str!("covers.rs"),
             include_str!("persistence.rs"),

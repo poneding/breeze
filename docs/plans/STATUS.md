@@ -1327,3 +1327,32 @@ suite 174 passed, 16 core, 30 PDF with three ignored, 6 reflow unit, 6 reflow
 integration, and the remaining suites) and `cargo clippy --workspace
 --all-targets --offline -- -D warnings` pass. Interactive verification stopped
 when the display locked; the remaining chapters, Windows and Linux are unverified.
+
+## October 16 EPUB paging lives in the status bar
+
+The EPUB reader had two sets of page controls and reported its position by
+chapter. The toolbar's chapter arrows are gone; the status bar's Previous and
+Next page buttons are the only ones, they carry the `Previous page` and `Next
+page` labels so their tooltips show the Page Up and Page Down bindings beside the
+action, they disable at the ends of the book, and the position between them reads
+as `page / pages` with no chapter name. Markdown keeps its reading percentage and
+its width toggle, since it has no pages.
+
+Pressing Next faster than a page renders also dropped clicks: five rapid presses
+advanced one page. A turn is resolved against a landed frame, so the second press
+rebuilt the request already in flight and was discarded. The reader now queues
+the steps and issues the next one when a frame lands, so every press lands on a
+page instead of relying on the engine to cross chapters in one delta.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --offline` (app
+suite passed, 16 core, 30 PDF with three ignored, and the remaining suites) and
+`cargo clippy --workspace --all-targets --offline -- -D warnings` pass.
+`epub_page_controls_live_in_the_status_bar` asserts the toolbar keeps only its
+global commands, that both page buttons sit inside the status bar with the
+previous/next-page labels and a resolvable binding each, that the position parses
+as `page / pages` and never names a chapter, and that asking to go back from the
+first page leaves the reader there. `rapid_page_clicks_all_land` presses the real
+status-bar button five times without waiting and requires the fifth page;
+reverting only the queue reproduces "five rapid clicks landed on chapter Some(1),
+not 5". The window was also driven directly: the tooltip reads "下一页 Page
+Down", the position reads `1 / 2`, and six rapid presses advanced six chapters.

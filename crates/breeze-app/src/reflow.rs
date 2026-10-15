@@ -67,15 +67,16 @@ pub(super) struct ReflowView {
     pub active_block: usize,
     /// Wheel distance not yet worth a page turn, in logical pixels.
     scroll_accum: f32,
-    /// Pages the reader has asked for that are not on screen yet.
+    /// Page steps the reader has asked for that have not been issued yet.
     ///
-    /// A turn can only be resolved against a landed frame, because chapter
-    /// boundaries live in the layout. Without this, a second click while the
+    /// A step can only be resolved against a landed frame, because chapter
+    /// boundaries live in the layout. Without this queue a second click while the
     /// first was still rendering rebuilt the same request from the previous
-    /// position and was dropped, so clicking Next twice moved one page.
-    pending_turn: i8,
-    /// Chapter the reader last asked for, while it is still rendering.
-    pending_chapter: Option<usize>,
+    /// position and was dropped, so clicking Next twice moved one page. Steps are
+    /// issued one at a time rather than as one large delta, so a burst of clicks
+    /// lands on every page instead of depending on the engine to cross several
+    /// chapters at once.
+    pending_turn: i16,
 }
 
 impl Default for ReflowView {
@@ -102,7 +103,6 @@ impl Default for ReflowView {
             active_block: 0,
             scroll_accum: 0.,
             pending_turn: 0,
-            pending_chapter: None,
         }
     }
 }
@@ -132,7 +132,6 @@ impl ReflowView {
         self.active_block = 0;
         self.scroll_accum = 0.;
         self.pending_turn = 0;
-        self.pending_chapter = None;
         self.worker = None;
         self.images.clear(cx);
         if let Some(image) = self.image.take() {
@@ -492,14 +491,14 @@ impl Breeze {
             return;
         }
         let (width, height, scale) = self.reflow.viewport;
-        // A turn is relative to the page the reader asked for last, not to the
-        // last page that finished rendering.
-        self.reflow.pending_turn = if turn == 0 {
-            0
-        } else {
-            self.reflow.pending_turn.saturating_add(turn)
-        };
-        let turn = self.reflow.pending_turn;
+        // Queue the step and, while a request is on its way, let it land first:
+        // its result carries the position the next step starts from.
+        self.reflow.pending_turn = self.reflow.pending_turn.saturating_add(i16::from(turn));
+        if turn != 0 && self.reflow.task.is_some() {
+            return;
+        }
+        let step = self.reflow.pending_turn.signum() as i8;
+        self.reflow.pending_turn -= i16::from(step);
         let request = epub::Request {
             path: path.clone(),
             location: self.books[self.active].reflow.epub.clone(),
@@ -507,7 +506,7 @@ impl Breeze {
             height,
             scale,
             font_size: self.books[self.active].reflow.font_size as f32,
-            turn,
+            turn: step,
             scroll,
             find,
         };
@@ -554,8 +553,9 @@ impl Breeze {
                                 }
                                 this.books[this.active].reflow.epub = frame.location.clone();
                                 this.books[this.active].reflow.progress = frame.progress;
-                                this.reflow.pending_turn = 0;
-                                this.reflow.pending_chapter = None;
+                                // The queue is consumed when a step is issued, so
+                                // it survives this landing and the steps behind
+                                // it are issued below.
                                 this.reflow.outline = Arc::new(
                                     frame
                                         .metadata
@@ -578,6 +578,11 @@ impl Breeze {
                         }
                     }
                     Err(error) => this.message = format!("{error:#}"),
+                }
+                // A burst of clicks queued steps while this one rendered; issue
+                // the next from the position that just landed.
+                if this.reflow.pending_turn != 0 {
+                    this.request_epub(0, 0., None, cx);
                 }
                 cx.notify();
             });
@@ -693,19 +698,6 @@ impl Breeze {
         cx.notify();
     }
 
-    fn change_chapter(&mut self, delta: i32, cx: &mut Context<Self>) {
-        let Some(frame) = &self.reflow.frame else {
-            return;
-        };
-        // Anchor on the chapter the reader last asked for. A second click while
-        // the first chapter is still rendering would otherwise recompute the
-        // same target from the stale frame and be dropped.
-        let base = self.reflow.pending_chapter.unwrap_or(frame.chapter) as i32;
-        let index = (base + delta).clamp(0, frame.metadata.chapters.len() as i32 - 1) as usize;
-        self.reflow.pending_chapter = Some(index);
-        self.jump_reflow(frame.metadata.chapters[index].href.clone(), 0, cx);
-    }
-
     pub(super) fn reflow_reader(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         if self.full_screen {
             return column().size_full().child(self.reflow_content(window, cx));
@@ -734,28 +726,6 @@ impl Breeze {
                             &ToggleSidebar,
                             cx,
                         ))
-                    })
-                    .when(epub, |bar| {
-                        bar.child(
-                            Button::new("previous-chapter")
-                                .ghost()
-                                .small()
-                                .icon(IconName::ChevronLeft)
-                                .accessibility_label(tr!("Previous chapter"))
-                                .tooltip(tr!("Previous chapter"))
-                                .on_click(
-                                    cx.listener(|this, _, _, cx| this.change_chapter(-1, cx)),
-                                ),
-                        )
-                        .child(
-                            Button::new("next-chapter")
-                                .ghost()
-                                .small()
-                                .icon(IconName::ChevronRight)
-                                .accessibility_label(tr!("Next chapter"))
-                                .tooltip(tr!("Next chapter"))
-                                .on_click(cx.listener(|this, _, _, cx| this.change_chapter(1, cx))),
-                        )
                     })
                     .child(div().flex_1())
                     .child(
@@ -802,34 +772,47 @@ impl Breeze {
                     .border_t_1()
                     .border_color(p.line)
                     .bg(p.bg)
-                    // A reflowable page has no page-turn control. EPUB keeps
-                    // chapter skip buttons in the toolbar; Markdown scrolls, so
-                    // the status bar starts with the reading position.
+                    // Paging belongs to fixed pages only; Markdown scrolls, so
+                    // the status bar starts with the reading position there.
+                    // These are the reader's only page controls: the labels carry
+                    // the Page Up and Page Down bindings into their tooltips.
                     .when(epub, |bar| {
-                        bar.child(self.command(
-                            "reflow-previous",
-                            IconName::ChevronLeft,
-                            tr!("Previous"),
-                            &PreviousPage,
-                            cx,
-                        ))
+                        let (first, _) = self.reflow_page_bounds();
+                        bar.child(
+                            self.command(
+                                "reflow-previous",
+                                IconName::ChevronLeft,
+                                tr!("Previous page"),
+                                &PreviousPage,
+                                cx,
+                            )
+                            .disabled(first),
+                        )
                     })
-                    .child(
+                    .child({
+                        let position = self.reflow_position_text();
                         div()
                             .id("reflow-position")
                             .test_support()
                             .min_w(px(56.))
                             .text_size(px(12.))
-                            .child(self.reflow_position_text()),
-                    )
+                            // The visible text is a page count; name it for
+                            // assistive technology and for the tests that pin it.
+                            .aria_label(position.clone())
+                            .child(position)
+                    })
                     .when(epub, |bar| {
-                        bar.child(self.command(
-                            "reflow-next",
-                            IconName::ChevronRight,
-                            tr!("Next"),
-                            &NextPage,
-                            cx,
-                        ))
+                        let (_, last) = self.reflow_page_bounds();
+                        bar.child(
+                            self.command(
+                                "reflow-next",
+                                IconName::ChevronRight,
+                                tr!("Next page"),
+                                &NextPage,
+                                cx,
+                            )
+                            .disabled(last),
+                        )
                     })
                     .child(
                         div()
@@ -942,18 +925,34 @@ impl Breeze {
             })
     }
 
-    /// The primary reading position for the status bar: a chapter for EPUB and
-    /// a percentage for Markdown. Reflowable documents have no page number, so
-    /// this never invents one.
+    /// The page the reader is on, as `current / total`.
+    ///
+    /// EPUB is paginated one chapter at a time — laying out the whole book to
+    /// number its pages would cost what the chapter-local design exists to avoid
+    /// — so the count is the page within the open chapter, which is exactly what
+    /// the page-turn controls beside it move between. Markdown has no pages and
+    /// keeps reporting its reading progress.
     fn reflow_position_text(&self) -> String {
         if let Some(frame) = &self.reflow.frame {
-            return tf!(
-                "Chapter {} / {}",
-                frame.chapter + 1,
-                frame.metadata.chapters.len()
+            return format!(
+                "{} / {}",
+                frame.chapter_page + 1,
+                frame.chapter_pages
             );
         }
         format!("{:.0}%", self.books[self.active].reflow.progress * 100.)
+    }
+
+    /// Whether the page controls have somewhere to go, so the ends of the book
+    /// read as the ends of the book.
+    fn reflow_page_bounds(&self) -> (bool, bool) {
+        let Some(frame) = &self.reflow.frame else {
+            return (true, true);
+        };
+        let first = frame.chapter == 0 && frame.chapter_page == 0;
+        let last_chapter = frame.chapter + 1 == frame.metadata.chapters.len();
+        let last = last_chapter && frame.chapter_page + 1 >= frame.chapter_pages;
+        (first, last)
     }
 
     /// The one status notice the reflow reader shows, or `None` when there is
