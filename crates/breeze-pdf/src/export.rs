@@ -198,7 +198,7 @@ pub fn export_annotations(request: ExportRequest) -> Result<ExportReceipt> {
         }
     }
     // Independently parse page/annotation structure with the reader engine, not just the writer.
-    let reader = MuPdfDocument::open(staged.path())?;
+    let reader = MuPdfDocument::open(crate::mupdf_path(staged.path())?)?;
     ensure!(
         usize::try_from(reader.page_count()?)? == pages.len(),
         "Independent parser rejected page count"

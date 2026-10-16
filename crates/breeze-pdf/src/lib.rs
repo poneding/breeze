@@ -21,7 +21,7 @@ use raster::rotate_region;
 use std::{
     cell::RefCell,
     collections::VecDeque,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Condvar, Mutex},
     thread,
@@ -385,6 +385,26 @@ fn read_source(source: &Source) -> Result<Vec<u8>> {
     }
 }
 
+/// A source path in the shape MuPDF accepts.
+///
+/// The open calls take neither `Path` nor MuPDF's own `FilePath`: they accept
+/// only the types that implement `AsRef<FilePath>`, and on Windows that is UTF-8
+/// text. Unix therefore passes the raw path bytes, which keeps a filename that
+/// is not UTF-8 readable, and every other platform passes a checked `str`.
+#[cfg(unix)]
+pub fn mupdf_path(path: &Path) -> Result<&[u8]> {
+    use std::os::unix::ffi::OsStrExt;
+    Ok(path.as_os_str().as_bytes())
+}
+
+/// A source path in the shape MuPDF accepts; see the Unix definition for why the
+/// conversion is fallible off Unix.
+#[cfg(not(unix))]
+pub fn mupdf_path(path: &Path) -> Result<&str> {
+    path.to_str()
+        .with_context(|| format!("Path is not UTF-8: {}", path.display()))
+}
+
 fn source_stamp(path: &std::path::Path) -> Result<SourceStamp> {
     breeze_storage::source_identity(path)
         .map_err(|_| anyhow::Error::new(PdfError::open_failed(path)))
@@ -418,8 +438,9 @@ fn open_document(source: &Source) -> Result<OpenedDocument> {
             );
             let fingerprint =
                 breeze_storage::fingerprint(path).map_err(|_| PdfError::open_failed(path))?;
+            let source_path = mupdf_path(path).map_err(|_| PdfError::open_failed(path))?;
             let document =
-                PdfDocument::open(path.as_path()).map_err(|_| PdfError::open_failed(path))?;
+                PdfDocument::open(source_path).map_err(|_| PdfError::open_failed(path))?;
             let after = source_stamp(path)?;
             anyhow::ensure!(before == after, PdfError::SourceChangedDuringOpen);
             let opened_fingerprint =

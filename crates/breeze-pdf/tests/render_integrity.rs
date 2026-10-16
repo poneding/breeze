@@ -5,6 +5,7 @@ use breeze_core::{
 use breeze_pdf::{
     PdfWorker, Source,
     export::{ExportRequest, export_annotations},
+    mupdf_path,
 };
 use lopdf::{Document, Object, Stream, dictionary};
 use mupdf::pdf::PdfDocument as MuPdfDocument;
@@ -327,7 +328,7 @@ fn valid_masks_and_default_geometry_still_render_and_export() {
             annotations: vec![note()],
         })
         .unwrap();
-        let reader = MuPdfDocument::open(destination.as_path()).unwrap();
+        let reader = MuPdfDocument::open(mupdf_path(destination.as_path()).unwrap()).unwrap();
         assert_eq!(reader.page_count().unwrap(), 2);
         let rendered = request(
             &PdfWorker::new().unwrap(),

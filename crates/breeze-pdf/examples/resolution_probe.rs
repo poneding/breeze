@@ -23,7 +23,7 @@ fn main() -> Result<()> {
     );
     let started = Instant::now();
     let doc = if let Some(path) = &path {
-        PdfDocument::open(Path::new(path))?
+        PdfDocument::open(breeze_pdf::mupdf_path(Path::new(path))?)?
     } else {
         PdfDocument::from_bytes(SAMPLE)?
     };

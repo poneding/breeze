@@ -225,7 +225,7 @@ fn all_annotation_kinds_preserve_original_content_and_unicode() {
         String::from_utf16(&units).unwrap(),
         items.last().unwrap().text
     );
-    let reader = MuPdfDocument::open(output.as_path()).unwrap();
+    let reader = MuPdfDocument::open(crate::mupdf_path(output.as_path()).unwrap()).unwrap();
     let original = MuPdfDocument::from_bytes(&read_source(&Source::Sample).unwrap()).unwrap();
     assert_eq!(
         reader
@@ -439,7 +439,7 @@ fn write_visual_export_fixtures() {
     let receipt = export_annotations(sample_request(output.clone(), all_kinds())).unwrap();
     let source = folder.join("source.pdf");
     fs::write(&source, read_source(&Source::Sample).unwrap()).unwrap();
-    let doc = MuPdfDocument::open(output.as_path()).unwrap();
+    let doc = MuPdfDocument::open(crate::mupdf_path(output.as_path()).unwrap()).unwrap();
     let page = doc.load_pdf_page(0).unwrap();
     page.to_pixmap(
         &Matrix::new_scale(2., 2.),
@@ -533,7 +533,7 @@ fn old_pdf_header_is_upgraded_for_transparent_appearances() {
     assert_eq!(Document::load(&destination).unwrap().version, "1.7");
     assert_eq!(breeze_storage::fingerprint(&source).unwrap(), original);
     assert!(
-        MuPdfDocument::open(destination.as_path())
+        MuPdfDocument::open(crate::mupdf_path(destination.as_path()).unwrap())
             .unwrap()
             .load_pdf_page(0)
             .unwrap()
