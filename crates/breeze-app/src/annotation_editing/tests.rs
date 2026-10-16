@@ -3,6 +3,18 @@ use breeze_core::Rotation;
 use gpui_kit::test::TestAppContextExt;
 use gpui_kit::test::TestWindowExt;
 
+#[test]
+fn squiggle_selection_follows_the_rendered_crest() {
+    let mut a = line();
+    a.kind = Kind::Squiggle;
+    a.width = 8.;
+    a.points = vec![DocPoint::new(20., 50.), DocPoint::new(120., 50.)];
+    // At this width the first crest is 12.5 points along the gesture, not the
+    // former fixed eight-point zigzag's crest near the start.
+    assert!(geometry::hit(&a, DocPoint::new(32.5, 58.), 0.1));
+    assert!(!geometry::hit(&a, DocPoint::new(32.5, 42.), 0.1));
+}
+
 fn setup(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
     let worker = PdfWorker::new().unwrap();
     let page = futures::executor::block_on(worker.request(Source::Sample, 0).unwrap())

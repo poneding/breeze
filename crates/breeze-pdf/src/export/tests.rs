@@ -28,6 +28,66 @@ fn annotation(kind: Kind, first: Point, last: Point) -> Annotation {
         text: String::new(),
     }
 }
+
+#[test]
+fn squiggle_export_keeps_smooth_appearances_and_editable_anchors() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("curves.pdf");
+    let annotations: Vec<_> = [0.25, 2., 12., 40.]
+        .into_iter()
+        .enumerate()
+        .map(|(i, width)| {
+            let mut a = annotation(
+                Kind::Squiggle,
+                Point::new(80., 500. - i as f32 * 90.),
+                Point::new(380., 540. - i as f32 * 90.),
+            );
+            a.width = width;
+            a
+        })
+        .collect();
+    export_annotations(sample_request(output.clone(), annotations.clone())).unwrap();
+    let doc = Document::load(&output).unwrap();
+    let entries = annotation_entries(&doc, doc.get_pages()[&1]).unwrap();
+    for (entry, a) in entries.iter().zip(&annotations) {
+        let annotation = doc.get_dictionary(entry.as_reference().unwrap()).unwrap();
+        let normal = annotation
+            .get(b"AP")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"N")
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        let stream = doc.get_object(normal).unwrap().as_stream().unwrap();
+        let content =
+            lopdf::content::Content::decode(&stream.get_plain_content().unwrap()).unwrap();
+        assert!(content.operations.iter().any(|op| op.operator == "c"));
+        assert!(!content.operations.iter().any(|op| op.operator == "l"));
+        for operator in ["J", "j"] {
+            let op = content
+                .operations
+                .iter()
+                .find(|op| op.operator == operator)
+                .unwrap();
+            assert_eq!(op.operands[0].as_float().unwrap(), 1.);
+        }
+        let ink = annotation.get(b"InkList").unwrap().as_array().unwrap()[0]
+            .as_array()
+            .unwrap();
+        let points: Vec<_> = ink
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|p| Point::new(p[0].as_float().unwrap(), p[1].as_float().unwrap()))
+            .collect();
+        assert_eq!(points, appearance::squiggle(a));
+        assert_eq!(points.first(), a.points.first());
+        assert_eq!(points.last(), a.points.last());
+        assert!(points.len() <= 8193);
+    }
+}
 fn all_kinds() -> Vec<Annotation> {
     let mut items = Vec::new();
     for (kind, rect) in [

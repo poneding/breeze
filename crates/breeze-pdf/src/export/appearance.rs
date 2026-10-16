@@ -1,6 +1,6 @@
 //! Vector normal appearances use annotation-local bounds and explicit graphics state.
 use anyhow::{Result, ensure};
-use breeze_core::annotations::{Annotation, Kind, Point, Rect};
+use breeze_core::annotations::{Annotation, Kind, Point, Rect, curves};
 use lopdf::{
     Document, Object, ObjectId, Stream,
     content::{Content, Operation},
@@ -57,20 +57,7 @@ pub(super) fn bounds(a: &Annotation) -> Result<Rect> {
 pub(super) fn squiggle(a: &Annotation) -> Vec<Point> {
     let first = a.points[0];
     let last = a.points[a.points.len() - 1];
-    let dx = last.x - first.x;
-    let dy = last.y - first.y;
-    let length = dx.hypot(dy).max(1.);
-    let steps = (length / 2.).ceil().clamp(2., 2000.) as usize;
-    (0..=steps)
-        .map(|i| {
-            let t = i as f32 / steps as f32;
-            let offset = (t * length / 8. * std::f32::consts::TAU).sin() * a.width;
-            Point::new(
-                first.x + dx * t - dy / length * offset,
-                first.y + dy * t + dx / length * offset,
-            )
-        })
-        .collect()
+    curves::squiggle_points(first, last, a.width)
 }
 struct Drawing(Vec<Operation>);
 impl Drawing {
@@ -91,6 +78,28 @@ impl Drawing {
             }
             self.op("S", &[]);
         }
+    }
+    fn curve(&mut self, segments: impl IntoIterator<Item = curves::Cubic>, closed: bool) {
+        for (index, segment) in segments.into_iter().enumerate() {
+            if index == 0 {
+                self.op("m", &[segment.start.x, segment.start.y]);
+            }
+            self.op(
+                "c",
+                &[
+                    segment.control1.x,
+                    segment.control1.y,
+                    segment.control2.x,
+                    segment.control2.y,
+                    segment.end.x,
+                    segment.end.y,
+                ],
+            );
+        }
+        if closed {
+            self.op("h", &[]);
+        }
+        self.op("S", &[]);
     }
     fn rect(&mut self, r: Rect, fill: bool) {
         self.op("re", &[r.x, r.y, r.width, r.height]);
@@ -137,7 +146,7 @@ pub(super) fn build(doc: &mut Document, a: &Annotation, r: Rect) -> Result<Objec
         Kind::Area => d.rect(shape, true),
         Kind::Rectangle => d.rect(shape, false),
         Kind::Ink => d.path(&a.points, false),
-        Kind::Squiggle => d.path(&squiggle(a), false),
+        Kind::Squiggle => d.curve(curves::squiggle(first, last, a.width), false),
         Kind::Line | Kind::Arrow => {
             d.path(&[first, last], false);
             if a.kind == Kind::Arrow {
@@ -157,32 +166,7 @@ pub(super) fn build(doc: &mut Document, a: &Annotation, r: Rect) -> Result<Objec
                 }
             }
         }
-        Kind::Ellipse => {
-            let cx = shape.x + shape.width / 2.;
-            let cy = shape.y + shape.height / 2.;
-            let rx = shape.width / 2.;
-            let ry = shape.height / 2.;
-            let k = 0.552_284_8;
-            d.op("m", &[cx + rx, cy]);
-            d.op(
-                "c",
-                &[cx + rx, cy + k * ry, cx + k * rx, cy + ry, cx, cy + ry],
-            );
-            d.op(
-                "c",
-                &[cx - k * rx, cy + ry, cx - rx, cy + k * ry, cx - rx, cy],
-            );
-            d.op(
-                "c",
-                &[cx - rx, cy - k * ry, cx - k * rx, cy - ry, cx, cy - ry],
-            );
-            d.op(
-                "c",
-                &[cx + k * rx, cy - ry, cx + rx, cy - k * ry, cx + rx, cy],
-            );
-            d.op("h", &[]);
-            d.op("S", &[]);
-        }
+        Kind::Ellipse => d.curve(curves::ellipse(shape), true),
         Kind::Note => {
             // Notes are Unicode sticky notes, not a guessed-font inline FreeText export.
             d.op("rg", &[1., 0.94, 0.65]);

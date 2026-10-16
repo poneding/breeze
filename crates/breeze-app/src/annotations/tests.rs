@@ -1,6 +1,57 @@
 use super::*;
 use gpui_kit::test::TestAppContextExt;
 
+#[test]
+fn stroked_geometry_has_round_caps_and_no_miter_spikes() {
+    let contains = |path: &gpui_kit::Path<gpui_kit::Pixels>, p: Point<gpui_kit::Pixels>| {
+        path.vertices.as_chunks::<3>().0.iter().any(|triangle| {
+            let [a, b, c] = triangle.each_ref().map(|v| v.xy_position);
+            let cross = |a: Point<gpui_kit::Pixels>, b: Point<gpui_kit::Pixels>| {
+                f32::from(b.x - a.x) * f32::from(p.y - a.y)
+                    - f32::from(b.y - a.y) * f32::from(p.x - a.x)
+            };
+            let signs = [cross(a, b), cross(b, c), cross(c, a)];
+            signs.iter().all(|s| *s >= 0.) || signs.iter().all(|s| *s <= 0.)
+        })
+    };
+    for device_scale in [1., 2.] {
+        let mut line = annotation_stroke(10., device_scale);
+        line.move_to(point(px(20.), px(30.)));
+        line.line_to(point(px(80.), px(30.)));
+        let line = line.build().unwrap();
+        for x in [15.5, 84.5] {
+            assert!(
+                contains(&line, point(px(x), px(30.))),
+                "Caps extend past the anchors"
+            );
+            assert!(
+                !contains(&line, point(px(x), px(34.5))),
+                "Caps have no square corners"
+            );
+        }
+        let mut ink = annotation_stroke(10., device_scale);
+        ink.move_to(point(px(20.), px(50.)));
+        ink.line_to(point(px(50.), px(20.)));
+        ink.line_to(point(px(52.), px(50.)));
+        let ink = ink.build().unwrap();
+        assert!(ink.vertices.iter().all(|v| v.xy_position.y >= px(15.)));
+    }
+}
+
+#[test]
+fn long_round_pen_strokes_keep_all_their_segments() {
+    let points: Vec<_> = (0..20_000)
+        .map(|i| DocPoint::new(i as f32 * 0.1, if i % 2 == 0 { 0. } else { 20. }))
+        .collect();
+    for width in [2., 100.] {
+        let path =
+            annotation_polyline(&points, false, |p| point(px(p.x), px(p.y)), width, 2.).unwrap();
+        assert!(path.vertices.len() > 20_000);
+        assert!(path.bounds.left() < px(0.));
+        assert!(path.bounds.right() > px(1999.9));
+    }
+}
+
 pub(super) fn note(text: &str) -> Annotation {
     Annotation {
         page: 0,

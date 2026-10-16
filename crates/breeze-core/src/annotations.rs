@@ -2,6 +2,8 @@
 use crate::Rotation;
 use serde::{Deserialize, Serialize};
 
+pub mod curves;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Point {
     pub x: f32,

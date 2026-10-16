@@ -1,4 +1,4 @@
-use breeze_core::annotations::{Annotation, Kind, PageGeometry, Point, Rect, ViewGeometry};
+use breeze_core::annotations::{Annotation, Kind, PageGeometry, Point, Rect, ViewGeometry, curves};
 
 pub(super) fn segment_distance(p: Point, a: Point, b: Point) -> f32 {
     let dx = b.x - a.x;
@@ -30,22 +30,7 @@ fn path(annotation: &Annotation) -> Vec<Point> {
                 ),
             ]
         }
-        Kind::Squiggle => {
-            let dx = last.x - first.x;
-            let dy = last.y - first.y;
-            let length = dx.hypot(dy).max(1.);
-            let steps = (length / 2.).ceil().clamp(2., 2000.) as usize;
-            (0..=steps)
-                .map(|i| {
-                    let t = i as f32 / steps as f32;
-                    let wave = (t * length / 8. * std::f32::consts::TAU).sin() * annotation.width;
-                    Point::new(
-                        first.x + dx * t - dy / length * wave,
-                        first.y + dy * t + dx / length * wave,
-                    )
-                })
-                .collect()
-        }
+        Kind::Squiggle => curves::squiggle_points(first, last, annotation.width),
         _ => annotation.points.clone(),
     }
 }

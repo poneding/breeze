@@ -1,5 +1,39 @@
 # Delivery Status
 
+## October 16 smooth annotation strokes
+
+Native annotation outlines now use round caps and joins with tessellation
+precision tied to device scale. Straight lines, pen strokes, arrows, and text
+markup no longer have flat-cut endpoints. Ellipses use four cubic curves instead
+of a fixed 48-edge polygon.
+
+Free wavy lines use tangent-continuous cubic quarter waves. Their wavelength
+scales with line width so thick waves keep open troughs, short gestures reduce
+amplitude, and both ends meet the gesture anchors. The core owns this geometry;
+the native overlay, selection hit testing, and exported PDF appearances consume
+it. The PDF appearance uses cubic `c` operators with round caps/joins, while its
+editable InkList samples the same curves. Stored gesture points and the sidecar
+format are unchanged. Generated waves are bounded to 1,024 cubic segments and
+8,193 sampled points.
+
+A maximum-length 20,000-point pen stroke with round joins exceeded GPUI's u16
+tessellation index limit and disappeared. Open polylines now tessellate in bounded
+chunks with shared endpoints, then combine into one painted path so transparency
+is applied once. Regression coverage includes both 2 pt and 100 pt strokes at
+this limit, round cap coverage and absence of miter spikes, wave anchor/tangent
+continuity and amplitude bounds, hit testing at the visible crest, sampled-path
+error below 1% of line width, and exported curve/InkList preservation.
+
+Validation used an isolated source copy of the committed baseline plus this
+change, excluding unrelated in-progress PDF text-layer work that did not compile
+in the working checkout. `cargo fmt --all -- --check`, `cargo test --workspace
+--locked` (181 app, 19 core, 31 PDF unit tests with three ignored probes, and all
+remaining suites), and `cargo clippy --workspace --all-targets --locked -- -D
+warnings` pass. `cargo run --locked -p breeze-app` started with an isolated
+`BREEZE_DATA_DIR` under `target/`. Native macOS inspection of an authored fixture
+confirmed round endpoints and smooth 1/2/8/16 pt waves, short and diagonal waves,
+and the ellipse/pen outlines. Windows/Linux native checks remain open.
+
 ## October 16 vertical arrow scrolling
 
 Up Arrow and Down Arrow scroll Markdown and continuous PDF reading by 48 logical

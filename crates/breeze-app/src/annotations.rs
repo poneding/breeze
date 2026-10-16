@@ -1,9 +1,10 @@
 //! Native overlays and explicit, conflict-checked sidecar saves; no PDF content writes.
 use crate::*;
-use breeze_core::annotations::ViewGeometry;
 use breeze_core::annotations::{Annotation, History, Kind, Point as DocPoint, Rect};
+use breeze_core::annotations::{ViewGeometry, curves};
 use breeze_storage::{AnnotationConflict, AnnotationFile};
 use gpui_kit::component::ElementExt;
+use lyon_path::{LineCap, LineJoin};
 
 mod recovery;
 #[cfg(test)]
@@ -758,6 +759,53 @@ fn distance_to_segment(p: DocPoint, a: DocPoint, b: DocPoint) -> f32 {
     let t = (((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy).max(0.001)).clamp(0., 1.);
     ((p.x - a.x - t * dx).powi(2) + (p.y - a.y - t * dy).powi(2)).sqrt()
 }
+fn annotation_stroke(width: f32, device_scale: f32) -> PathBuilder {
+    PathBuilder::stroke(px(width)).with_style(PathStyle::Stroke(
+        StrokeOptions::default()
+            .with_line_width(width)
+            .with_line_cap(LineCap::Round)
+            .with_line_join(LineJoin::Round)
+            // Tessellate after the page-to-window transform, at device-pixel precision.
+            .with_tolerance(0.1 / device_scale.max(1.)),
+    ))
+}
+
+fn annotation_polyline(
+    points: &[DocPoint],
+    closed: bool,
+    map: impl Fn(DocPoint) -> Point<gpui_kit::Pixels>,
+    width: f32,
+    device_scale: f32,
+) -> Result<gpui_kit::Path<gpui_kit::Pixels>> {
+    let mut combined: Option<gpui_kit::Path<gpui_kit::Pixels>> = None;
+    // GPUI's tessellator indexes with u16. Round joins on a permitted 20,000-point
+    // pen stroke can exceed that limit. Overlap chunk endpoints and merge their
+    // triangles into one painted path so opacity is applied only once.
+    let stride = if closed { points.len().max(1) } else { 128 };
+    for start in (0..points.len()).step_by(stride) {
+        let chunk = &points[start..(start + stride + 1).min(points.len())];
+        if chunk.len() < 2 {
+            break;
+        }
+        let mut path = annotation_stroke(width, device_scale);
+        path.move_to(map(chunk[0]));
+        for p in &chunk[1..] {
+            path.line_to(map(*p));
+        }
+        if closed {
+            path.close();
+        }
+        let path = path.build()?;
+        if let Some(combined) = &mut combined {
+            combined.bounds = combined.bounds.union(&path.bounds);
+            combined.vertices.extend(path.vertices);
+        } else {
+            combined = Some(path);
+        }
+    }
+    Ok(combined.unwrap_or_else(|| gpui_kit::Path::new(Point::default())))
+}
+
 fn paint_annotation(
     a: &Annotation,
     geometry: ViewGeometry,
@@ -781,13 +829,28 @@ fn paint_annotation(
         a: a.opacity,
     };
     let stroke = |points: Vec<DocPoint>, closed: bool, window: &mut Window| {
-        if points.is_empty() {
-            return;
+        if let Ok(path) = annotation_polyline(
+            &points,
+            closed,
+            map,
+            (a.width * sx).max(0.5),
+            window.scale_factor(),
+        ) {
+            window.paint_path(path, color);
         }
-        let mut path = PathBuilder::stroke(px((a.width * sx).max(0.5)));
-        path.move_to(map(points[0]));
-        for p in points.iter().skip(1) {
-            path.line_to(map(*p));
+    };
+    let curve = |segments: Vec<curves::Cubic>, closed: bool, window: &mut Window| {
+        let Some(first) = segments.first() else {
+            return;
+        };
+        let mut path = annotation_stroke((a.width * sx).max(0.5), window.scale_factor());
+        path.move_to(map(first.start));
+        for segment in segments {
+            path.cubic_bezier_to(
+                map(segment.end),
+                map(segment.control1),
+                map(segment.control2),
+            );
         }
         if closed {
             path.close();
@@ -845,19 +908,7 @@ fn paint_annotation(
             true,
             window,
         ),
-        Kind::Ellipse => stroke(
-            (0..48)
-                .map(|i| {
-                    let angle = i as f32 / 48. * std::f32::consts::TAU;
-                    DocPoint::new(
-                        r.x + r.width / 2. + angle.cos() * r.width / 2.,
-                        r.y + r.height / 2. + angle.sin() * r.height / 2.,
-                    )
-                })
-                .collect(),
-            true,
-            window,
-        ),
+        Kind::Ellipse => curve(curves::ellipse(r).to_vec(), true, window),
         Kind::Ink => stroke(a.points.clone(), false, window),
         Kind::Line => stroke(vec![first, last], false, window),
         Kind::Arrow => {
@@ -878,26 +929,11 @@ fn paint_annotation(
                 );
             }
         }
-        Kind::Squiggle => {
-            let dx = last.x - first.x;
-            let dy = last.y - first.y;
-            let length = (dx * dx + dy * dy).sqrt().max(1.);
-            let steps = (length / 2.).ceil().clamp(2., 2000.) as usize;
-            stroke(
-                (0..=steps)
-                    .map(|i| {
-                        let t = i as f32 / steps as f32;
-                        let wave = (t * length / 8. * std::f32::consts::TAU).sin() * a.width;
-                        DocPoint::new(
-                            first.x + dx * t - dy / length * wave,
-                            first.y + dy * t + dx / length * wave,
-                        )
-                    })
-                    .collect(),
-                false,
-                window,
-            );
-        }
+        Kind::Squiggle => curve(
+            curves::squiggle(first, last, a.width).collect(),
+            false,
+            window,
+        ),
         Kind::Note => {}
     }
 }

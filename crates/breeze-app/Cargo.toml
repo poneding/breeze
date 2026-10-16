@@ -10,6 +10,8 @@ serde_json.workspace = true
 breeze-storage.workspace = true
 anyhow.workspace = true
 gpui-kit.workspace = true
+# GPUI's stroke options use these cap/join types; reuse its pinned path crate.
+lyon_path = "=1.0.19"
 breeze-core.workspace = true
 breeze-pdf.workspace = true
 breeze-reflow.workspace = true
