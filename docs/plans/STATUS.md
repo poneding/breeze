@@ -1666,3 +1666,18 @@ integration, 7 storage, and the remaining suites) and `cargo clippy --workspace
 side by side, the status bar reads `1–2 / 5`, the toggle is visibly pressed, and
 the type size and sharpness match single-page reading. Windows and Linux remain
 unverified.
+
+## October 14 unassigned entry uses the ban icon
+
+The sidebar's Unassigned entry now leads with Lucide's `ban` icon instead of the
+tag icon, so the entry that means "no category" no longer reads as a category
+tag. Per-category rows and the editor's colour swatches keep the tag icon.
+
+Validation: the complete workspace suite passes in the working checkout (194 app,
+19 core, 39 PDF with three ignored, and every PDF integration suite), and the
+category component tests covering that entry pass. At the time of this entry the
+checkout's in-progress markdown editor is unformatted and has two unused items,
+so a whole-workspace `cargo fmt -- --check` and all-target Clippy report those
+files independently of this change; `categories.rs` itself is rustfmt-clean.
+Native visual inspection was not performed because this session lacks Screen
+Recording permission. Windows/Linux native checks remain open.

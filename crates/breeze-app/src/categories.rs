@@ -173,7 +173,7 @@ impl Breeze {
                     ),
             )
             .child(
-                left_button("unassigned-category", IconName::Tag, tr!("Unassigned"))
+                left_button("unassigned-category", IconName::Ban, tr!("Unassigned"))
                     .selected(self.home_page == HomePage::Library && self.library_filter == 3)
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.home_page = HomePage::Library;
