@@ -60,3 +60,6 @@ These work-package documents were written before the corresponding code changes.
     registration in every installer plus macOS open-url delivery.
 
 12. [22 — MuPDF migration](22-mupdf-migration.md): publish the AGPL source/notice path, replace the PDF adapter while preserving app boundaries, add clipped device-region rendering, then verify fidelity and performance on all release platforms.
+
+13. [26 — Draggable tabs and split reading](26-split-reading.md): one horizontal
+    split with independent reader panes and movable document tabs.

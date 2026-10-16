@@ -371,7 +371,7 @@ impl Breeze {
                     .tooltip(tr!("Toggle favorite"))
                     .on_click(cx.listener(move |this, _, _, cx| {
                         cx.stop_propagation();
-                        this.books[index].favorite = !this.books[index].favorite;
+                        this.toggle_favorite(index, cx);
                         cx.notify()
                     })),
             )

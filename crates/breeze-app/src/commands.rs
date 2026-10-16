@@ -92,6 +92,10 @@ impl Breeze {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if self.forward_global(action, window, cx) {
+            return;
+        }
+        self.focus_pane(window, cx);
         if self.restoring || self.closing {
             return;
         }
@@ -114,13 +118,7 @@ impl Breeze {
         } else if action.as_any().is::<ToggleFullScreen>() {
             self.set_full_screen(!self.full_screen, window, cx);
         } else if action.as_any().is::<NextTab>() || action.as_any().is::<PreviousTab>() {
-            let tabs: Vec<_> = self
-                .books
-                .iter()
-                .enumerate()
-                .filter(|(_, b)| b.opened)
-                .map(|(i, _)| i)
-                .collect();
+            let tabs = self.pane_tabs();
             if !tabs.is_empty() {
                 let current = tabs.iter().position(|i| *i == self.active).unwrap_or(0);
                 let step = if action.as_any().is::<NextTab>() {
@@ -245,7 +243,7 @@ impl Breeze {
                 self.thumbs = action.as_any().is::<ShowThumbnails>();
                 cx.notify();
             } else if action.as_any().is::<Favorite>() {
-                self.books[self.active].favorite = !self.books[self.active].favorite;
+                self.toggle_favorite(self.active, cx);
                 cx.notify();
             } else if action.as_any().is::<FocusPage>() {
                 let n = self.books[self.active].state.navigation.page() + 1;
@@ -286,6 +284,10 @@ impl Breeze {
         }
     }
     pub(super) fn close_book(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some((peer, index)) = self.secondary_book(&self.books[index].source, cx) {
+            peer.update(cx, |peer, cx| peer.close_book(index, cx));
+            return;
+        }
         if self.active == index && !self.annotation_navigation_allowed(cx) {
             return;
         }
@@ -312,7 +314,7 @@ impl Breeze {
         }
         self.books[index].opened = false;
         if self.active == index {
-            if let Some(next) = self.books.iter().position(|b| b.opened) {
+            if let Some(next) = self.pane_tabs().first().copied() {
                 self.open_book(next, cx)
             } else {
                 self.show_home(cx)
@@ -320,6 +322,7 @@ impl Breeze {
         } else {
             cx.notify()
         }
+        self.normalize_split(cx);
     }
     fn document_tab_width(&self, index: usize, window: &Window, cx: &App) -> gpui_kit::Pixels {
         let theme = Theme::global(cx);
@@ -343,7 +346,12 @@ impl Breeze {
         (width + window.rem_size() * 2.125).clamp(px(40.), px(228.))
     }
 
-    fn document_tab(&self, index: usize, width: gpui_kit::Pixels, cx: &Context<Self>) -> Button {
+    fn document_tab(
+        &self,
+        index: usize,
+        width: gpui_kit::Pixels,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
         let book = &self.books[index];
         let active = self.screen == Screen::Reader && index == self.active;
         let p = self.p(cx);
@@ -391,71 +399,86 @@ impl Breeze {
                             })),
                     ),
             );
-        Button::new(("document", index))
-            .custom(
-                ButtonCustomVariant::new(cx)
-                    .hover(tab_hover)
-                    .active(tab_hover),
-            )
-            .small()
-            .group("document-tab")
+        let source = book.source.clone();
+        let destination = if self.workspace.parent.is_some() {
+            split::Destination::Secondary
+        } else {
+            split::Destination::Primary
+        };
+        let drag = split::TabDrag {
+            owner: cx.weak_entity(),
+            source: source.clone(),
+            title: book.title.clone(),
+        };
+        row()
+            .id(("draggable-tab", index))
+            .h_full()
             .flex_initial()
-            .w(width)
             .min_w(px(40.))
+            .w(width)
             .max_w(px(228.))
-            .pl_2()
-            .pr(px(2.))
-            .accessibility_label(book.title.clone())
-            .tooltip(book.title.clone())
-            // Custom variants tint their base color; keep this token exact.
-            .when(active, |d| d.bg(theme.tokens.background).shadow_sm())
-            // Keep one hover surface while the pointer crosses the Close overlay.
-            .group_hover("document-tab", move |s| s.bg(tab_hover).shadow_sm())
-            .on_click(cx.listener(move |this, _, window, cx| {
-                window.focus(&this.focus, cx);
-                this.open_book(index, cx);
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_drag(drag, |drag, _, _, cx| {
+                let _ = drag.owner.update(cx, |_, cx| cx.notify());
+                cx.new(|_| drag.clone())
+            })
+            .on_drop(cx.listener(move |this, drag: &split::TabDrag, window, cx| {
+                cx.stop_propagation();
+                this.queue_tab_drop(drag, destination, Some(source.clone()), window, cx);
             }))
             .child(
-                row()
-                    .id(("document-tab-content", index))
-                    .test_support()
-                    .relative()
-                    .size_full()
-                    .min_w_0()
-                    .gap_1()
-                    // Inset the title while keeping the absolute Close overlay near the edge.
-                    .pr(theme.font_size * 0.5 - px(2.))
-                    .child(document_icons::file_icon(&book.source, cx).flex_shrink_0())
-                    .child(
-                        div()
-                            .id(("document-tab-title", index))
-                            .test_support()
-                            .flex_1()
-                            .min_w_0()
-                            .text_ellipsis()
-                            .child(book.title.clone()),
+                Button::new(("document", index))
+                    .custom(
+                        ButtonCustomVariant::new(cx)
+                            .hover(tab_hover)
+                            .active(tab_hover),
                     )
-                    // Absolute positioning keeps the full title width until hover.
-                    .child(close_overlay),
+                    .small()
+                    .group("document-tab")
+                    .flex_initial()
+                    .w_full()
+                    .min_w(px(40.))
+                    .max_w(px(228.))
+                    .pl_2()
+                    .pr(px(2.))
+                    .accessibility_label(book.title.clone())
+                    .tooltip(book.title.clone())
+                    // Custom variants tint their base color; keep this token exact.
+                    .when(active, |d| d.bg(theme.tokens.background).shadow_sm())
+                    // Keep one hover surface while the pointer crosses the Close overlay.
+                    .group_hover("document-tab", move |s| s.bg(tab_hover).shadow_sm())
+                    .on_click(cx.listener(move |this, _, window, cx| {
+                        window.focus(&this.focus, cx);
+                        this.open_book(index, cx);
+                    }))
+                    .child(
+                        row()
+                            .id(("document-tab-content", index))
+                            .test_support()
+                            .relative()
+                            .size_full()
+                            .min_w_0()
+                            .gap_1()
+                            // Inset the title while keeping the absolute Close overlay near the edge.
+                            .pr(theme.font_size * 0.5 - px(2.))
+                            .child(document_icons::file_icon(&book.source, cx).flex_shrink_0())
+                            .child(
+                                div()
+                                    .id(("document-tab-title", index))
+                                    .test_support()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .text_ellipsis()
+                                    .child(book.title.clone()),
+                            )
+                            // Absolute positioning keeps the full title width until hover.
+                            .child(close_overlay),
+                    ),
             )
     }
 
     pub(super) fn header(&self, window: &Window, cx: &mut Context<Self>) -> TitleBar {
         let p = self.p(cx);
-        let tabs: Vec<_> = self
-            .books
-            .iter()
-            .enumerate()
-            .filter(|(_, book)| book.opened)
-            .map(|(index, _)| (index, self.document_tab_width(index, window, cx)))
-            .collect();
-        // Cap the strip at its actual content width so Plus follows short titles.
-        let tab_strip_width = px(10.)
-            + tabs
-                .iter()
-                .map(|(_, width)| *width)
-                .sum::<gpui_kit::Pixels>()
-            + window.rem_size() * 0.25 * tabs.len().saturating_sub(1) as f32;
         TitleBar::new()
             .on_close_window(cx.listener(|this, _, window, cx| {
                 if this.request_close(window, cx) {
@@ -493,62 +516,118 @@ impl Breeze {
                                 self.screen == Screen::Home && self.home_page == HomePage::Library,
                             ),
                     )
-                    .child(
-                        row()
-                            .id("document-tab-group")
-                            .h_full()
-                            .w_0()
-                            .flex_1()
-                            .min_w_0()
-                            .gap_1()
-                            .child(
-                                row()
-                                    .id("document-tabs")
-                                    .test_support()
-                                    .h_full()
-                                    .w_0()
-                                    .flex_1()
-                                    .max_w(tab_strip_width)
-                                    .min_w_0()
-                                    .overflow_x_scroll()
-                                    // Keep the first tab's shadow inside the scroll clip.
-                                    .pl(px(4.))
-                                    // Keep the last tab's shadow inside the clip and away from Plus.
-                                    .pr(px(6.))
-                                    .gap_1()
-                                    .children(
-                                        tabs.into_iter().map(|(index, width)| {
-                                            self.document_tab(index, width, cx)
-                                        }),
-                                    ),
-                            )
-                            .child(
-                                row()
-                                    .id("document-tab-add")
-                                    .test_support()
-                                    .flex_shrink_0()
-                                    .gap_1()
-                                    .child(
-                                        div()
-                                            .id("document-tab-divider")
-                                            .test_support()
-                                            .w(px(1.))
-                                            .h(px(14.))
-                                            .bg(p.line),
-                                    )
-                                    .child(
-                                        self.command(
-                                            "add-document",
-                                            IconName::Plus,
-                                            tr!("Open document"),
-                                            &Open,
-                                            cx,
-                                        )
-                                        .text_color(p.muted),
-                                    ),
-                            ),
+                    .child(self.workspace_tabs(window, cx)),
+            )
+    }
+    pub(super) fn tab_group(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let tabs: Vec<_> = self
+            .pane_tabs()
+            .into_iter()
+            .map(|index| (index, self.document_tab_width(index, window, cx)))
+            .collect();
+        // Cap the strip at its actual content width so Plus follows short titles.
+        let tab_strip_width = px(10.)
+            + tabs
+                .iter()
+                .map(|(_, width)| *width)
+                .sum::<gpui_kit::Pixels>()
+            + window.rem_size() * 0.25 * tabs.len().saturating_sub(1) as f32;
+        let destination = if self.workspace.parent.is_some() {
+            split::Destination::Secondary
+        } else {
+            split::Destination::Primary
+        };
+        row()
+            .id("document-tab-group")
+            .h_full()
+            .w_0()
+            .flex_1()
+            .min_w_0()
+            .gap_1()
+            .on_drop(cx.listener(move |this, drag: &split::TabDrag, window, cx| {
+                this.queue_tab_drop(drag, destination, None, window, cx);
+            }))
+            .child(
+                row()
+                    .id("document-tabs")
+                    .test_support()
+                    .h_full()
+                    .w_0()
+                    .flex_1()
+                    .max_w(tab_strip_width)
+                    .min_w_0()
+                    .overflow_x_scroll()
+                    .pl(px(4.))
+                    .pr(px(6.))
+                    .gap_1()
+                    .children(
+                        tabs.into_iter()
+                            .map(|(index, width)| self.document_tab(index, width, cx)),
                     ),
             )
+            .child(
+                row()
+                    .id("document-tab-add")
+                    .test_support()
+                    .flex_shrink_0()
+                    .gap_1()
+                    .child(
+                        div()
+                            .id("document-tab-divider")
+                            .test_support()
+                            .w(px(1.))
+                            .h(px(14.))
+                            .bg(self.p(cx).line),
+                    )
+                    .child(
+                        self.command(
+                            "add-document",
+                            IconName::Plus,
+                            tr!("Open document"),
+                            &Open,
+                            cx,
+                        )
+                        .text_color(self.p(cx).muted),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn workspace_tabs(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let primary = self.tab_group(window, cx);
+        let Some(peer) = self.workspace.secondary.clone() else {
+            return primary;
+        };
+        let secondary = peer.update(cx, |peer, cx| peer.tab_group(window, cx));
+        let primary = row()
+            .id("primary-tabs")
+            .test_support()
+            .h_full()
+            .flex_1()
+            .min_w_0()
+            .child(primary);
+        let secondary = row()
+            .id("secondary-tabs")
+            .test_support()
+            .h_full()
+            .flex_1()
+            .min_w_0()
+            .child(secondary);
+        let divider = div().h(px(20.)).w(px(1.)).mx_1().bg(self.p(cx).line);
+        let group = row().h_full().w_0().flex_1().min_w_0();
+        if self.workspace.side == split::Side::Left {
+            group
+                .child(secondary)
+                .child(divider)
+                .child(primary)
+                .into_any_element()
+        } else {
+            group
+                .child(primary)
+                .child(divider)
+                .child(secondary)
+                .into_any_element()
+        }
     }
 }
 fn action_label(action: &dyn Action) -> &'static str {

@@ -85,6 +85,7 @@ impl Breeze {
                 row()
                     .id("reader-toolbar")
                     .test_support()
+                    .overflow_x_scroll()
                     .h(px(style::TOOLBAR_HEIGHT))
                     .flex_shrink_0()
                     .px_2()
@@ -199,25 +200,35 @@ impl Breeze {
                 )
                 .child(
                     resizable_panel()
-                        .size_range(px(430.)..gpui_kit::Pixels::MAX)
+                        .size_range(
+                            px(if self.is_split() { 160. } else { 430. })..gpui_kit::Pixels::MAX,
+                        )
                         .child(main),
                 )
                 .into_any_element()
         } else {
             main.into_any_element()
         };
-        div().flex_1().min_w_0().min_h_0().child(
-            row()
-                .size_full()
-                .flex_1()
-                .min_w_0()
-                .min_h_0()
-                .items_stretch()
-                .child(div().size_full().min_w_0().min_h_0().child(center))
-                .when(self.document_panel.open, |row| {
-                    row.child(self.document_sidebar(cx))
-                }),
-        )
+        div()
+            .flex_1()
+            .min_w(px(if self.is_split() {
+                self.navigation_width * f32::from(self.sidebar) + self.document_panel.width() + 160.
+            } else {
+                0.
+            }))
+            .min_h_0()
+            .child(
+                row()
+                    .size_full()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .items_stretch()
+                    .child(div().size_full().min_w_0().min_h_0().child(center))
+                    .when(self.document_panel.open, |row| {
+                        row.child(self.document_sidebar(cx))
+                    }),
+            )
     }
     pub(super) fn navigation_outline(&self) -> Option<Arc<Vec<breeze_pdf::Outline>>> {
         self.preview

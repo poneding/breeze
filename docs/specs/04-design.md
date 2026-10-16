@@ -175,3 +175,16 @@ Named library categories are user-owned. A fresh library has only the Unassigned
 ## October 15 library actions
 
 Library rows and covers keep one action set: favorite and remove, plus a folder-open action that reveals a file-backed document in the platform file manager — “在访达中显示” on macOS, “在文件资源管理器中显示” on Windows — and stays absent for the bundled in-binary sample. Reveal never opens, moves, or edits the document; a missing file or failed launcher is reported instead of silently doing nothing. The document row itself remains the only Open control, so no separate “阅读文档” action is shown.
+
+## October 16 split reading
+
+Dragging a document tab into the left or right half of the reader creates one
+horizontal split, provided another document remains open. A workspace has at
+most two panes. Both tab groups stay in the native title bar; dragging between
+them moves a document, and dragging onto a tab places it before that tab. Each
+pane owns independent navigation and document sidebars, content, toolbar,
+status, reading position, zoom, search, and keyboard focus. An empty tab group
+returns the remaining documents to one pane. The middle divider resizes the
+panes; narrow content areas retain horizontal scrolling for their controls.
+Split placement and tab order are session state; reopening restores the existing
+persisted documents in one group.

@@ -439,6 +439,16 @@ impl Breeze {
             cx.notify();
             return false;
         }
+        if let Some(index) = self.books.iter().position(|book| {
+            book.markdown_edit
+                .as_ref()
+                .is_some_and(|editor| editor.read(cx).dirty())
+        }) {
+            self.open_book(index, cx);
+            self.message = tr!("Unsaved Markdown drafts remain. Close their tabs explicitly before closing the window.").into();
+            cx.notify();
+            return false;
+        }
         true
     }
     pub(super) fn document_pointer(

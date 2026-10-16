@@ -1106,6 +1106,16 @@ impl Breeze {
         }
     }
     fn reading_viewport_size(&self, window: &Window) -> (f32, f32) {
+        // Split readers fit against their own laid-out content cell. Window
+        // dimensions would center the page outside a narrow pane's clip.
+        if self.is_split()
+            && let Some(bounds) = self.viewport_bounds
+        {
+            return (
+                f32::from(bounds.size.width).max(100.),
+                f32::from(bounds.size.height).max(100.),
+            );
+        }
         let viewport = window.viewport_size();
         // Immersive reading hides every chrome row, so the document owns the window.
         if self.full_screen {
@@ -1225,10 +1235,17 @@ impl Breeze {
             .bg(p.canvas)
             .on_prepaint({
                 let view = cx.entity();
-                move |bounds, _, cx| {
-                    view.update(cx, |this, _| {
+                move |bounds, window, cx| {
+                    view.update(cx, |this, cx| {
+                        let resized = this
+                            .viewport_bounds
+                            .is_none_or(|old| old.size != bounds.size);
                         this.page_bounds.clear();
                         this.viewport_bounds = Some(bounds);
+                        if resized && this.is_split() {
+                            // Coalesce layout delivery before rebuilding virtual metrics.
+                            cx.defer_in(window, |_, _, cx| cx.notify());
+                        }
                     });
                 }
             })

@@ -33,6 +33,7 @@ mod reflow_images;
 mod reveal;
 mod settings;
 mod shortcuts;
+mod split;
 mod style;
 mod tool_settings;
 mod view_controls;
@@ -173,6 +174,7 @@ struct Preview {
     bytes: usize,
 }
 struct Breeze {
+    workspace: split::Workspace,
     page_task: Option<Task<()>>,
     reading: reading::ReadingView,
     reflow: reflow::ReflowView,
@@ -355,12 +357,13 @@ impl Breeze {
         );
         let appearance_observer = cx.observe_window_appearance(window, |this, window, cx| {
             this.system_appearance = window.appearance();
-            if this.theme_preference == ThemePreference::System {
+            if this.workspace.parent.is_none() && this.theme_preference == ThemePreference::System {
                 this.apply_theme(cx);
                 cx.notify();
             }
         });
         Self {
+            workspace: split::Workspace::default(),
             page_task: None,
             reading: reading::ReadingView::default(),
             reflow: reflow::ReflowView::default(),
@@ -501,6 +504,15 @@ impl Breeze {
         true
     }
     fn open_book(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some((peer, index)) = self.secondary_book(&self.books[index].source, cx) {
+            peer.update(cx, |peer, cx| peer.open_book(index, cx));
+            let focus = peer.read(cx).focus.clone();
+            let handle = self.window_handle;
+            cx.defer(move |cx| {
+                let _ = handle.update(cx, |_, window, cx| window.focus(&focus, cx));
+            });
+            return;
+        }
         if !self.annotation_navigation_allowed(cx) {
             return;
         }
@@ -512,7 +524,7 @@ impl Breeze {
             self.search_open = false;
             self.search_restore_document_panel_open = None;
         }
-        self.pending_window_policy = !self.books[index].opened;
+        self.pending_window_policy = !self.is_split() && !self.books[index].opened;
         self.active = index;
         self.tool = 0;
         self.books[index].opened = true;
@@ -623,6 +635,14 @@ impl Breeze {
         cx.notify();
     }
     fn forget_book(&mut self, index: usize, cx: &mut Context<Self>) {
+        if let Some((peer, remote)) = self.secondary_book(&self.books[index].source, cx) {
+            peer.update(cx, |peer, cx| peer.close_book(remote, cx));
+            if peer.read(cx).books[remote].opened {
+                return;
+            }
+            self.sync_secondary(cx);
+            self.normalize_split(cx);
+        }
         if !self.annotation_navigation_allowed(cx) {
             return;
         }
@@ -636,6 +656,7 @@ impl Breeze {
             self.active = self.active.saturating_sub(1);
         }
         self.show_home(cx);
+        self.normalize_split(cx);
     }
     /// Show a library document in the platform's file manager. The document is
     /// never opened, moved or edited by this action.
@@ -748,6 +769,33 @@ impl Breeze {
         .detach();
     }
     fn open_canonical_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if let Some(parent) = self.workspace.parent.clone()
+            && let Some(root) = parent.upgrade()
+            && !self
+                .books
+                .iter()
+                .any(|book| book.opened && book.source == Source::File(path.clone()))
+            && let Some(book) = root
+                .read(cx)
+                .books
+                .iter()
+                .find(|book| book.source == Source::File(path.clone()))
+        {
+            let drag = split::TabDrag {
+                owner: parent.clone(),
+                source: book.source.clone(),
+                title: book.title.clone(),
+            };
+            let handle = self.window_handle;
+            cx.defer(move |cx| {
+                let _ = handle.update(cx, |_, window, cx| {
+                    let _ = parent.update(cx, |parent, cx| {
+                        parent.drop_tab(&drag, split::Destination::Secondary, None, window, cx)
+                    });
+                });
+            });
+            return;
+        }
         if DocumentFormat::from_path(&path).is_none() {
             self.message = tr!("Supported formats: PDF, EPUB and Markdown").into();
             cx.notify();
@@ -768,7 +816,13 @@ impl Breeze {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| tr!("Document").into());
-        if self.books.len() >= 4096 {
+        let library_full = self
+            .workspace
+            .parent
+            .as_ref()
+            .and_then(WeakEntity::upgrade)
+            .is_some_and(|parent| parent.read(cx).books.len() >= 4096);
+        if self.books.len() >= 4096 || library_full {
             self.message = tr!("The library entry limit has been reached").into();
             cx.notify();
             return;
@@ -910,6 +964,15 @@ impl Breeze {
 }
 impl Render for Breeze {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if let Some(peer) = self.workspace.secondary.clone() {
+            peer.update(cx, |peer, _| {
+                peer.language = self.language;
+                peer.theme_preference = self.theme_preference.clone();
+                peer.categories = self.categories.clone();
+                peer.reading_preferences = self.reading_preferences;
+                peer.full_screen = self.full_screen;
+            });
+        }
         self.refresh_language(window, cx);
         // An unconfirmed preview only lives while the dropdown that can confirm it is on
         // screen. Kit reports its own closes directly, so this covers leaving Settings
@@ -940,7 +1003,8 @@ impl Render for Breeze {
         // Space. The status-bar control still hides this row for immersive
         // reading; a native fullscreen transition must not strand the tabs
         // behind the system title bar's hover reveal.
-        let header = (!immersive).then(|| self.header(window, cx).into_any_element());
+        let header = (!immersive && self.workspace.parent.is_none())
+            .then(|| self.header(window, cx).into_any_element());
         let mut chrome: Vec<AnyElement> = Vec::new();
         if !immersive {
             if let Some(header) = header {
@@ -978,8 +1042,14 @@ impl Render for Breeze {
                 Screen::Reader => self.reader(window, cx).into_any_element(),
             }
         };
+        let body = self.workspace_body(body, cx);
         column()
             .id("breeze-root")
+            .capture_any_mouse_up(cx.listener(|_, _, _, cx| {
+                if cx.has_active_drag() {
+                    cx.notify();
+                }
+            }))
             .size_full()
             .bg(p.bg)
             .text_color(p.text)
@@ -1120,7 +1190,7 @@ impl Render for Breeze {
                 this.execute(action, window, cx)
             }))
             .on_action(cx.listener(|this, _: &Quit, window, cx| {
-                if this.request_close(window, cx) {
+                if !this.forward_global(&Quit, window, cx) && this.request_close(window, cx) {
                     window.remove_window();
                 }
             }))

@@ -135,6 +135,14 @@ impl Breeze {
         for book in &mut self.books {
             book.categories.retain(|category| *category != id);
         }
+        if let Some(peer) = self.workspace.secondary.clone() {
+            peer.update(cx, |peer, cx| {
+                for book in &mut peer.books {
+                    book.categories.retain(|category| *category != id);
+                }
+                cx.notify();
+            });
+        }
         if self.library_filter == id + 3 {
             self.library_filter = 3;
         }
@@ -431,6 +439,15 @@ impl Breeze {
                 book.categories.push(id);
                 book.categories.sort_unstable();
             }
+        }
+        if let Some(book) = self.books.get(index)
+            && let Some((peer, remote)) = self.secondary_book(&book.source, cx)
+        {
+            let categories = self.books[index].categories.clone();
+            peer.update(cx, |peer, cx| {
+                peer.books[remote].categories = categories;
+                cx.notify();
+            });
         }
         cx.notify();
     }

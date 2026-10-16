@@ -423,6 +423,7 @@ impl Breeze {
         if !self.storage_ready {
             return;
         }
+        self.sync_secondary(cx);
         let state = self.snapshot();
         if self.last_snapshot.as_ref() == Some(&state) {
             return;
@@ -479,6 +480,14 @@ impl Breeze {
         if self.close_ready {
             return true;
         }
+        if let Some(peer) = self.workspace.secondary.clone()
+            && !peer.update(cx, |peer, cx| peer.allow_close(cx))
+        {
+            let focus = peer.read(cx).focus.clone();
+            window.focus(&focus, cx);
+            return false;
+        }
+        self.sync_secondary(cx);
         if self.closing || !self.allow_close(cx) {
             return false;
         }

@@ -1997,3 +1997,41 @@ so a whole-workspace `cargo fmt -- --check` and all-target Clippy report those
 files independently of this change; `categories.rs` itself is rustfmt-clean.
 Native visual inspection was not performed because this session lacks Screen
 Recording permission. Windows/Linux native checks remain open.
+
+## October 16 draggable tabs and split reading
+
+Implemented on `feat/draggable-split-tabs`: dragging a document tab onto the
+left or right half of the reader creates a second pane when another document
+remains open. The workspace allows exactly one horizontal split. Tabs can be
+reordered or transferred between its two native title-bar groups; an empty group
+returns the remaining documents to one reader. The middle divider uses Kit
+Resizable. Each pane keeps its own navigation and document sidebars, content,
+toolbar, status bar, focus, search, PDF worker and reflow view.
+
+Moving a tab transfers its annotation history and Markdown editor entity rather
+than copying them. Saving/exporting and unfinished text notes block transfers;
+both panes participate in window-close protection. Unfinished annotation-file
+inspection is restarted by the new owner. Library favorites/category actions
+reach the owning pane, and the single existing state writer retains both
+panes' document metadata. Split placement, divider size and tab order are
+session-only; restarting restores open documents into one tab group.
+
+Native inspection found and corrected titlebar window dragging stealing tab
+moves, missing split previews after drag start, compressed tab-group wrappers,
+and PDF layout using the full window width instead of its pane's measured
+content area. Regression tests exercise real pointer events, left/right
+placement, the two-pane limit, cancellation, tab reorder/transfer, independent
+focus/sidebars/search/navigation, per-pane fitted PDF bounds, divider resizing,
+dirty annotation and Markdown guards, stale owners, and interrupted annotation
+inspection.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked` (226
+app tests, including 12 new split regressions, and all other workspace suites),
+and `cargo clippy --workspace --all-targets --locked -- -D warnings` pass.
+`cargo run --locked -p breeze-app` starts successfully with an isolated
+`BREEZE_DATA_DIR` below `target/`. The macOS native window was inspected with the
+project-authored PDF and a disposable Chinese Markdown file: both documents
+render side by side, the tab groups remain readable, four independent sidebars
+and two status bars are present, and dragging the peer tab back collapses the
+empty pane. Windows/Linux runtime validation remains open. These are functional
+checks, not new performance or release-acceptance measurements.
