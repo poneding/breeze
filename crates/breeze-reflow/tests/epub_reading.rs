@@ -2,6 +2,22 @@ mod common;
 use breeze_core::document::EpubLocation;
 use breeze_reflow::epub::{Book, Request};
 
+/// Whether the page text carries `phrase`.
+///
+/// MuPDF breaks a line wherever the column width requires, so the extracted text
+/// holds a newline where the phrase had a space: in a half-width column
+/// "Chapter 0" is drawn as "Chapter\n0". Comparing whitespace-normalized text
+/// keeps this check about the text being present and selectable instead of about
+/// where the layout happened to wrap, which depends on the fonts the host
+/// provides. A dropped space cannot hide here, because the normalized text would
+/// then read "Chapter0".
+fn contains_phrase(text: &str, phrase: &str) -> bool {
+    text.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .contains(phrase)
+}
+
 #[test]
 fn publication_navigation_reflow_pixels_and_source_integrity() {
     let root = tempfile::tempdir().unwrap();
@@ -25,7 +41,7 @@ fn publication_navigation_reflow_pixels_and_source_integrity() {
     };
     let first = book.render(&request).unwrap();
     assert_eq!(first.chapter, 0);
-    assert!(first.text.contains("Chapter 0"));
+    assert!(contains_phrase(&first.text, "Chapter 0"));
     assert!(first.chapter_pages > 1);
     assert_eq!(first.pages.len(), 1);
     assert_eq!(
@@ -43,7 +59,7 @@ fn publication_navigation_reflow_pixels_and_source_integrity() {
     request.location.href = book.metadata.outline[2].href.clone();
     let last = book.render(&request).unwrap();
     assert_eq!(last.chapter, 2);
-    assert!(last.text.contains("Chapter 2"));
+    assert!(contains_phrase(&last.text, "Chapter 2"));
     request.location = last.location;
     request.turn = -1;
     let previous = book.render(&request).unwrap();
@@ -179,7 +195,8 @@ fn two_page_reading_returns_a_facing_pair() {
     assert_eq!(spread.chapter_page, 0);
     assert_eq!(spread.pages.len(), 2);
     assert!(spread.chapter_pages > 2, "the fixture needs several pages");
-    assert!(spread.text.contains("Chapter 0"));
+    // The half-width column wraps this heading on hosts whose fonts are wider.
+    assert!(contains_phrase(&spread.text, "Chapter 0"));
     // The pair fills the content area, so the combined raster keeps the
     // single-page size instead of doubling it.
     assert_eq!(spread.width, single.width);
