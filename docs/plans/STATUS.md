@@ -1,5 +1,21 @@
 # Delivery Status
 
+## October 16 horizontal arrow page shortcuts
+
+Left Arrow and Right Arrow invoke the existing Previous Page and Next Page
+commands. PageUp and PageDown remain available. The bindings use the same
+`Breeze && !Input` context, preserving caret movement inside text inputs and
+the existing layout-aware page steps and document boundaries.
+
+Validation on an isolated checkout containing this change, excluding unrelated
+uncommitted work: `cargo fmt --all -- --check`, `cargo test --workspace --locked`
+(including 178 app tests), and `cargo clippy --workspace --all-targets --locked
+-- -D warnings` pass. New native-component tests cover all four PDF layouts,
+first/last-page bounds, the original page-key aliases, and caret movement in the
+page-number and search inputs. A macOS run with an isolated `BREEZE_DATA_DIR`
+confirmed Right/Left move between sample pages 1 and 2 and preserve input
+editing. Windows and Linux native checks remain open.
+
 ## October 16 macOS traffic-light fullscreen
 
 The October 15 change coupled AppKit's green traffic light to immersive reading

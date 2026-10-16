@@ -36,6 +36,8 @@ pub fn bind(cx: &mut App) {
         // Page/zoom shortcuts must not consume editing keys inside an Input.
         KeyBinding::new("pagedown", NextPage, Some("Breeze && !Input")),
         KeyBinding::new("pageup", PreviousPage, Some("Breeze && !Input")),
+        KeyBinding::new("right", NextPage, Some("Breeze && !Input")),
+        KeyBinding::new("left", PreviousPage, Some("Breeze && !Input")),
         KeyBinding::new("secondary-=", ZoomIn, Some("Breeze && !Input")),
         KeyBinding::new("secondary-+", ZoomIn, Some("Breeze && !Input")),
         KeyBinding::new("secondary-shift-=", ZoomIn, Some("Breeze && !Input")),
@@ -570,3 +572,6 @@ fn action_label(action: &dyn Action) -> &'static str {
     name!(AnnotateMode, tr!("Annotate mode"));
     tr!("Command")
 }
+
+#[cfg(test)]
+mod tests;
