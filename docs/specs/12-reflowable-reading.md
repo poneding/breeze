@@ -5,8 +5,11 @@
 On October 15, 2026, the user requested EPUB and Markdown reading, native
 format-specific controls, Rust libraries where practical, and high performance.
 PDF page numbers, thumbnails, rotation, annotation tools, and PDF export must
-not become an application-wide document interface. Both new formats are
-read-only. DRM, encrypted publications, scripting, and editing remain deferred.
+not become an application-wide document interface. The implemented readers are
+read-only. On October 16, 2026, the user requested Typora-like Markdown editing
+and technical research first; [assessment 13](13-markdown-live-editing.md)
+supersedes the earlier Markdown editing deferral. EPUB editing, DRM, encrypted
+publications, and scripting remain deferred.
 
 ## Integration assessment
 

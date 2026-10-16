@@ -5,6 +5,9 @@
 - Breeze is a local, cross-format reading workspace. EPUB and Markdown reading
   were requested on October 15, 2026, with format-specific controls and native
   locations; see [the integration assessment](12-reflowable-reading.md).
+- On October 16, 2026, the user requested Typora-like Markdown editing, starting
+  with [technical research](13-markdown-live-editing.md). Editing is a new product
+  requirement, not implemented behavior; EPUB and PDF content remain read-only.
 - Use Rust for application logic and UI, with the `mupdf-rs` Rust API over MuPDF's C/C++ implementation for PDF processing. PDFium, Poppler, and WebView-based document rendering are not product engines.
 - Distribute Breeze and the corresponding source under AGPL-3.0-only, including required MuPDF notices and build/installation scripts.
 - Support macOS, Windows, and Linux, with native validation on each platform before release.
