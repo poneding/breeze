@@ -2,9 +2,11 @@
 mod buffer;
 mod edit;
 mod history;
+mod pipeline;
 mod positions;
 pub mod projection;
 pub mod semantic;
+pub use pipeline::{Pipeline, Request, Result_, project};
 
 pub use buffer::SourceBuffer;
 pub use edit::{EditKind, EditLimits, EditSession, Replacement, Snapshot};
@@ -14,7 +16,7 @@ pub use semantic::{LineKind, Semantic, Span};
 
 use crate::{fingerprint, read_bounded};
 use anyhow::{Context, Result, ensure};
-use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
+use pulldown_cmark::{Event, Parser, Tag, TagEnd, html};
 use std::{collections::HashMap, ops::Range, path::Path, sync::Arc};
 
 pub const MAX_SOURCE_BYTES: usize = 16 * 1024 * 1024;
@@ -58,11 +60,8 @@ impl Document {
             source.len() <= MAX_SOURCE_BYTES,
             "Markdown exceeds the 16 MiB input limit"
         );
-        let options = Options::ENABLE_TABLES
-            | Options::ENABLE_STRIKETHROUGH
-            | Options::ENABLE_TASKLISTS
-            | Options::ENABLE_FOOTNOTES
-            | Options::ENABLE_HEADING_ATTRIBUTES;
+        // One option set for the reader, the editor and the worker.
+        let options = semantic::options();
         let mut document = Self {
             blocks: Vec::new(),
             headings: Vec::new(),
