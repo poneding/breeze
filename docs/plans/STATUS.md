@@ -9,12 +9,12 @@ fullscreen belongs to the reader's status-bar control.
 
 The green traffic light now keeps AppKit's native fullscreen behavior and enters
 a new macOS Space. Breeze does not adopt that window state into
-`Breeze::full_screen`, so the navigation, reader toolbar, and status bar remain
-visible. The title bar is hidden with the system chrome; moving the pointer to
-the top edge reveals it as a 34 px overlay with the traffic lights and document
-tabs, and moving away hides it again. The custom title bar's double-click
-handler remains suppressed while the window is natively fullscreen, avoiding
-AppKit's zoom behavior inside the fullscreen Space.
+`Breeze::full_screen`, so the Breeze title bar, navigation, reader toolbar, and
+status bar remain visible. AppKit does not expose its hidden fullscreen title
+bar to the content view, so keeping the document tabs in Breeze's own title row
+is the public-API-safe way to keep tab switching reachable. The custom title
+bar's double-click handler remains suppressed while the window is natively
+fullscreen, avoiding AppKit's zoom behavior inside the fullscreen Space.
 
 The status-bar Fullscreen and F11 controls continue to request native window
 fullscreen and then render only the document. When the window is already in

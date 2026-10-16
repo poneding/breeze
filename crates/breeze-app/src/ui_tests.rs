@@ -1780,8 +1780,8 @@ fn fullscreen_shows_only_the_document_and_leaves_on_escape_or_f11(cx: &mut TestA
 }
 
 /// A native fullscreen transition outside the Fullscreen command must not turn
-/// on immersive reading. macOS's green traffic light hides the title bar, then
-/// reveals it as a top overlay without moving the reader chrome underneath.
+/// on immersive reading. Breeze keeps its document tabs visible inside the
+/// native Space; the status-bar Fullscreen still hides them for reading.
 #[gpui_kit::test]
 #[cfg(target_os = "macos")]
 fn native_fullscreen_does_not_change_reader_layout(cx: &mut TestAppContext) {
@@ -1800,22 +1800,8 @@ fn native_fullscreen_does_not_change_reader_layout(cx: &mut TestAppContext) {
         assert!(window.is_fullscreen());
         assert!(!view.read(cx).full_screen);
         window.render_frame(cx);
-        assert!(window.try_find("titlebar-content").is_none());
-        assert!(window.find("reader-toolbar").visible());
-        assert!(window.find("status-scroll").visible());
-
-        // Reaching the top edge reveals the native title bar as an overlay.
-        window.simulate_mouse_move(point(px(1.), px(1.)), cx);
-        window.render_frame(cx);
-        let overlay = window.find("fullscreen-titlebar-overlay").bounds();
-        assert_eq!(overlay.size.height, TITLE_BAR_HEIGHT);
         assert!(window.find("titlebar-content").visible());
         assert!(window.find("document-tabs").visible());
-
-        // Moving away from the title bar hides it and leaves the reader geometry.
-        window.simulate_mouse_move(point(px(500.), px(80.)), cx);
-        window.render_frame(cx);
-        assert!(window.try_find("titlebar-content").is_none());
         assert!(window.find("reader-toolbar").visible());
         assert!(window.find("status-scroll").visible());
 
@@ -1825,15 +1811,17 @@ fn native_fullscreen_does_not_change_reader_layout(cx: &mut TestAppContext) {
         window.render_frame(cx);
         assert!(view.read(cx).full_screen);
         assert!(window.is_fullscreen());
+        assert!(window.try_find("titlebar-content").is_none());
         assert!(window.try_find("reader-toolbar").is_none());
         assert!(window.try_find("status-scroll").is_none());
         window.press("escape", cx);
         window.render_frame(cx);
         assert!(!view.read(cx).full_screen);
         assert!(window.is_fullscreen());
+        assert!(window.find("titlebar-content").visible());
+        assert!(window.find("document-tabs").visible());
         assert!(window.find("reader-toolbar").visible());
         assert!(window.find("status-scroll").visible());
-        assert!(window.try_find("titlebar-content").is_none());
         // Leaving fullscreen outside the app restores the reader chrome.
         window.toggle_fullscreen();
     })
