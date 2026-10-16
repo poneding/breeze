@@ -51,10 +51,12 @@ pub fn publication(chapters: usize, paragraphs: usize) -> Vec<u8> {
 
 /// A chapter of Chinese prose, laid out with the publication's own stylesheet.
 ///
-/// Chinese text needs a CJK font. `mupdf-sys` compiles none in, and the safe
-/// crate's system loader implements the CJK hook on Windows only, so without a
-/// bundled font every Han character is a failed lookup: nothing is drawn and the
-/// page looks like scattered Latin words.
+/// Chinese text needs a CJK font, and `mupdf-sys` compiles none in. The
+/// workspace therefore enables `bundled-fonts-droid` and `bundled-fonts-noto`,
+/// which install MuPDF's runtime CJK font hooks, so this fixture draws Han
+/// characters even on a host with no system font at all. The test guards those
+/// hooks: without them every Han character is a failed lookup, nothing is drawn,
+/// and the page looks like scattered Latin words.
 #[allow(dead_code)]
 pub fn chinese_publication(paragraphs: usize) -> Vec<u8> {
     let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
