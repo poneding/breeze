@@ -615,3 +615,111 @@ fn large_paste_within_budget_is_one_transaction() {
     assert!(editor.undo().unwrap());
     assert_eq!(text_of(&editor), "start\n");
 }
+
+#[test]
+fn composition_previews_are_one_history_entry() {
+    let mut editor = session("say here\n");
+    let revision = editor.revision();
+    editor.set_selection(Selection::between(4, 4)).unwrap();
+    let range = editor.begin_composition().unwrap();
+    assert_eq!(range, 4..4);
+    assert_eq!(editor.composition_range(), Some(4..4));
+
+    // Marked-text updates replace the same range and do not enter the history.
+    editor.apply_composition("n", Selection::caret(5)).unwrap();
+    editor.apply_composition("ni", Selection::caret(6)).unwrap();
+    editor
+        .apply_composition("nihao", Selection::caret(9))
+        .unwrap();
+    assert_eq!(text_of(&editor), "say nihaohere\n");
+    assert_eq!(editor.undo_count(), 0, "previews are not undoable steps");
+    assert!(editor.revision() > revision);
+    assert_eq!(editor.composition_range(), Some(4..9));
+
+    assert!(
+        editor
+            .commit_composition("nihao", Selection::caret(9))
+            .unwrap()
+    );
+    assert_eq!(text_of(&editor), "say nihaohere\n");
+    assert_eq!(editor.undo_count(), 1, "the whole composition is one entry");
+    assert_eq!(editor.composition_range(), None);
+
+    // One undo removes the entire composition and restores the selection.
+    assert!(editor.undo().unwrap());
+    assert_eq!(text_of(&editor), "say here\n");
+    assert_eq!(editor.selection().range(), 4..4);
+
+    // Cancelling restores the original bytes without adding history.
+    editor.set_selection(Selection::caret(4)).unwrap();
+    editor.begin_composition().unwrap();
+    editor.apply_composition("ni", Selection::caret(6)).unwrap();
+    assert_eq!(text_of(&editor), "say nihere\n");
+    let entries = editor.undo_count();
+    assert!(editor.cancel_composition());
+    assert_eq!(text_of(&editor), "say here\n");
+    assert_eq!(editor.selection().range(), 4..4);
+    assert_eq!(editor.undo_count(), entries);
+
+    // A composition that ends up unchanged is not recorded.
+    editor.begin_composition().unwrap();
+    editor.apply_composition("", Selection::caret(4)).unwrap();
+    assert!(!editor.commit_composition("", Selection::caret(4)).unwrap());
+    assert_eq!(editor.undo_count(), entries);
+    assert_eq!(text_of(&editor), "say here\n");
+}
+
+#[test]
+fn composition_replaces_the_selected_range_as_one_edit() {
+    let mut editor = session("hello world\n");
+    editor.set_selection(Selection::between(6, 11)).unwrap();
+    let range = editor.begin_composition().unwrap();
+    assert_eq!(range, 6..11, "the composition starts from the selection");
+    editor.apply_composition("世", Selection::caret(9)).unwrap();
+    editor
+        .apply_composition("世界", Selection::caret(12))
+        .unwrap();
+    assert!(
+        editor
+            .commit_composition("世界", Selection::caret(12))
+            .unwrap()
+    );
+    assert_eq!(text_of(&editor), "hello 世界\n");
+    assert_eq!(editor.undo_count(), 1);
+    assert!(editor.undo().unwrap());
+    assert_eq!(text_of(&editor), "hello world\n");
+    assert_eq!(editor.selection().range(), 6..11);
+}
+
+#[test]
+fn composition_refuses_a_second_begin_and_secure_limits() {
+    let mut editor = session("ab");
+    editor.begin_composition().unwrap();
+    assert!(editor.begin_composition().is_err(), "no nested composition");
+    assert!(editor.commit_composition("c", Selection::caret(1)).unwrap());
+    assert_eq!(
+        text_of(&editor),
+        "cab",
+        "the composition replaces the caret range"
+    );
+
+    let mut tiny = EditSession::with_limits(
+        SourceBuffer::from_bytes(b"seed").unwrap(),
+        EditLimits {
+            source_bytes: 64,
+            history_bytes: 64,
+            history_entries: 2,
+        },
+    )
+    .unwrap();
+    tiny.set_selection(Selection::caret(4)).unwrap();
+    tiny.begin_composition().unwrap();
+    let error = tiny.apply_composition(&"字".repeat(64), Selection::caret(0));
+    assert!(
+        error.is_err(),
+        "an oversized preview is refused before mutation"
+    );
+    assert_eq!(text_of(&tiny), "seed");
+    assert!(tiny.cancel_composition());
+    assert_eq!(text_of(&tiny), "seed");
+}

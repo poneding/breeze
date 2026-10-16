@@ -235,3 +235,22 @@ fn trailing_and_repeated_delimiters_do_not_hang_or_over_consume() {
         assert!(line.display.end <= projection.text.len());
     }
 }
+
+#[test]
+fn composition_literal_range_keeps_half_typed_markdown_visible() {
+    use breeze_reflow::markdown::ProjectionMode;
+    let source = "a **bo";
+    let literal = 2..source.len();
+    let projection =
+        Projection::build_with_literal(source, 0..0, ProjectionMode::Live, Some(literal));
+    assert_eq!(projection.text, source, "the composing range stays literal");
+    assert!(
+        projection.lines[0].runs.is_empty(),
+        "half-typed delimiters must not start a style run"
+    );
+    // Other lines keep their live projection; only the composing line is
+    // literal, so a half-typed delimiter cannot restyle its neighbours.
+    let settled =
+        Projection::build_with_literal("x **b**\na **bo", 0..0, ProjectionMode::Live, Some(10..14));
+    assert_eq!(settled.text, "x b\na **bo");
+}

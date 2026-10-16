@@ -167,11 +167,24 @@ impl Projection {
     }
 
     pub fn build(source: &str, selection: Range<usize>, mode: ProjectionMode) -> Self {
+        Self::build_with_literal(source, selection, mode, None)
+    }
+
+    /// Build the projection while keeping `literal` rendered as source text.
+    /// Native composition uses this so a half-typed delimiter never restyles
+    /// or hides text under the input method.
+    pub fn build_with_literal(
+        source: &str,
+        selection: Range<usize>,
+        mode: ProjectionMode,
+        literal: Option<Range<usize>>,
+    ) -> Self {
         let source = &source[..source.len().min(MAX_SOURCE_BYTES)];
         let mut builder = Builder {
             source,
             mode,
             selection,
+            literal,
             text: String::with_capacity(source.len()),
             lines: Vec::new(),
             segments: Vec::new(),
@@ -288,6 +301,7 @@ struct Builder<'a> {
     lines: Vec<DisplayLine>,
     segments: Vec<Segment>,
     fence: Option<char>,
+    literal: Option<Range<usize>>,
 }
 
 /// Appends source-derived display text while recording the mapping segments.
@@ -419,7 +433,11 @@ impl Builder<'_> {
         let line = &self.source[start..end];
         let mut local = LineBuilder::new(line, start, self.selection.clone());
 
-        if self.mode == ProjectionMode::Source {
+        let literal = self
+            .literal
+            .as_ref()
+            .is_some_and(|literal| literal.start <= end && literal.end >= start);
+        if self.mode == ProjectionMode::Source || literal {
             local.copy(0..line.len());
             return finish(local, BlockKind::Paragraph, false);
         }

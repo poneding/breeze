@@ -85,6 +85,18 @@ pub struct EditSession {
     equivalent_saved: Option<u64>,
     history: History,
     limits: EditLimits,
+    composition: Option<Composition>,
+}
+
+/// In-flight native text composition: a contiguous source range that the input
+/// method is rewriting. Preview updates never enter the history; the whole
+/// composition becomes one entry when it commits.
+#[derive(Debug)]
+struct Composition {
+    before: Snapshot,
+    before_selection: Selection,
+    range: Range<usize>,
+    original: Arc<str>,
 }
 
 impl EditSession {
@@ -134,6 +146,7 @@ impl EditSession {
             equivalent_saved: None,
             history: History::default(),
             limits,
+            composition: None,
         })
     }
 
@@ -228,6 +241,130 @@ impl EditSession {
     pub fn trim_history(&mut self, bytes: usize, entries: usize) {
         self.history.trim(bytes, entries);
         self.break_undo_group();
+    }
+
+    pub fn composition_range(&self) -> Option<Range<usize>> {
+        self.composition
+            .as_ref()
+            .map(|composition| composition.range.clone())
+    }
+
+    /// Begin a native composition over the current selection. The returned
+    /// range is the source span the composition will rewrite.
+    pub fn begin_composition(&mut self) -> Result<Range<usize>> {
+        ensure!(
+            self.composition.is_none(),
+            "A composition is already active"
+        );
+        let range = self.selection.range();
+        let original: Arc<str> = self.source.text(range.clone())?.into();
+        self.composition = Some(Composition {
+            before: self.snapshot(),
+            before_selection: self.selection,
+            range: range.clone(),
+            original,
+        });
+        Ok(range)
+    }
+
+    /// Replace the in-flight composition's text without touching the history.
+    pub fn apply_composition(&mut self, text: &str, selection: Selection) -> Result<bool> {
+        let Some(composition) = self.composition.as_ref() else {
+            anyhow::bail!("No composition is active");
+        };
+        let range = composition.range.clone();
+        if range.is_empty() && text.is_empty() {
+            return Ok(false);
+        }
+        let mut candidate = self.source.clone();
+        candidate.rope.try_remove(range.clone())?;
+        candidate.rope.try_insert(range.start, text)?;
+        selection.validate(&candidate)?;
+        let length = self.source.len() - range.len() + text.len();
+        ensure!(
+            length <= self.limits.source_bytes,
+            "Markdown exceeds the session source limit"
+        );
+        ensure!(
+            std::mem::size_of::<Delta>() + range.len() + text.len() <= self.limits.history_bytes,
+            "This composition exceeds the undo byte budget"
+        );
+        let revision = self
+            .revision
+            .checked_add(1)
+            .context("Editor revision exhausted")?;
+        let checkpoint = self.next_checkpoint;
+        self.next_checkpoint = self
+            .next_checkpoint
+            .checked_add(1)
+            .context("Editor checkpoint exhausted")?;
+        if let Some(composition) = self.composition.as_mut() {
+            composition.range = range.start..range.start + text.len();
+        }
+        self.source = candidate;
+        self.selection = selection;
+        self.revision = revision;
+        self.checkpoint = checkpoint;
+        Ok(true)
+    }
+
+    /// Finish a composition as one history entry, or a no-op when the text did
+    /// not change.
+    pub fn commit_composition(&mut self, text: &str, selection: Selection) -> Result<bool> {
+        let Some(composition) = self.composition.as_ref() else {
+            return Ok(false);
+        };
+        let range = composition.range.clone();
+        if range.is_empty() && text.is_empty() {
+            self.composition = None;
+            self.break_undo_group();
+            return Ok(false);
+        }
+        self.apply_composition(text, selection)?;
+        let Some(composition) = self.composition.take() else {
+            return Ok(false);
+        };
+        let final_range = composition.range.clone();
+        if final_range == range && self.source.text(range.clone())? == *composition.original {
+            self.break_undo_group();
+            return Ok(false);
+        }
+        let removed = composition.original.clone();
+        let inserted: Arc<str> = self.source.text(final_range.clone())?.into();
+        let entry = Entry {
+            deltas: vec![Delta {
+                before: range,
+                after: final_range,
+                removed,
+                inserted,
+            }],
+            before_selection: composition.before_selection,
+            after_selection: self.selection,
+            before_checkpoint: composition.before.checkpoint,
+            after_checkpoint: self.checkpoint,
+            kind: EditKind::Atomic,
+            when: Instant::now(),
+        };
+        self.history.record(
+            entry,
+            self.limits.history_bytes,
+            self.limits.history_entries,
+        );
+        Ok(true)
+    }
+
+    /// Abandon a composition, restoring the source and selection it started
+    /// with. The history is untouched.
+    pub fn cancel_composition(&mut self) -> bool {
+        let Some(composition) = self.composition.take() else {
+            return false;
+        };
+        self.source = composition.before.source.clone();
+        self.selection = composition.before_selection;
+        self.checkpoint = composition.before.checkpoint;
+        self.revision = self.revision.saturating_add(1);
+        self.break_undo_group();
+        true
     }
 
     pub fn replace_selection(&mut self, text: impl Into<Arc<str>>, kind: EditKind) -> Result<bool> {
