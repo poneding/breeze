@@ -285,3 +285,38 @@ fn chinese_prose_is_drawn_with_its_own_stylesheet() {
     let turned = start.elapsed();
     assert!(turned.as_millis() < 500, "a page turn took {turned:?}");
 }
+
+#[test]
+fn rendered_pages_expose_selectable_text_geometry() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("book.epub");
+    std::fs::write(&path, common::publication(1, 3)).unwrap();
+    let mut book = Book::open(&path).unwrap();
+    let frame = book
+        .render(&Request {
+            path: path.clone(),
+            location: EpubLocation::default(),
+            width: 600.,
+            height: 800.,
+            scale: 1.,
+            font_size: 18.,
+            turn: 0,
+            scroll: 0.,
+            find: None,
+            spread: false,
+        })
+        .unwrap();
+    assert_eq!(frame.text_pages.len(), 1);
+    let text = &frame.text_pages[0];
+    assert!(!text.is_empty());
+    let line = &text.lines[0];
+    let point = [
+        (line.bounds[0] + line.bounds[2]) / 2.,
+        (line.bounds[1] + line.bounds[3]) / 2.,
+    ];
+    let caret = text.caret(point).unwrap();
+    assert!(line.glyphs.contains(&caret) || caret == line.glyphs.end);
+    let selected = text.text(line.glyphs.clone());
+    assert!(selected.contains("Chapter"), "{selected:?}");
+    assert!(!text.rects(line.glyphs.clone()).is_empty());
+}

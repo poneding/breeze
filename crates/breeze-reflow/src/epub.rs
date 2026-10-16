@@ -69,6 +69,115 @@ pub struct PagePixels {
     pub bgra: Vec<u8>,
 }
 
+/// One character and its normalized page-space bounds.
+#[derive(Clone, Debug)]
+pub struct TextGlyph {
+    pub character: char,
+    /// Normalized `[left, top, right, bottom]` in the rendered page.
+    pub bounds: [f32; 4],
+}
+
+/// A line and the glyphs it contains in reading order.
+#[derive(Clone, Debug)]
+pub struct TextLine {
+    pub glyphs: std::ops::Range<usize>,
+    /// Normalized `[left, top, right, bottom]` in the rendered page.
+    pub bounds: [f32; 4],
+}
+
+/// Selectable text extracted from one rendered EPUB page.
+#[derive(Clone, Debug, Default)]
+pub struct TextLayer {
+    pub glyphs: Vec<TextGlyph>,
+    pub lines: Vec<TextLine>,
+}
+
+impl TextLayer {
+    pub fn is_empty(&self) -> bool {
+        self.glyphs.is_empty()
+    }
+
+    /// The caret boundary nearest a normalized page point.
+    pub fn caret(&self, point: [f32; 2]) -> Option<usize> {
+        let line = self.lines.iter().min_by(|a, b| {
+            line_distance(a.bounds, point).total_cmp(&line_distance(b.bounds, point))
+        })?;
+        if point[1] < line.bounds[1] {
+            return Some(line.glyphs.start);
+        }
+        if point[1] > line.bounds[3] {
+            return Some(line.glyphs.end);
+        }
+        let glyphs = &self.glyphs[line.glyphs.clone()];
+        let mut nearest = line.glyphs.start;
+        let mut distance = f32::INFINITY;
+        for (offset, glyph) in glyphs.iter().enumerate() {
+            let center = (glyph.bounds[0] + glyph.bounds[2]) / 2.;
+            let current = (point[0] - center).abs();
+            if current < distance {
+                distance = current;
+                nearest = line.glyphs.start + offset;
+            }
+        }
+        let glyph = &self.glyphs[nearest];
+        Some(if point[0] < (glyph.bounds[0] + glyph.bounds[2]) / 2. {
+            nearest
+        } else {
+            nearest + 1
+        })
+    }
+
+    /// Text for a caret range, with one newline between selected lines.
+    pub fn text(&self, range: std::ops::Range<usize>) -> String {
+        let mut text = String::new();
+        for line in &self.lines {
+            let start = range.start.max(line.glyphs.start);
+            let end = range.end.min(line.glyphs.end);
+            if start >= end {
+                continue;
+            }
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.extend(self.glyphs[start..end].iter().map(|glyph| glyph.character));
+        }
+        text
+    }
+
+    /// Normalized rectangles for a caret range, one union per touched line.
+    pub fn rects(&self, range: std::ops::Range<usize>) -> Vec<[f32; 4]> {
+        let mut rects = Vec::new();
+        for line in &self.lines {
+            let start = range.start.max(line.glyphs.start);
+            let end = range.end.min(line.glyphs.end);
+            if start >= end {
+                continue;
+            }
+            let mut bounds = self.glyphs[start].bounds;
+            for glyph in &self.glyphs[start + 1..end] {
+                bounds = union_bounds(bounds, glyph.bounds);
+            }
+            rects.push(bounds);
+        }
+        rects
+    }
+}
+
+fn line_distance(bounds: [f32; 4], point: [f32; 2]) -> f32 {
+    let dx = (bounds[0] - point[0]).max(point[0] - bounds[2]).max(0.);
+    let dy = (bounds[1] - point[1]).max(point[1] - bounds[3]).max(0.);
+    dx * dx + dy * dy
+}
+
+fn union_bounds(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    [
+        a[0].min(b[0]),
+        a[1].min(b[1]),
+        a[2].max(b[2]),
+        a[3].max(b[3]),
+    ]
+}
+
 #[derive(Clone)]
 pub struct Frame {
     pub metadata: Arc<Metadata>,
@@ -85,6 +194,9 @@ pub struct Frame {
     /// the native UI lay out a spread explicitly instead of scaling a combined
     /// image as one page.
     pub pages: Vec<PagePixels>,
+    /// Selectable text aligned with `pages`, when the engine exposes a text
+    /// layer for that page.
+    pub text_pages: Vec<TextLayer>,
     pub text: String,
     pub progress: f32,
     pub links: Vec<Link>,

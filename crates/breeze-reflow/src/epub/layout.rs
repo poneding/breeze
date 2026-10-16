@@ -1,6 +1,6 @@
 use super::*;
 use anyhow::{Context, Result, ensure};
-use mupdf::{Colorspace, Document, Matrix, TextPageFlags};
+use mupdf::{Colorspace, Document, Matrix, TextBlockContent, TextPageFlags};
 use quick_xml::{Reader as XmlReader, XmlVersion, events::Event};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -406,6 +406,81 @@ struct Raster {
 /// The page is rendered opaque: device RGB yields three channels, and the
 /// texture needs BGRA, so the alpha byte is added here rather than making the
 /// page premultiplied and transparent.
+/// Keep selection bounded on unusually dense generated pages.
+const MAX_TEXT_GLYPHS: usize = 50_000;
+
+/// Extract the page's selectable text and normalized glyph geometry.
+fn text_layer(page: &mupdf::Page) -> Result<(TextLayer, String)> {
+    let page_bounds = page.bounds()?;
+    let width = (page_bounds.x1 - page_bounds.x0).max(f32::EPSILON);
+    let height = (page_bounds.y1 - page_bounds.y0).max(f32::EPSILON);
+    let text_page = page.to_text_page(TextPageFlags::empty())?;
+    let plain = text_page.to_text()?;
+    let structured = text_page.structured();
+    let mut layer = TextLayer::default();
+    for block in structured.blocks {
+        let TextBlockContent::Text { lines } = block.content else {
+            continue;
+        };
+        for line in lines {
+            let start = layer.glyphs.len();
+            for character in line.chars {
+                let [ul, ur, ll, lr] = [
+                    character.quad.ul,
+                    character.quad.ur,
+                    character.quad.ll,
+                    character.quad.lr,
+                ];
+                let x0 = [ul.x, ur.x, ll.x, lr.x]
+                    .into_iter()
+                    .fold(f32::INFINITY, f32::min);
+                let x1 = [ul.x, ur.x, ll.x, lr.x]
+                    .into_iter()
+                    .fold(f32::NEG_INFINITY, f32::max);
+                let y0 = [ul.y, ur.y, ll.y, lr.y]
+                    .into_iter()
+                    .fold(f32::INFINITY, f32::min);
+                let y1 = [ul.y, ur.y, ll.y, lr.y]
+                    .into_iter()
+                    .fold(f32::NEG_INFINITY, f32::max);
+                layer.glyphs.push(TextGlyph {
+                    character: character.ch,
+                    bounds: [
+                        ((x0 - page_bounds.x0) / width).clamp(0., 1.),
+                        ((y0 - page_bounds.y0) / height).clamp(0., 1.),
+                        ((x1 - page_bounds.x0) / width).clamp(0., 1.),
+                        ((y1 - page_bounds.y0) / height).clamp(0., 1.),
+                    ],
+                });
+                if layer.glyphs.len() > MAX_TEXT_GLYPHS {
+                    return Ok((TextLayer::default(), plain));
+                }
+            }
+            let end = layer.glyphs.len();
+            if start == end {
+                continue;
+            }
+            let bounds = layer.glyphs[start..end]
+                .iter()
+                .map(|glyph| glyph.bounds)
+                .reduce(|a, b| {
+                    [
+                        a[0].min(b[0]),
+                        a[1].min(b[1]),
+                        a[2].max(b[2]),
+                        a[3].max(b[3]),
+                    ]
+                })
+                .unwrap_or([0., 0., 0., 0.]);
+            layer.lines.push(TextLine {
+                glyphs: start..end,
+                bounds,
+            });
+        }
+    }
+    Ok((layer, plain))
+}
+
 fn raster(page: &mupdf::Page, scale: f32) -> Result<Raster> {
     let pixmap = page.to_pixmap(
         &Matrix::new_scale(scale, scale),
@@ -530,6 +605,7 @@ pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
         .document;
     let mut rasters = Vec::with_capacity(columns);
     let mut text = String::new();
+    let mut text_pages = Vec::with_capacity(columns);
     let mut links = Vec::new();
     // Bounds of the next page are offset by the width of the pages before it, so
     // a link in the right half keeps its position in the combined raster.
@@ -543,7 +619,9 @@ pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
         if offset > 0 {
             text.push('\n');
         }
-        text.push_str(&native.to_text_page(TextPageFlags::empty())?.to_text()?);
+        let (text_layer, page_text) = text_layer(&native)?;
+        text.push_str(&page_text);
+        text_pages.push(text_layer);
         for link in native.links()?.take(4096) {
             links.push(Link {
                 bounds: [
@@ -596,6 +674,7 @@ pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
                 bgra: page.bgra,
             })
             .collect(),
+        text_pages,
         text,
         progress,
         links,

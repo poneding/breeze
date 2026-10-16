@@ -1,3 +1,30 @@
+## October 16 EPUB text selection
+
+EPUB pages were rendered as opaque BGRA rasters with only a flat text string for
+search, so the reader could not map a pointer to a character and nothing was
+selectable. This was a missing integration, not a MuPDF capability limit:
+`breeze-reflow` already obtained a structured text page per rendered page, then
+discarded its character quads.
+
+`breeze_reflow::epub::TextLayer` now carries the page's glyphs and lines in
+reading order with normalized page-space bounds. The EPUB adapter returns one
+layer per visible raster, including both halves of a spread. `breeze-app` maps a
+pointer through the page image's real `Contain` rectangle, anchors a caret
+selection on press, extends it on move, and paints one translucent rectangle per
+selected line. Dragging between the two visible pages selects the intervening
+text as whole pages, matching the PDF reader's cross-page selection model.
+Dependencies and `Cargo.toml` are unchanged.
+
+Validation: `cargo test -p breeze-reflow --locked` (14 unit and 8 EPUB tests),
+`cargo test -p breeze-app --locked reflow::tests` (6 tests, including a real
+pointer drag that selects two lines and checks the painted rectangles), `cargo
+fmt --all -- --check`, and Clippy for both crates with warnings denied pass. The
+real 23 MB Chinese EPUB produced six text lines with glyph bounds on its first
+page. Native macOS capture could not complete the drag because the available
+automation injects a press-and-release without intermediate move events; the
+component test drives the same hit testing and callbacks with real intermediate
+moves. Windows and Linux remain unverified.
+
 ## October 16 selection handle alignment
 
 Reported after the frame pixel-alignment change: the corner and edge squares did

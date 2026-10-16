@@ -12,7 +12,7 @@ use gpui_kit::component::{
     tab::{Tab, TabBar},
     tooltip::Tooltip,
 };
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 struct TextBlock {
     index: usize,
@@ -40,6 +40,37 @@ struct OutlineSearch {
     _subscription: Subscription,
 }
 
+/// A caret selection over the selectable text layers in the current EPUB frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct ReflowTextSelection {
+    anchor: (usize, usize),
+    focus: (usize, usize),
+}
+
+impl ReflowTextSelection {
+    fn ordered(self) -> ((usize, usize), (usize, usize)) {
+        if self.anchor <= self.focus {
+            (self.anchor, self.focus)
+        } else {
+            (self.focus, self.anchor)
+        }
+    }
+
+    fn collapsed(self) -> bool {
+        self.anchor == self.focus
+    }
+
+    fn on_page(self, page: usize, glyphs: usize) -> std::ops::Range<usize> {
+        let (start, end) = self.ordered();
+        if page < start.0 || page > end.0 {
+            return 0..0;
+        }
+        let low = if page == start.0 { start.1 } else { 0 }.min(glyphs);
+        let high = if page == end.0 { end.1 } else { glyphs }.min(glyphs);
+        low..high.max(low)
+    }
+}
+
 pub(super) struct ReflowView {
     pub source: Option<Source>,
     pub markdown: Option<Arc<markdown::Document>>,
@@ -56,6 +87,13 @@ pub(super) struct ReflowView {
     queued: bool,
     pub hits: Vec<(String, usize, String)>,
     pub images: reflow_images::Images,
+    /// Selection over the current EPUB frame, plus the rectangles to paint.
+    text_selection: Option<ReflowTextSelection>,
+    selection: Vec<(usize, Vec<[f32; 4]>)>,
+    selection_active: bool,
+    /// Where each page image was laid out last frame, and its raster size.
+    page_bounds: HashMap<usize, Bounds<gpui_kit::Pixels>>,
+    page_sizes: Vec<(f32, f32)>,
     /// Outline rows for the open document, built once when it loads.
     pub outline: Arc<Vec<OutlineEntry>>,
     /// Folded outline rows, addressed by their index in `outline`.
@@ -96,6 +134,11 @@ impl Default for ReflowView {
             queued: false,
             hits: Vec::new(),
             images: Default::default(),
+            text_selection: None,
+            selection: Vec::new(),
+            selection_active: false,
+            page_bounds: HashMap::new(),
+            page_sizes: Vec::new(),
             outline: Arc::new(Vec::new()),
             outline_folds: HashSet::new(),
             outline_scroll: UniformListScrollHandle::new(),
@@ -125,6 +168,11 @@ impl ReflowView {
         self.frame = None;
         self.blocks.clear();
         self.hits.clear();
+        self.text_selection = None;
+        self.selection.clear();
+        self.selection_active = false;
+        self.page_bounds.clear();
+        self.page_sizes.clear();
         self.outline = Arc::new(Vec::new());
         self.outline_folds.clear();
         self.outline_scroll = UniformListScrollHandle::new();
@@ -553,6 +601,17 @@ impl Breeze {
                     Ok(mut frame) => {
                         // The buffer is moved into the texture: copying the page
                         // on the UI thread is what made a turn stutter.
+                        // Raster dimensions are device pixels at the request
+                        // scale; layout and the text layer are in logical page
+                        // space, so normalize the displayed aspect only.
+                        let page_sizes = frame
+                            .pages
+                            .iter()
+                            .map(|page| {
+                                let scale = scale.max(f32::EPSILON);
+                                (page.width as f32 / scale, page.height as f32 / scale)
+                            })
+                            .collect::<Vec<_>>();
                         let images = frame
                             .pages
                             .drain(..)
@@ -566,6 +625,8 @@ impl Breeze {
                             .collect::<Result<Vec<_>>>();
                         match images {
                             Ok(images) => {
+                                this.clear_reflow_text_selection();
+                                this.reflow.page_sizes = page_sizes;
                                 let old = std::mem::replace(&mut this.reflow.page_images, images);
                                 if !old.is_empty() {
                                     cx.defer(move |cx| {
@@ -1545,6 +1606,167 @@ impl Breeze {
         }
     }
 
+    /// Maps a pointer in a laid-out page image to normalized page coordinates.
+    fn reflow_page_point(
+        &self,
+        page: usize,
+        position: Point<gpui_kit::Pixels>,
+    ) -> Option<[f32; 2]> {
+        let bounds = *self.reflow.page_bounds.get(&page)?;
+        let raster = *self.reflow.page_sizes.get(page)?;
+        let display = contained_page_bounds(bounds, raster);
+        if display.size.width <= px(0.) || display.size.height <= px(0.) {
+            return None;
+        }
+        Some([
+            (f32::from(position.x - display.origin.x) / f32::from(display.size.width))
+                .clamp(0., 1.),
+            (f32::from(position.y - display.origin.y) / f32::from(display.size.height))
+                .clamp(0., 1.),
+        ])
+    }
+
+    /// The laid-out page under a pointer, or the nearest page when the pointer
+    /// is in the gutter or padding.
+    fn reflow_page_at(&self, position: Point<gpui_kit::Pixels>) -> Option<usize> {
+        self.reflow
+            .page_bounds
+            .iter()
+            .min_by(|(page_a, a), (page_b, b)| {
+                let a_display = contained_page_bounds(
+                    **a,
+                    self.reflow
+                        .page_sizes
+                        .get(**page_a)
+                        .copied()
+                        .unwrap_or((1., 1.)),
+                );
+                let b_display = contained_page_bounds(
+                    **b,
+                    self.reflow
+                        .page_sizes
+                        .get(**page_b)
+                        .copied()
+                        .unwrap_or((1., 1.)),
+                );
+                page_bounds_distance(a_display, position)
+                    .total_cmp(&page_bounds_distance(b_display, position))
+                    .then(page_a.cmp(page_b))
+            })
+            .map(|(page, _)| *page)
+    }
+
+    fn begin_reflow_text_selection(
+        &mut self,
+        page: usize,
+        position: Point<gpui_kit::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.books[self.active].state.mode != Mode::Read {
+            return;
+        }
+        let caret = self.reflow_page_point(page, position).and_then(|point| {
+            self.reflow
+                .frame
+                .as_ref()?
+                .text_pages
+                .get(page)?
+                .caret(point)
+        });
+        let Some(caret) = caret else {
+            return;
+        };
+        self.text_selection = None;
+        self.selection.clear();
+        self.selected_text.clear();
+        self.reflow.text_selection = Some(ReflowTextSelection {
+            anchor: (page, caret),
+            focus: (page, caret),
+        });
+        self.reflow.selection_active = true;
+        cx.notify();
+    }
+
+    fn update_reflow_text_selection(
+        &mut self,
+        page: usize,
+        position: Point<gpui_kit::Pixels>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.reflow.selection_active {
+            return;
+        }
+        let caret = self.reflow_page_point(page, position).and_then(|point| {
+            self.reflow
+                .frame
+                .as_ref()?
+                .text_pages
+                .get(page)?
+                .caret(point)
+        });
+        let Some(caret) = caret else {
+            return;
+        };
+        if let Some(selection) = &mut self.reflow.text_selection {
+            selection.focus = (page, caret);
+            self.refresh_reflow_text_selection();
+            cx.notify();
+        }
+    }
+
+    fn end_reflow_text_selection(&mut self, cx: &mut Context<Self>) {
+        if !self.reflow.selection_active {
+            return;
+        }
+        self.reflow.selection_active = false;
+        if self
+            .reflow
+            .text_selection
+            .is_some_and(ReflowTextSelection::collapsed)
+        {
+            self.clear_reflow_text_selection();
+            self.message.clear();
+        } else {
+            self.refresh_reflow_text_selection();
+            self.message = tf!(
+                "{} characters selected · ⌘/Ctrl+C to copy",
+                self.selected_text.chars().count()
+            );
+        }
+        cx.notify();
+    }
+
+    fn refresh_reflow_text_selection(&mut self) {
+        let Some(selection) = self.reflow.text_selection else {
+            return;
+        };
+        let Some(frame) = self.reflow.frame.as_ref() else {
+            return;
+        };
+        let mut selected = Vec::new();
+        let mut rectangles = Vec::new();
+        for (page, text) in frame.text_pages.iter().enumerate() {
+            let range = selection.on_page(page, text.glyphs.len());
+            if range.is_empty() {
+                continue;
+            }
+            let piece = text.text(range.clone());
+            if !piece.is_empty() {
+                selected.push(piece);
+                rectangles.push((page, text.rects(range)));
+            }
+        }
+        self.selected_text = selected.join("\n");
+        self.reflow.selection = rectangles;
+    }
+
+    fn clear_reflow_text_selection(&mut self) {
+        self.reflow.text_selection = None;
+        self.reflow.selection.clear();
+        self.reflow.selection_active = false;
+        self.selected_text.clear();
+    }
+
     fn reflow_content(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let p = self.p(cx);
         let epub = self.books[self.active].format() == Some(DocumentFormat::Epub);
@@ -1584,6 +1806,14 @@ impl Breeze {
                 });
             });
         if epub {
+            content = content.on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                if !this.reflow.selection_active {
+                    return;
+                }
+                if let Some(page) = this.reflow_page_at(event.position) {
+                    this.update_reflow_text_selection(page, event.position, cx);
+                }
+            }));
             content =
                 content.on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
                     // A trackpad emits dozens of wheel events for one swipe.
@@ -1615,29 +1845,95 @@ impl Breeze {
                     .frame
                     .as_ref()
                     .is_some_and(|frame| frame.columns == 2);
+                let images = self.reflow.page_images.clone();
+                let page_sizes = self.reflow.page_sizes.clone();
+                let selections = (0..images.len())
+                    .map(|page| {
+                        self.reflow
+                            .selection
+                            .iter()
+                            .find(|(candidate, _)| *candidate == page)
+                            .map(|(_, rects)| rects.clone())
+                            .unwrap_or_default()
+                    })
+                    .collect::<Vec<_>>();
                 let mut pages = row()
                     .id("reflow-pages")
                     .size_full()
                     .min_w_0()
                     .items_center()
                     .justify_center();
-                for (index, image) in self.reflow.page_images.iter().enumerate() {
+                for (index, image) in images.iter().enumerate() {
+                    let page_size = page_sizes.get(index).copied().unwrap_or((1., 1.));
+                    let rects = selections.get(index).cloned().unwrap_or_default();
+                    let view = cx.entity();
                     pages = pages.child(
                         div()
                             .id(("reflow-page", index))
+                            .test_support()
+                            .relative()
                             .h_full()
                             .min_w_0()
                             .flex_1()
+                            .cursor(CursorStyle::IBeam)
+                            .on_prepaint(move |bounds, _, cx| {
+                                view.update(cx, |this, _| {
+                                    this.reflow.page_bounds.insert(index, bounds);
+                                });
+                            })
+                            .capture_any_mouse_down(cx.listener(
+                                move |this, event: &MouseDownEvent, _, cx| {
+                                    this.begin_reflow_text_selection(index, event.position, cx);
+                                },
+                            ))
+                            .capture_any_mouse_up(cx.listener(
+                                move |this, _: &MouseUpEvent, _, cx| {
+                                    this.end_reflow_text_selection(cx);
+                                },
+                            ))
                             .child(
                                 img(image.clone())
                                     .size_full()
                                     .object_fit(ObjectFit::Contain),
+                            )
+                            .child(
+                                canvas(
+                                    move |_, _, _| rects,
+                                    move |bounds, rects, window, _| {
+                                        let display = contained_page_bounds(bounds, page_size);
+                                        for rect in rects {
+                                            let x = f32::from(display.origin.x)
+                                                + rect[0] * f32::from(display.size.width);
+                                            let y = f32::from(display.origin.y)
+                                                + rect[1] * f32::from(display.size.height);
+                                            window.paint_quad(fill(
+                                                Bounds {
+                                                    origin: point(px(x), px(y)),
+                                                    size: size(
+                                                        px((rect[2] - rect[0])
+                                                            * f32::from(display.size.width)),
+                                                        px((rect[3] - rect[1])
+                                                            * f32::from(display.size.height)),
+                                                    ),
+                                                },
+                                                Rgba {
+                                                    a: 0.28,
+                                                    ..rgb(annotation_editing::SELECTION_COLOR)
+                                                },
+                                            ));
+                                        }
+                                    },
+                                )
+                                .absolute()
+                                .top_0()
+                                .left_0()
+                                .size_full(),
                             ),
                     );
                 }
                 // Keep an odd final spread centered at the same half-width as
                 // its preceding pairs instead of enlarging its only page.
-                if spread && self.reflow.page_images.len() == 1 {
+                if spread && images.len() == 1 {
                     pages = pages.child(div().h_full().flex_1().min_w_0());
                 }
                 content = content.child(pages);
@@ -1818,6 +2114,43 @@ fn reflow_search_result_text(title: &str, href: &str, snippet: &str) -> String {
     }
 }
 
+/// Distance from a point to page bounds; zero inside them.
+fn page_bounds_distance(
+    bounds: Bounds<gpui_kit::Pixels>,
+    position: gpui_kit::Point<gpui_kit::Pixels>,
+) -> f32 {
+    let dx = f32::from(
+        (bounds.left() - position.x)
+            .max(position.x - bounds.right())
+            .max(px(0.)),
+    );
+    let dy = f32::from(
+        (bounds.top() - position.y)
+            .max(position.y - bounds.bottom())
+            .max(px(0.)),
+    );
+    dx * dx + dy * dy
+}
+
+/// The image rectangle inside a laid-out page cell when `Contain` scales it.
+fn contained_page_bounds(
+    bounds: Bounds<gpui_kit::Pixels>,
+    raster: (f32, f32),
+) -> Bounds<gpui_kit::Pixels> {
+    let scale = (f32::from(bounds.size.width) / raster.0)
+        .min(f32::from(bounds.size.height) / raster.1)
+        .max(0.);
+    let width = raster.0 * scale;
+    let height = raster.1 * scale;
+    Bounds {
+        origin: point(
+            bounds.origin.x + px((f32::from(bounds.size.width) - width) / 2.),
+            bounds.origin.y + px((f32::from(bounds.size.height) - height) / 2.),
+        ),
+        size: size(px(width), px(height)),
+    }
+}
+
 /// Whether the row owns nested rows, the same test the PDF outline uses.
 fn outline_has_children(outline: &[OutlineEntry], index: usize) -> bool {
     outline
@@ -1906,7 +2239,83 @@ fn visible_active_outline(visible: &[usize], active: Option<usize>) -> Option<us
 
 #[cfg(test)]
 mod tests {
-    use super::{grouped_characters, reflow_search_result_text};
+    use super::{
+        ReflowTextSelection, contained_page_bounds, grouped_characters, reflow_search_result_text,
+    };
+    use crate::{Mode, Source, texture};
+    use breeze_reflow::epub::{TextGlyph, TextLayer, TextLine};
+    use gpui_kit::AppContext;
+    use gpui_kit::TestAppContext;
+    use gpui_kit::test::TestWindowExt;
+    use gpui_kit::{Bounds, point, px, size};
+    use std::sync::Arc;
+
+    /// A two-line text layer with one glyph per character, laid out left to
+    /// right at 10 px per glyph.
+    fn text_layer(lines: &[&str]) -> TextLayer {
+        let mut layer = TextLayer::default();
+        for (row, text) in lines.iter().enumerate() {
+            let start = layer.glyphs.len();
+            for (column, character) in text.chars().enumerate() {
+                let x = column as f32 / 10.;
+                let y = row as f32 / 2.;
+                layer.glyphs.push(TextGlyph {
+                    character,
+                    bounds: [x, y, x + 0.1, y + 0.1],
+                });
+            }
+            layer.lines.push(TextLine {
+                glyphs: start..layer.glyphs.len(),
+                bounds: [
+                    0.,
+                    row as f32 / 2.,
+                    text.chars().count() as f32 / 10.,
+                    row as f32 / 2. + 0.1,
+                ],
+            });
+        }
+        layer
+    }
+
+    #[test]
+    fn epub_selection_maps_carets_across_lines() {
+        let text = text_layer(&["hello", "world"]);
+        let first = text.caret([0.55, 0.05]).unwrap();
+        let last = text.caret([0.45, 0.55]).unwrap();
+        assert_eq!(first, 5, "a point past the line end lands at its caret end");
+        assert_eq!(
+            last, 10,
+            "a point past the last glyph lands at the line end"
+        );
+        assert_eq!(text.text(first..last), "world");
+        let rects = text.rects(first..last);
+        assert_eq!(rects.len(), 1);
+        assert!(rects[0][2] > rects[0][0]);
+    }
+
+    #[test]
+    fn epub_selection_spans_visible_pages() {
+        let selection = ReflowTextSelection {
+            anchor: (0, 3),
+            focus: (1, 2),
+        };
+        assert_eq!(selection.on_page(0, 5), 3..5);
+        assert_eq!(selection.on_page(1, 5), 0..2);
+        assert_eq!(selection.on_page(2, 5), 0..0);
+    }
+
+    #[test]
+    fn contained_image_bounds_centre_the_page() {
+        let bounds = Bounds {
+            origin: point(px(10.), px(20.)),
+            size: size(px(400.), px(400.)),
+        };
+        let display = contained_page_bounds(bounds, (200., 100.));
+        assert_eq!(display.origin.x, px(10.));
+        assert_eq!(display.origin.y, px(120.));
+        assert_eq!(display.size.width, px(400.));
+        assert_eq!(display.size.height, px(200.));
+    }
 
     #[test]
     fn search_result_hides_spine_filenames() {
@@ -1918,6 +2327,105 @@ mod tests {
             reflow_search_result_text("鸣谢", "index_split_004.html", "…命中…"),
             "鸣谢 · …命中…"
         );
+    }
+
+    #[gpui_kit::test]
+    fn epub_pointer_drag_selects_text_and_paints_rects(cx: &mut TestAppContext) {
+        use breeze_reflow::epub::{self, TextGlyph, TextLine};
+
+        fn layer(lines: &[(&str, f32)]) -> epub::TextLayer {
+            let mut layer = epub::TextLayer::default();
+            for (text, y) in lines {
+                let start = layer.glyphs.len();
+                for (column, character) in text.chars().enumerate() {
+                    let x = 0.1 + column as f32 * 0.06;
+                    layer.glyphs.push(TextGlyph {
+                        character,
+                        bounds: [x, *y, x + 0.05, *y + 0.05],
+                    });
+                }
+                layer.lines.push(TextLine {
+                    glyphs: start..layer.glyphs.len(),
+                    bounds: [0.1, *y, 0.1 + text.chars().count() as f32 * 0.06, *y + 0.05],
+                });
+            }
+            layer
+        }
+
+        let (handle, view) = crate::ui_tests::app(cx);
+        let image = texture(breeze_pdf::Pixels {
+            width: 10,
+            height: 10,
+            bgra: vec![255; 10 * 10 * 4],
+        })
+        .unwrap();
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, cx| {
+                view.books[0].source = Source::File("/tmp/select.epub".into());
+                view.books[0].state.mode = Mode::Read;
+                view.reflow.frame = Some(epub::Frame {
+                    metadata: Arc::new(epub::Metadata {
+                        title: "Selectable".into(),
+                        author: String::new(),
+                        chapters: vec![epub::Chapter {
+                            href: "select.xhtml".into(),
+                            title: "Select".into(),
+                        }],
+                        outline: Vec::new(),
+                        fingerprint: "test".into(),
+                    }),
+                    location: Default::default(),
+                    chapter: 0,
+                    chapter_page: 0,
+                    chapter_pages: 1,
+                    columns: 1,
+                    width: 100,
+                    height: 100,
+                    pages: Vec::new(),
+                    text_pages: vec![layer(&[("hello", 0.2), ("world", 0.4)])],
+                    text: String::new(),
+                    progress: 0.,
+                    links: Vec::new(),
+                    scroll_offset: 0.,
+                    scroll_extent: 0.,
+                });
+                view.reflow.page_images = vec![image.clone()];
+                view.reflow.page_sizes = vec![(100., 100.)];
+                view.loading = false;
+                cx.notify();
+            });
+            window.render_frame(cx);
+        })
+        .unwrap();
+        let bounds = cx
+            .update_window(handle, |_, window, _| {
+                window.find(("reflow-page", 0usize)).bounds()
+            })
+            .unwrap();
+        let start = point(
+            bounds.origin.x + bounds.size.width * 0.2,
+            bounds.origin.y + bounds.size.height * 0.25,
+        );
+        let end = point(
+            bounds.origin.x + bounds.size.width * 0.8,
+            bounds.origin.y + bounds.size.height * 0.45,
+        );
+        cx.update_window(handle, |_, window, cx| {
+            window.drag(start, end, cx);
+        })
+        .unwrap();
+        cx.update_window(handle, |_, _, cx| {
+            let view = view.read(cx);
+            assert!(!view.selected_text.is_empty(), "drag did not select text");
+            assert!(
+                view.reflow
+                    .selection
+                    .iter()
+                    .any(|(_, rects)| !rects.is_empty()),
+                "selection did not paint any rectangles"
+            );
+        })
+        .unwrap();
     }
 
     #[test]
