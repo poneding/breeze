@@ -66,14 +66,19 @@ impl PageCache {
     }
 
     fn insert(&mut self, request: Request, frame: Frame) {
-        let size = frame.bgra.len();
+        let size = frame
+            .pages
+            .iter()
+            .map(|page| page.bgra.len())
+            .sum::<usize>();
         self.entries.push_back((request, frame));
         self.bytes += size;
         while self.entries.len() > CACHE_PAGES
             || (self.bytes > CACHE_BYTES && self.entries.len() > 1)
         {
             if let Some((_, old)) = self.entries.pop_front() {
-                self.bytes = self.bytes.saturating_sub(old.bgra.len());
+                let old_size = old.pages.iter().map(|page| page.bgra.len()).sum::<usize>();
+                self.bytes = self.bytes.saturating_sub(old_size);
             }
         }
     }

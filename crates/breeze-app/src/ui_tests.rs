@@ -3361,6 +3361,7 @@ fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
         let view = view.read(cx);
         let frame = view.reflow.frame.as_ref().unwrap();
         assert_eq!(frame.chapter_page % 2, 0, "the spread started mid-pair");
+        assert_eq!(view.reflow.page_images.len(), 2);
         // The pair is re-paginated at half the content width and arrives as one
         // raster, so it fills the area instead of doubling it.
         let content = window.find("reflow-viewport").bounds().size;

@@ -27,12 +27,13 @@ fn publication_navigation_reflow_pixels_and_source_integrity() {
     assert_eq!(first.chapter, 0);
     assert!(first.text.contains("Chapter 0"));
     assert!(first.chapter_pages > 1);
+    assert_eq!(first.pages.len(), 1);
     assert_eq!(
-        first.bgra.len(),
-        first.width as usize * first.height as usize * 4
+        first.pages[0].bgra.len(),
+        first.pages[0].width as usize * first.pages[0].height as usize * 4
     );
     assert!(
-        first
+        first.pages[0]
             .bgra
             .as_chunks::<4>()
             .0
@@ -176,22 +177,21 @@ fn two_page_reading_returns_a_facing_pair() {
     let spread = book.render(&request).unwrap();
     assert_eq!(spread.columns, 2);
     assert_eq!(spread.chapter_page, 0);
+    assert_eq!(spread.pages.len(), 2);
     assert!(spread.chapter_pages > 2, "the fixture needs several pages");
     assert!(spread.text.contains("Chapter 0"));
     // The pair fills the content area, so the combined raster keeps the
     // single-page size instead of doubling it.
     assert_eq!(spread.width, single.width);
     assert_eq!(spread.height, single.height);
-    assert_eq!(
-        spread.bgra.len(),
-        spread.width as usize * spread.height as usize * 4
+    assert!(
+        spread
+            .pages
+            .iter()
+            .all(|page| { page.width * 2 == spread.width && page.height == spread.height })
     );
     // Half the width holds one page, so the chapter needs at least as many
     // pages as it did at the full width.
-    println!(
-        "single={} spread={}",
-        single.chapter_pages, spread.chapter_pages
-    );
     assert!(
         spread.chapter_pages >= single.chapter_pages,
         "half-width pagination shrank the chapter from {} to {} pages",
@@ -250,8 +250,8 @@ fn chinese_prose_is_drawn_with_its_own_stylesheet() {
         cjk > 200,
         "only {cjk} Han characters reached the text layer"
     );
-    let total = (frame.width as usize) * (frame.height as usize);
-    let ink = frame
+    let total = frame.pages[0].width as usize * frame.pages[0].height as usize;
+    let ink = frame.pages[0]
         .bgra
         .as_chunks::<4>()
         .0
@@ -265,7 +265,7 @@ fn chinese_prose_is_drawn_with_its_own_stylesheet() {
     );
     // The raster is opaque BGRA, so the reader composites no transparent page.
     assert!(
-        frame
+        frame.pages[0]
             .bgra
             .as_chunks::<4>()
             .0

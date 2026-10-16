@@ -449,45 +449,6 @@ fn raster(page: &mupdf::Page, scale: f32) -> Result<Raster> {
     })
 }
 
-/// Place one page inside a wider spread buffer at `offset_x`.
-fn blit(dst: &mut [u8], dst_width: u32, offset_x: u32, page: &Raster) {
-    let row_bytes = page.width as usize * 4;
-    let dst_stride = dst_width as usize * 4;
-    let offset = offset_x as usize * 4;
-    for row in 0..page.height as usize {
-        let source = &page.bgra[row * row_bytes..(row + 1) * row_bytes];
-        let start = row * dst_stride + offset;
-        dst[start..start + row_bytes].copy_from_slice(source);
-    }
-}
-
-/// The requested page, or that page and its facing page on white ground.
-///
-/// The pair shares one texture so a turn still hands the reader a single raster.
-/// Pages laid out by the same reflow document share their size, but a differing
-/// height is padded rather than allowed to leave a transparent band.
-fn spread_buffer(pages: Vec<Raster>) -> Result<(u32, u32, Vec<u8>)> {
-    let mut iter = pages.into_iter();
-    let Some(first) = iter.next() else {
-        anyhow::bail!("EPUB page is missing");
-    };
-    let Some(second) = iter.next() else {
-        return Ok((first.width, first.height, first.bgra));
-    };
-    let width = first.width + second.width;
-    let height = first.height.max(second.height);
-    ensure!(
-        u64::from(width) * u64::from(height) <= MAX_PIXELS,
-        "EPUB raster exceeds its limit"
-    );
-    // The publication's own page background is white, so the gutter is white
-    // too and never composites as a transparent or black band.
-    let mut bgra = vec![255u8; width as usize * height as usize * 4];
-    blit(&mut bgra, width, 0, &first);
-    blit(&mut bgra, width, first.width, &second);
-    Ok((width, height, bgra))
-}
-
 pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
     ensure!(
         request.location.progression.is_finite()
@@ -597,7 +558,16 @@ pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
         left_points += native.bounds()?.width();
         rasters.push(raster(&native, request.scale)?);
     }
-    let (width, height, bgra) = spread_buffer(rasters)?;
+    let width = rasters.iter().map(|page| page.width).sum();
+    let height = rasters
+        .iter()
+        .map(|page| page.height)
+        .max()
+        .context("EPUB page is missing")?;
+    ensure!(
+        u64::from(width) * u64::from(height) <= MAX_PIXELS,
+        "EPUB raster exceeds its limit"
+    );
     let progression = if pages > 1 {
         page as f32 / (pages - 1) as f32
     } else {
@@ -618,7 +588,14 @@ pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
         columns,
         width,
         height,
-        bgra,
+        pages: rasters
+            .into_iter()
+            .map(|page| PagePixels {
+                width: page.width,
+                height: page.height,
+                bgra: page.bgra,
+            })
+            .collect(),
         text,
         progress,
         links,

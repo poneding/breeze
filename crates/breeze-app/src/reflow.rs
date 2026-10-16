@@ -44,7 +44,7 @@ pub(super) struct ReflowView {
     pub source: Option<Source>,
     pub markdown: Option<Arc<markdown::Document>>,
     pub frame: Option<epub::Frame>,
-    image: Option<Arc<RenderImage>>,
+    pub(super) page_images: Vec<Arc<RenderImage>>,
     worker: Option<EpubWorker>,
     blocks: VecDeque<TextBlock>,
     pub list: ListState,
@@ -85,7 +85,7 @@ impl Default for ReflowView {
             source: None,
             markdown: None,
             frame: None,
-            image: None,
+            page_images: Vec::new(),
             worker: None,
             blocks: VecDeque::new(),
             list: ListState::new(0, ListAlignment::Top, px(256.)),
@@ -134,8 +134,13 @@ impl ReflowView {
         self.pending_turn = 0;
         self.worker = None;
         self.images.clear(cx);
-        if let Some(image) = self.image.take() {
-            cx.defer(move |cx| cx.drop_image(image, None));
+        let page_images = std::mem::take(&mut self.page_images);
+        if !page_images.is_empty() {
+            cx.defer(move |cx| {
+                for image in page_images {
+                    cx.drop_image(image, None);
+                }
+            });
         }
     }
 }
@@ -544,14 +549,26 @@ impl Breeze {
                     Ok(mut frame) => {
                         // The buffer is moved into the texture: copying the page
                         // on the UI thread is what made a turn stutter.
-                        match texture(Pixels {
-                            width: frame.width,
-                            height: frame.height,
-                            bgra: std::mem::take(&mut frame.bgra),
-                        }) {
-                            Ok(image) => {
-                                if let Some(old) = this.reflow.image.replace(image) {
-                                    cx.defer(move |cx| cx.drop_image(old, None));
+                        let images = frame
+                            .pages
+                            .drain(..)
+                            .map(|page| {
+                                texture(Pixels {
+                                    width: page.width,
+                                    height: page.height,
+                                    bgra: page.bgra,
+                                })
+                            })
+                            .collect::<Result<Vec<_>>>();
+                        match images {
+                            Ok(images) => {
+                                let old = std::mem::replace(&mut this.reflow.page_images, images);
+                                if !old.is_empty() {
+                                    cx.defer(move |cx| {
+                                        for image in old {
+                                            cx.drop_image(image, None);
+                                        }
+                                    });
                                 }
                                 this.books[this.active].reflow.epub = frame.location.clone();
                                 this.books[this.active].reflow.progress = frame.progress;
@@ -1445,12 +1462,38 @@ impl Breeze {
                         this.request_epub(turn.clamp(-8, 8), 0., None, cx);
                     }
                 }));
-            if let Some(image) = &self.reflow.image {
-                content = content.child(
-                    img(image.clone())
-                        .size_full()
-                        .object_fit(ObjectFit::Contain),
-                );
+            if !self.reflow.page_images.is_empty() {
+                let spread = self
+                    .reflow
+                    .frame
+                    .as_ref()
+                    .is_some_and(|frame| frame.columns == 2);
+                let mut pages = row()
+                    .id("reflow-pages")
+                    .size_full()
+                    .min_w_0()
+                    .items_center()
+                    .justify_center();
+                for (index, image) in self.reflow.page_images.iter().enumerate() {
+                    pages = pages.child(
+                        div()
+                            .id(("reflow-page", index))
+                            .h_full()
+                            .min_w_0()
+                            .flex_1()
+                            .child(
+                                img(image.clone())
+                                    .size_full()
+                                    .object_fit(ObjectFit::Contain),
+                            ),
+                    );
+                }
+                // Keep an odd final spread centered at the same half-width as
+                // its preceding pairs instead of enlarging its only page.
+                if spread && self.reflow.page_images.len() == 1 {
+                    pages = pages.child(div().h_full().flex_1().min_w_0());
+                }
+                content = content.child(pages);
             }
         } else if self.reflow.markdown.is_some() {
             // Markdown reads at a comfortable measure by default. The status bar

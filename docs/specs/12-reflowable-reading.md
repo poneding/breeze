@@ -66,11 +66,14 @@ controls that need one are dropped.
 
 EPUB also reads as a two-page spread. The status bar's `columns-2` toggle is a
 view state, not a second renderer: it re-paginates the chapter at half the
-content width and shows the facing pair, so a turn advances a spread instead of a
-page and the pair fills the content area. Both pages share one raster, which
-keeps the pixel budget of a spread equal to that of a single page. A location is
-a fraction of the chapter, so toggling the spread preserves the reading position
-the way a viewport or text-size change does.
+content width and lays the facing pair out side by side, so a turn advances a
+spread instead of a page and the pair fills the content area. Each page keeps its
+own raster; arranging them in the native layout instead of pre-combining them
+into one wide image is what stops GPUI from scaling the pair as a single page,
+which enlarged and blurred the text. Every page is rastered at half the content
+width times the device scale, so it maps one to one onto its half of the area. A
+location is a fraction of the chapter, so toggling the spread preserves the
+reading position the way a viewport or text-size change does.
 
 The titlebar, 34 px content headers, 32 px status bar, panel sizing, library,
 categories, favorites and opening policies remain shared. Actions must be

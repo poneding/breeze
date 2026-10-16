@@ -63,6 +63,13 @@ pub struct Link {
 }
 
 #[derive(Clone)]
+pub struct PagePixels {
+    pub width: u32,
+    pub height: u32,
+    pub bgra: Vec<u8>,
+}
+
+#[derive(Clone)]
 pub struct Frame {
     pub metadata: Arc<Metadata>,
     pub location: EpubLocation,
@@ -74,10 +81,10 @@ pub struct Frame {
     pub columns: usize,
     pub width: u32,
     pub height: u32,
-    /// Premultiplied BGRA at the requested device scale. Owned rather than
-    /// shared so the UI thread can hand the buffer straight to the texture
-    /// instead of copying it once per page turn.
-    pub bgra: Vec<u8>,
+    /// One opaque BGRA raster per visible page. Keeping the pages separate lets
+    /// the native UI lay out a spread explicitly instead of scaling a combined
+    /// image as one page.
+    pub pages: Vec<PagePixels>,
     pub text: String,
     pub progress: f32,
     pub links: Vec<Link>,

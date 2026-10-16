@@ -1393,26 +1393,38 @@ Down", the position reads `1 / 2`, and six rapid presses advanced six chapters.
 The EPUB reader can show a facing pair. The status bar's `columns-2` button is a
 view state — pressed while the spread is on, with a tooltip that names the
 opposite action — and the choice is stored per document in `ReflowState::spread`
-beside the text size, so it survives a reload and older snapshots still load with
-single-page reading.
+beside the text size, so it survives a reload and older snapshots still load
+with single-page reading.
 
-The page is not scaled down. With the toggle on, `breeze-reflow` paginates the
-chapter at half the content width and returns the two pages as one raster, so the
-pair fills the content area and the buffer keeps the single-page pixel budget. A
-turn then advances a spread instead of a page: `turn` counts steps, and a page
-location is snapped to the start of its pair before the delta applies, so a
-location saved in single-page mode does not open half way through a spread. The
-status bar reports the pair (`3–4 / 12`) and Next is disabled on the last spread,
-where the visible pages reach the end of the chapter.
-`two_page_reading_returns_a_facing_pair` asserts the combined raster, the even
-left page and a two-page turn in the adapter.
+The first implementation combined the pair into one wide raster and handed it to
+the reader as a single image. GPUI's image element then measured that wide buffer
+as one page and letterboxed it into the content area, so the second page never
+appeared at the expected size and the text was scaled and resampled, which is why
+it read as a single, larger, blurrier page. The frame now carries one raster per
+visible page and the native layout places them side by side as two children, each
+`flex_1` of the row; an odd final spread keeps an empty second cell so its single
+page stays at half width. Every page is rastered at half the content width times
+the device scale, so it maps one to one onto its half of the area instead of
+being rescaled by the image element.
+
+`frame.pages` replaces `Frame::bgra`, and the worker's cache accounts for the sum
+of the page buffers. A turn still advances a spread rather than a page: `turn`
+counts steps, and a page location is snapped to the start of its pair before the
+delta applies, so a location saved in single-page mode does not open half way
+through a spread. The status bar reports the pair (`3–4 / 12`) and Next is
+disabled on the last spread, where the visible pages reach the end of the
+chapter. `two_page_reading_returns_a_facing_pair` asserts the two rasters, the
+even left page and a two-page turn in the adapter.
 `epub_two_page_reading_fills_the_content_area` drives the real window: it asserts
 the button is inside the status bar, checks the toggled state through
-accessibility metadata, and requires the settled spread raster to match the
-content width.
+accessibility metadata, requires two page textures, and requires the settled
+double-width raster to match the content width.
 
 Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked` (app
-176 passed, 16 core, 30 PDF with three ignored, 6 reflow unit, 7 reflow
+178 passed, 16 core, 30 PDF with three ignored, 6 reflow unit, 7 reflow
 integration, 7 storage, and the remaining suites) and `cargo clippy --workspace
---all-targets --locked -- -D warnings` pass. Native visual inspection was not
-performed in this session, and Windows and Linux remain unverified.
+--all-targets --locked -- -D warnings` pass. Native verification with an isolated
+`BREEZE_DATA_DIR` on the reported 23 MB Chinese EPUB confirmed the pair renders
+side by side, the status bar reads `1–2 / 5`, the toggle is visibly pressed, and
+the type size and sharpness match single-page reading. Windows and Linux remain
+unverified.
