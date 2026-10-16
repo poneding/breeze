@@ -17,6 +17,79 @@ fn squiggle_selection_follows_the_rendered_crest() {
 }
 
 #[test]
+fn selection_frame_centres_edges_on_device_pixels() {
+    // Page coordinates reach the overlay as fractions. Painting element borders
+    // at those offsets gave each edge different antialiasing, which read as an
+    // uneven frame on the top/left versus the bottom/right. Edges must land on
+    // device pixel centres so every side covers its pixels identically.
+    for scale in [1., 2., 3.] {
+        for offset in [0.13, 0.5, 0.87] {
+            let frame = selection_frame(120.37 + offset, 241.61 + offset, 180.4, 96.7, scale);
+            for edge in frame {
+                let device = edge * scale - 0.5;
+                assert!(
+                    (device - device.round()).abs() < 0.0001,
+                    "edge {edge} is not centred on a device pixel at scale {scale}"
+                );
+            }
+            assert!(frame[2] > frame[0] && frame[3] > frame[1]);
+            for (edge, exact) in [
+                (frame[0], 120.37 + offset),
+                (frame[1], 241.61 + offset),
+                (frame[2], 120.37 + offset + 180.4),
+                (frame[3], 241.61 + offset + 96.7),
+            ] {
+                assert!((edge - exact).abs() <= 0.5 / scale + 0.0001);
+            }
+        }
+    }
+    // A degenerate scale factor must not produce NaN geometry.
+    assert!(
+        selection_frame(1.5, 2.5, 10., 10., f32::NAN)
+            .iter()
+            .all(|v| v.is_finite())
+    );
+}
+
+#[test]
+fn resize_handle_squares_stay_uniform_and_on_the_device_grid() {
+    for scale in [1., 2., 3.] {
+        for offset in [0.07, 0.5, 0.93] {
+            let square = snapped_square(300.4 + offset, 180.9 + offset, 4.5, scale);
+            for edge in square {
+                let device = edge * scale - 0.5;
+                assert!((device - device.round()).abs() < 0.0001);
+            }
+            assert!((square[2] - square[0]) > 8.);
+            assert!((square[2] - square[0]) < 10.);
+        }
+    }
+}
+
+#[test]
+fn selection_glow_layers_get_narrower_and_more_opaque() {
+    // The frame is a soft halo under a crisp line: each inner stroke must be
+    // narrower and less transparent than the one behind it, and the core must
+    // still be narrow enough to read as a border rather than a filled band.
+    let mut previous_width = f32::INFINITY;
+    let mut previous_alpha = 0f32;
+    for (width, color) in SELECTION_STROKES {
+        let alpha = (color & 0xff) as f32 / 255.;
+        assert!(width < previous_width, "layer {width} is not narrower");
+        assert!(
+            alpha > previous_alpha,
+            "layer alpha {alpha} is not stronger"
+        );
+        assert!(alpha <= 1.);
+        previous_width = width;
+        previous_alpha = alpha;
+    }
+    assert_eq!(SELECTION_STROKES.last().unwrap().0, 1.5);
+    assert!(previous_alpha > 0.8, "the core line is too faint");
+    assert!(SELECTION_STROKES[0].1 & 0xff < 0x30, "the halo is not soft");
+}
+
+#[test]
 fn shape_handles_resize_display_axes_across_page_and_reader_rotations() {
     for kind in [Kind::Ellipse, Kind::Rectangle, Kind::Area] {
         for rotation in [0, 90, 180, 270] {

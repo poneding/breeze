@@ -1,3 +1,32 @@
+## October 16 selection frame pixel alignment and glow
+
+The selection frame was built from two nested element borders placed on the
+fractional overlay coordinates produced by the page transform. Each edge then
+received a different antialiasing share, so the top/left and bottom/right sides
+looked like they had different widths on a white page, and the frame competed
+with light PDF backgrounds.
+
+The frame and its resize handles are now painted as paths on one canvas. Every
+edge and handle side is centered on a device pixel, so all four sides cover
+their pixels identically at any device scale, and handle squares stay 9 logical
+pixels wide while their 16-pixel pointer targets are unchanged. The frame is a
+layered blue glow: an 11-pixel halo at 8% alpha, a 6.5-pixel mid layer at 18%,
+and a 1.5-pixel core at 85%. The core uses a softer blue than the previous
+0x2563eb. Handle hit targets remain ordinary elements so hit testing, cursors,
+and the existing resize gestures are untouched; only their appearance moved to
+the canvas.
+
+Validation used an isolated copy of the committed baseline plus these changes.
+Formatting, `cargo test --workspace --locked` (204 app tests and all remaining
+suites) and `cargo clippy --workspace --all-targets --locked -- -D warnings`
+pass. Tests cover pixel-centred frame edges and handle squares at 1x, 2x, and 3x
+device scale, monotonic halo width/alpha, and the existing resize, hit-testing,
+and rotation coverage. Native macOS inspection selected an ellipse on the
+authored white fixture and sampled the rendered image: the four frame-edge
+intensities measured 106/107 (top/bottom) and 104/104 (left/right), replacing the
+earlier roughly 18% horizontal-to-vertical difference; the glow and its corner
+and edge handles were visible. Windows and Linux remain unverified.
+
 ## October 16 Markdown character count in the status bar
 
 The Markdown status bar now reports how many characters the reading surface
@@ -24,6 +53,28 @@ session. A native macOS run confirmed `44 个字符` for a short document,
 `2,169 个字符` for a longer one, live `49 个字符` after typing, and the same
 count in instant-layout and source views. Windows and Linux native checks remain
 open.
+
+## October 16 icon-only reader modes and a centered tool group
+
+The PDF reader toolbar no longer labels its mode switch with words. Reading and
+Annotate are icon-only segmented tabs — `pointer` and `feather`, each keeping its
+accessible label and its `Read mode` / `Annotate mode` tooltip with the bound
+shortcut. Reading owns no tool: the removed `mouse-pointer-2` Browse button left
+the tool row empty there, and the page now shows a pointer (hand) cursor for
+caret-anchored text selection. Annotate keeps its eleven drawing tools, centered
+in the row with equal zero-basis slots that collapse when a narrow window has to
+scroll the group; its former `mouse-pointer-2` selection button is gone too,
+because clicking an annotation already selects it. The 1 px separator between
+the mode tabs and the tools is removed.
+
+Component tests assert the empty Reading tool row, the eleven annotated tools
+with no twelfth button, and the centered group. Validation in an isolated
+checkout of this change: `cargo fmt --all -- --check`,
+`cargo test --workspace --locked` (202 app tests plus the other crates' suites),
+and `cargo clippy --workspace --all-targets --locked -- -D warnings` all exit 0.
+Native visual inspection was not performed: `screencapture` has no Screen
+Recording permission on this machine, so the toolbar's icon tabs and centered
+group rest on component geometry checks. Windows and Linux remain unvalidated.
 
 ## October 16 Markdown source publication and recovery records (P4, storage layer)
 

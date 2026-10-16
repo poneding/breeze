@@ -46,8 +46,11 @@ or source page content.
 
 ## Selection and resizing
 
-Selected annotations use a blue outline with a white outer edge, independent of
-the application theme so selection stays visible on light and dark page content.
+Selected annotations use a soft blue glow under a narrow core line, independent
+of the application theme so selection stays visible on light and dark page
+content. The frame and its handles paint as one canvas, with every edge centered
+on a device pixel; element borders on the page transform's fractional
+coordinates gave the four sides visibly different weights.
 The Select annotation button uses Kit's filled primary variant while active.
 Selected ellipses, rectangles, and area highlights expose eight resize handles:
 side handles change one dimension; corner handles change both. Handle targets

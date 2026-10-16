@@ -6,6 +6,7 @@ use gpui_kit::component::{
     input::NumberInput,
     slider::{Slider, SliderEvent, SliderState},
 };
+use lyon_path::{LineCap, LineJoin};
 
 mod geometry;
 #[cfg(test)]
@@ -13,7 +14,11 @@ mod tests;
 
 pub(super) const SELECT_TOOL: usize = 11;
 // A document can be white even when the application theme's accent is white.
-pub(super) const SELECTION_COLOR: u32 = 0x2563eb;
+pub(super) const SELECTION_COLOR: u32 = 0x5f92e8;
+/// Outermost halo first, core line last. A wider, fainter stroke behind a narrow
+/// opaque one reads as a soft glow; the offsets are logical pixels.
+const SELECTION_STROKES: [(f32, u32); 3] =
+    [(11., 0x8fb6ff14), (6.5, 0x6c9bea2e), (1.5, 0x5f92e8d9)];
 
 #[derive(Clone)]
 struct Target {
@@ -649,26 +654,40 @@ impl Breeze {
                 bounds.height / h * height
             };
             if selected.preview.kind != Kind::Note {
+                let handles = resizable.then(|| {
+                    geometry::ResizeHandle::ALL
+                        .into_iter()
+                        .map(|handle| {
+                            let (hx, hy) = handle.position();
+                            (x + sw * hx, y + sh * hy)
+                        })
+                        .collect::<Vec<_>>()
+                });
                 layers.push(
                     div()
                         .id("annotation-selection-outline")
                         .test_support()
                         .absolute()
-                        .left(px(x - 3.))
-                        .top(px(y - 3.))
-                        .w(px(sw + 6.))
-                        .h(px(sh + 6.))
-                        .border_1()
-                        .border_color(rgb(0xffffff))
+                        .left_0()
+                        .top_0()
+                        .size_full()
                         .child(
-                            div()
-                                .absolute()
-                                .left(px(1.))
-                                .top(px(1.))
-                                .w(px(sw + 4.))
-                                .h(px(sh + 4.))
-                                .border_2()
-                                .border_color(rgb(SELECTION_COLOR)),
+                            canvas(
+                                |_, _, _| (),
+                                move |bounds, _, window, _| {
+                                    // Paths paint in window space; the canvas fills
+                                    // the page, so shift by its own origin.
+                                    paint_selection(
+                                        bounds.origin.x + px(x),
+                                        bounds.origin.y + px(y),
+                                        sw,
+                                        sh,
+                                        handles.as_deref(),
+                                        window,
+                                    );
+                                },
+                            )
+                            .size_full(),
                         )
                         .into_any_element(),
                 );
@@ -720,13 +739,6 @@ impl Breeze {
                             .justify_center()
                             .occlude()
                             .cursor(cursor)
-                            .child(
-                                div()
-                                    .size(px(8.))
-                                    .bg(rgb(0xffffff))
-                                    .border_2()
-                                    .border_color(rgb(SELECTION_COLOR)),
-                            )
                             .on_mouse_down(
                                 MouseButton::Left,
                                 cx.listener(move |this, event: &MouseDownEvent, window, cx| {
@@ -894,6 +906,98 @@ impl Breeze {
             )
             .into_any_element()
     }
+}
+
+/// Place the selection frame edges on device pixel centers.
+///
+/// The page transform produces fractional overlay coordinates. Element borders
+/// painted there gave each edge different antialiasing coverage, which read as a
+/// heavier top/left or bottom/right line. A path whose edges are centered on
+/// device pixels covers every side identically.
+fn selection_frame(x: f32, y: f32, width: f32, height: f32, scale: f32) -> [f32; 4] {
+    let scale = if scale.is_finite() { scale.max(1.) } else { 1. };
+    // Center on a device pixel rather than its boundary: a boundary-centred thin
+    // stroke splits its coverage across two pixels and reads as a heavier edge.
+    let snap = |value: f32| {
+        (value * scale - 0.5)
+            .round()
+            .mul_add(1. / scale, 0.5 / scale)
+    };
+    [snap(x), snap(y), snap(x + width), snap(y + height)]
+}
+
+fn selection_rect_path(
+    rect: [f32; 4],
+    width: f32,
+    scale: f32,
+) -> Option<gpui_kit::Path<gpui_kit::Pixels>> {
+    let [left, top, right, bottom] = rect;
+    let mut path = PathBuilder::stroke(px(width)).with_style(PathStyle::Stroke(
+        StrokeOptions::default()
+            .with_line_width(width)
+            .with_line_cap(LineCap::Round)
+            .with_line_join(LineJoin::Round)
+            .with_tolerance(0.1 / scale.max(1.)),
+    ));
+    path.move_to(point(px(left), px(top)));
+    path.line_to(point(px(right), px(top)));
+    path.line_to(point(px(right), px(bottom)));
+    path.line_to(point(px(left), px(bottom)));
+    path.close();
+    path.build().ok()
+}
+
+/// Soft blue frame with a fading halo, plus matching resize handles.
+fn paint_selection(
+    origin_x: gpui_kit::Pixels,
+    origin_y: gpui_kit::Pixels,
+    width: f32,
+    height: f32,
+    handles: Option<&[(f32, f32)]>,
+    window: &mut Window,
+) {
+    let scale = window.scale_factor();
+    let x = f32::from(origin_x);
+    let y = f32::from(origin_y);
+    let frame = selection_frame(x, y, width, height, scale);
+    for (line_width, color) in SELECTION_STROKES {
+        if let Some(path) = selection_rect_path(frame, line_width, scale) {
+            window.paint_path(path, rgba(color));
+        }
+    }
+    for &(local_x, local_y) in handles.unwrap_or_default() {
+        let square = snapped_square(x + local_x, y + local_y, 4.5, scale);
+        if let Some(path) = selection_rect_path(square, 5.5, scale) {
+            window.paint_path(path, rgba(0x8fb6ff33));
+        }
+        window.paint_quad(fill(
+            Bounds {
+                origin: point(px(square[0]), px(square[1])),
+                size: size(px(square[2] - square[0]), px(square[3] - square[1])),
+            },
+            rgb(0xffffff),
+        ));
+        if let Some(path) = selection_rect_path(square, 1.5, scale) {
+            window.paint_path(path, rgba(0x5f92e8e0));
+        }
+    }
+}
+
+/// A handle square whose stroked outline lands on pixel centers, so the four
+/// sides of every handle have identical weight.
+fn snapped_square(center_x: f32, center_y: f32, half: f32, scale: f32) -> [f32; 4] {
+    let scale = if scale.is_finite() { scale.max(1.) } else { 1. };
+    let snap = |value: f32| {
+        (value * scale - 0.5)
+            .round()
+            .mul_add(1. / scale, 0.5 / scale)
+    };
+    [
+        snap(center_x - half),
+        snap(center_y - half),
+        snap(center_x + half),
+        snap(center_y + half),
+    ]
 }
 
 fn can_add(book: &Book, annotation: &Annotation) -> bool {
