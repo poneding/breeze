@@ -3,10 +3,12 @@ mod buffer;
 mod edit;
 mod history;
 mod positions;
+pub mod projection;
 
 pub use buffer::SourceBuffer;
 pub use edit::{EditKind, EditLimits, EditSession, Replacement, Snapshot};
 pub use positions::{Affinity, Position, Selection};
+pub use projection::{BlockKind, DisplayLine, DisplayRun, Projection, ProjectionMode, RunStyle};
 
 use crate::{fingerprint, read_bounded};
 use anyhow::{Context, Result, ensure};
