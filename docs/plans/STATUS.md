@@ -1,3 +1,67 @@
+## October 16 Markdown semantic pipeline and virtualized layout (P3)
+
+[Work package 25](25-markdown-live-editing.md) phase P3 is complete for the
+shipped behaviour; measured performance is recorded below with one open
+limitation at the 16 MiB cap.
+
+**Semantics.** `breeze-reflow::markdown::semantic` parses one bounded snapshot
+with the reader's own option set (`semantic::options`, now shared by
+`Document::parse`) and returns per-line block kinds plus styled inline spans
+with exact source geometry. Because the parser is the authority, the editor now
+hides and reveals reference-style links, composes nested emphasis instead of
+emitting overlapping runs, shows decoded character entities, hides setext
+underlines, and classifies footnotes, tables and fences correctly.
+`Projection::build_semantic` consumes that layer; `Projection::build_with_literal`
+remains the line-local fallback used before the refined projection arrives.
+
+**Bounded work.** `breeze-reflow::markdown::pipeline` admits one active parse and
+one newest pending snapshot, drops requests a running job already covers, and
+rejects results whose session or revision is no longer current. The editor
+paints a provisional projection immediately, submits the snapshot to a worker,
+and swaps in the refined projection only when it still matches the session,
+revision, view mode and worker epoch. A caret move reuses the cached semantic
+layer instead of parsing again.
+
+**Virtualized layout.** `MarkdownEditor`'s layout is a list of units with
+cumulative tops and estimated heights. Only units intersecting the viewport
+plus one viewport of lookahead are shaped; measurements further away are evicted
+against an 8 MiB shaped-line budget and fall back to their estimate. A source
+line longer than 4096 display bytes is split into windows at character
+boundaries, so a megabyte on one line becomes a few hundred units instead of one
+shape call. Wrapping is per unit, so a pathological single-line document can
+wrap differently at a window seam than a full layout would.
+
+**Measured cost** (Release, `cargo test --release -p breeze-reflow --test
+markdown_performance -- --ignored --nocapture`, 20 samples, this checkout's
+machine — Apple M1 Pro, macOS 15, the corpus generator in that test):
+
+| Source | Lines | Parse p50/p95 | Semantic build p50/p95 | Provisional p50/p95 |
+|---|---|---|---|---|
+| 10 KiB | 475 | 0.1/0.1 ms | 0.2/0.3 ms | 0.6/0.8 ms |
+| 100 KiB | 4,655 | 1.0/1.2 ms | 0.4/0.5 ms | 2.6/3.2 ms |
+| 1 MiB | 47,025 | 8.2/9.3 ms | 5.4/6.1 ms | 29.5/30.7 ms |
+| 16 MiB | 742,064 | 135/142 ms | 441/495 ms | 438/444 ms |
+
+Materializing a 1 MiB rope costs 0.18 ms, so the snapshot handoff is not the
+constraint. Parsing and the semantic build run on a worker in every case. The
+provisional rebuild runs on the UI thread and meets the 50 ms input budget
+through 1 MiB; **at the 16 MiB cap it does not**, and a keystroke would pause
+about 0.44 s. Options recorded, not yet adopted: reduce the input cap, accept a
+degraded provisional (show the typed text without re-styling the rest of the
+document), or complete an incremental projection patch (an earlier attempt was
+removed rather than shipped because it did not match a full rebuild in every
+generated case). Until one of those is measured and approved, the 16 MiB case is
+a known limitation rather than a met budget.
+
+Validation in an isolated checkout containing only this change: `cargo test
+--workspace --offline` (193 app, 19 core, 39 PDF with three ignored, 6 reflow
+unit, 7 EPUB, 16 Markdown editing, 8 Markdown projection, 12 Markdown semantic
+unit, 10 Markdown semantic integration, 7 storage; exit 0) and `cargo clippy
+--workspace --all-targets --offline -- -D warnings` (exit 0). New app component
+tests assert that a megabyte on one line becomes many units with only a fraction
+shaped, and that 2000 paragraphs measure under 200 units. The 16 MiB stress case
+was measured, not natively exercised in the editor.
+
 ## October 16 text selection follows reading order
 
 Selecting text used to be rectangular: the gesture's bounding box decided which

@@ -1,6 +1,7 @@
 // Application-owned messages. English is the source language and the key;
 // every translation keeps the same ordered `{}` slots.
 catalog! {
+    "Cannot format this Markdown: {}" => ("无法解析此 Markdown：{}", "無法解析此 Markdown：{}"),
     "Edit document" => ("编辑文档", "編輯文件"),
     "Reading view" => ("阅读视图", "閱讀檢視"),
     "Live formatting" => ("即时排版", "即時排版"),

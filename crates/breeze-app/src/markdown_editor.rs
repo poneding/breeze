@@ -12,8 +12,8 @@
 use crate::*;
 // `crate::*` re-exports the PDF geometry `Pixels`; the surface uses GPUI's.
 use breeze_reflow::markdown::{
-    Affinity, BlockKind, EditSession, Position, Projection, ProjectionMode, Replacement, Selection,
-    SourceBuffer,
+    Affinity, BlockKind, EditSession, Pipeline, Position, Projection, ProjectionMode, Replacement,
+    Request, Selection, SourceBuffer,
 };
 use gpui_kit::{Bounds, Pixels, Point, point, px, relative, size};
 use std::{
@@ -41,25 +41,79 @@ struct LayoutKey {
     width: u32,
 }
 
+/// A retained shape for one layout unit.
+struct ShapedUnit {
+    wrapped: Vec<Wrapped>,
+    height: f32,
+}
+
 struct Wrapped {
     display: Range<usize>,
     shaped: ShapedLine,
+    /// Horizontal offset of this row inside the measure.
     x: f32,
 }
 
-struct VisualLine {
+/// One addressable layout row.
+///
+/// A source line is one unit unless it is very long, in which case it is split
+/// into windows. A megabyte paragraph therefore becomes a few hundred units that
+/// are shaped only while they are near the viewport, instead of one shape call
+/// over the whole document.
+struct Unit {
+    line: usize,
     kind: BlockKind,
-    top: f32,
-    height: f32,
-    wrapped: Vec<Wrapped>,
+    font_size: f32,
+    indent: f32,
+    display: Range<usize>,
+    /// Estimated advance width in logical pixels, used until measured.
+    advance: f32,
 }
 
+/// Virtualized layout: every unit has a top and a height, but only units near
+/// the viewport hold a shaped line.
 struct Layout {
-    bounds: Bounds<Pixels>,
     key: LayoutKey,
-    scroll: f32,
+    bounds: Bounds<Pixels>,
+    measure: f32,
+    units: Vec<Unit>,
+    /// Cumulative top of each unit; recomputed from `dirty_from` downwards.
+    tops: Vec<f32>,
+    heights: Vec<f32>,
     content_height: f32,
-    lines: Vec<VisualLine>,
+    /// The scroll offset that keeps the anchored unit under the same pixel.
+    anchor_top: f32,
+    shaped: HashMap<usize, Rc<ShapedUnit>>,
+    shaped_bytes: usize,
+    dirty_from: usize,
+}
+
+/// The largest display window shaped as one unit, so an enormous paragraph is
+/// windowed rather than shaped whole.
+const MAX_UNIT_BYTES: usize = 4096;
+/// Retained shaped-line budget; measurements outside the window are dropped.
+const SHAPED_BUDGET: usize = 8 * 1024 * 1024;
+
+impl Default for Layout {
+    fn default() -> Self {
+        Self {
+            key: LayoutKey {
+                revision: u64::MAX,
+                view: EditView::Live,
+                width: 0,
+            },
+            bounds: Bounds::default(),
+            measure: 0.,
+            units: Vec::new(),
+            tops: Vec::new(),
+            heights: Vec::new(),
+            content_height: 0.,
+            anchor_top: 0.,
+            shaped: HashMap::new(),
+            shaped_bytes: 0,
+            dirty_from: 0,
+        }
+    }
 }
 
 /// The document editing session behind the native surface.
@@ -69,7 +123,17 @@ pub(super) struct MarkdownEditor {
     focus: FocusHandle,
     scroll: f32,
     projection: Arc<Projection>,
-    layout: Option<Rc<Layout>>,
+    /// The refined projection for the current revision, once a worker produced it.
+    semantic: Option<Arc<breeze_reflow::markdown::Semantic>>,
+    /// The revision `semantic` describes.
+    semantic_revision: u64,
+    /// Admission for the background parse: one running, one waiting.
+    pipeline: Pipeline,
+    worker: Option<Task<()>>,
+    worker_epoch: u64,
+    /// The last parse and projection time reported by a worker.
+    last_refine: Option<std::time::Duration>,
+    layout: Layout,
     notice: Option<SharedString>,
 }
 
@@ -98,10 +162,16 @@ impl MarkdownEditor {
             focus: cx.focus_handle(),
             scroll: 0.,
             projection: Arc::new(Projection::live("", 0..0)),
-            layout: None,
+            semantic: None,
+            semantic_revision: u64::MAX,
+            pipeline: Pipeline::default(),
+            worker: None,
+            worker_epoch: 0,
+            last_refine: None,
+            layout: Layout::default(),
             notice: notice.map(Into::into),
         };
-        editor.refresh_projection();
+        editor.refresh_projection(cx);
         editor
     }
 
@@ -112,23 +182,107 @@ impl MarkdownEditor {
 
     /// Rebuild the projection from the current source, selection and mode.
     ///
-    /// P2 materializes the document and rebuilds the whole projection on every
-    /// edit; P3 replaces this with background parsing and incremental
-    /// invalidation.
-    fn refresh_projection(&mut self) {
-        let source = self.source_text();
+    /// The provisional pass runs here so the typed characters are on screen in
+    /// this frame; the refined one comes from a worker and replaces it when it
+    /// lands. `edit` is the source range the last change touched, which lets the
+    /// worker's result be validated against the revision that produced it.
+    fn refresh_projection(&mut self, cx: &mut Context<Self>) {
+        let source: Arc<str> = self.source_text().into();
         let selection = self.session.selection().range();
         let literal = self.session.composition_range();
+        let mode = match self.view {
+            EditView::Live => ProjectionMode::Live,
+            EditView::Source => ProjectionMode::Source,
+        };
         self.projection = Arc::new(Projection::build_with_literal(
             &source,
-            selection,
-            match self.view {
-                EditView::Live => ProjectionMode::Live,
-                EditView::Source => ProjectionMode::Source,
-            },
-            literal,
+            selection.clone(),
+            mode,
+            literal.clone(),
         ));
-        self.layout = None;
+        self.layout.invalidate();
+        // A caret move changes only which markers are revealed, so the semantic
+        // layer is reused instead of parsed again.
+        if let Some(semantic) = self.semantic.clone()
+            && self.semantic_revision == self.session.revision()
+        {
+            self.projection = Arc::new(Projection::build_semantic(
+                &source, selection, mode, literal, &semantic,
+            ));
+            self.layout.invalidate();
+            return;
+        }
+        self.request_refined(source, selection, mode, literal, cx);
+    }
+
+    /// Ask a worker for the refined projection of the current snapshot.
+    fn request_refined(
+        &mut self,
+        source: Arc<str>,
+        selection: Range<usize>,
+        mode: ProjectionMode,
+        literal: Option<Range<usize>>,
+        cx: &mut Context<Self>,
+    ) {
+        let request = Request::new(&self.session, source, selection, mode, literal);
+        if let Some(run) = self.pipeline.submit(request) {
+            self.spawn_refine(run, cx);
+        }
+    }
+
+    fn spawn_refine(&mut self, request: Request, cx: &mut Context<Self>) {
+        let epoch = self.worker_epoch;
+        let work = cx.background_spawn(async move {
+            let result = breeze_reflow::markdown::project(&request);
+            (result, request)
+        });
+        self.worker = Some(cx.spawn(async move |this, cx| {
+            let (result, request) = work.await;
+            let _ = this.update(cx, |this, cx| {
+                this.finish_refine(result, &request, epoch, cx)
+            });
+        }));
+    }
+
+    fn finish_refine(
+        &mut self,
+        result: anyhow::Result<breeze_reflow::markdown::Result_>,
+        request: &Request,
+        epoch: u64,
+        cx: &mut Context<Self>,
+    ) {
+        match result {
+            Ok(refined) => {
+                self.last_refine = Some(refined.elapsed);
+                let current = refined
+                    .still_current(self.session.session_id(), self.session.revision())
+                    && epoch == self.worker_epoch
+                    && request.mode == self.mode();
+                if current {
+                    self.semantic_revision = refined.revision;
+                    self.semantic = Some(Arc::new(refined.semantic));
+                    self.projection = Arc::new(refined.projection);
+                    self.layout.invalidate();
+                    cx.notify();
+                }
+            }
+            Err(error) => {
+                self.notice =
+                    Some(tf!("Cannot format this Markdown: {}", format!("{error:#}")).into());
+                cx.notify();
+            }
+        }
+        // The slot is free now: admit the newest waiting snapshot, if any.
+        if let Some(next) = self.pipeline.complete() {
+            self.spawn_refine(next, cx);
+        }
+    }
+
+    fn mode(&self) -> ProjectionMode {
+        match self.view {
+            EditView::Live => ProjectionMode::Live,
+            EditView::Source => ProjectionMode::Source,
+        }
     }
 
     /// Commit an in-flight composition using the text currently in the source.
@@ -155,7 +309,7 @@ impl MarkdownEditor {
 
     fn update_selection(&mut self, selection: Selection, cx: &mut Context<Self>) {
         if self.session.set_selection(selection).is_ok() {
-            self.refresh_projection();
+            self.refresh_projection(cx);
             cx.notify();
         }
     }
@@ -188,14 +342,14 @@ impl MarkdownEditor {
         self.view = view;
         // Switching projection is not an edit: bytes, history and selection
         // are unchanged.
-        self.refresh_projection();
+        self.refresh_projection(cx);
         cx.notify();
     }
 
     fn undo(&mut self, cx: &mut Context<Self>) {
         self.finish_composition();
         if self.session.undo().is_ok() {
-            self.refresh_projection();
+            self.refresh_projection(cx);
             cx.notify();
         }
     }
@@ -203,7 +357,7 @@ impl MarkdownEditor {
     fn redo(&mut self, cx: &mut Context<Self>) {
         self.finish_composition();
         if self.session.redo().is_ok() {
-            self.refresh_projection();
+            self.refresh_projection(cx);
             cx.notify();
         }
     }
@@ -245,28 +399,32 @@ impl MarkdownEditor {
 
     /// The source offset one visual line above or below the caret.
     fn vertical_target(&self, up: bool) -> Option<usize> {
-        let layout = self.layout.as_ref()?;
         let display = self
             .projection
             .source_to_display(self.session.selection().head.offset);
-        let (line_index, wrap_index, x) = locate_display(layout, display)?;
+        let (unit_index, row, x) = locate_display(&self.layout, display)?;
         let x = f32::from(x);
-        if up {
-            if wrap_index > 0 {
-                let wrapped = &layout.lines[line_index].wrapped[wrap_index - 1];
-                return Some(self.display_hit(wrapped, x));
+        let shaped = self.layout.shaped.get(&unit_index)?;
+        if !up {
+            if row + 1 < shaped.wrapped.len() {
+                return Some(self.display_hit(&shaped.wrapped[row + 1], x));
             }
-            let previous = layout.lines.get(line_index.checked_sub(1)?)?;
-            let wrapped = previous.wrapped.last()?;
-            return Some(self.display_hit(wrapped, x));
+        } else if row > 0 {
+            return Some(self.display_hit(&shaped.wrapped[row - 1], x));
         }
-        let line = &layout.lines[line_index];
-        if wrap_index + 1 < line.wrapped.len() {
-            let wrapped = &line.wrapped[wrap_index + 1];
-            return Some(self.display_hit(wrapped, x));
-        }
-        let next = layout.lines.get(line_index + 1)?;
-        let wrapped = next.wrapped.first()?;
+        // Cross into the neighbouring measured unit; an unmeasured neighbour
+        // falls back to its estimate, which the next frame corrects.
+        let neighbour = if up {
+            unit_index.checked_sub(1)?
+        } else {
+            unit_index + 1
+        };
+        let shaped = self.layout.shaped.get(&neighbour)?;
+        let wrapped = if up {
+            shaped.wrapped.last()?
+        } else {
+            shaped.wrapped.first()?
+        };
         Some(self.display_hit(wrapped, x))
     }
 
@@ -277,22 +435,12 @@ impl MarkdownEditor {
     }
 
     fn scroll_by(&mut self, delta: f32, cx: &mut Context<Self>) {
-        let content = self
-            .layout
-            .as_ref()
-            .map(|layout| layout.content_height)
-            .unwrap_or(0.);
-        let viewport = self
-            .layout
-            .as_ref()
-            .map(|layout| f32::from(layout.bounds.size.height))
-            .unwrap_or(0.);
+        let content = self.layout.content_height;
+        let viewport = f32::from(self.layout.bounds.size.height);
         self.scroll = (self.scroll + delta).clamp(0., (content - viewport).max(0.));
         cx.notify();
     }
 
-    /// Returns whether the key was part of document editing. Unhandled keys
-    /// keep bubbling so reading shortcuts are unaffected outside the editor.
     fn key_down(&mut self, event: &KeyDownEvent, _: &mut Window, cx: &mut Context<Self>) -> bool {
         let shift = event.keystroke.modifiers.shift;
         let command = event.keystroke.modifiers.secondary();
@@ -379,7 +527,7 @@ impl MarkdownEditor {
         {
             self.notice = Some(tr!("This edit exceeds the document limit").into());
         }
-        self.refresh_projection();
+        self.refresh_projection(cx);
         cx.notify();
     }
 
@@ -437,16 +585,25 @@ fn load_session(path: &Path) -> (EditSession, Option<String>) {
 }
 
 /// The visual line and wrapped segment containing a display offset.
+/// The measured unit and wrapped row containing a display offset.
 fn locate_display(layout: &Layout, display: usize) -> Option<(usize, usize, Pixels)> {
-    for (line_index, line) in layout.lines.iter().enumerate() {
-        for (wrap_index, wrapped) in line.wrapped.iter().enumerate() {
-            if wrapped.display.start <= display && display <= wrapped.display.end {
-                let x = wrapped.shaped.x_for_index(display - wrapped.display.start);
-                return Some((line_index, wrap_index, x + px(wrapped.x)));
-            }
-        }
-    }
-    None
+    let unit = layout
+        .units
+        .partition_point(|unit| unit.display.end < display)
+        .min(layout.units.len().saturating_sub(1));
+    let shaped = layout.shaped.get(&unit)?;
+    let row = shaped
+        .wrapped
+        .iter()
+        .position(|wrapped| wrapped.display.start <= display && display <= wrapped.display.end)
+        .unwrap_or(shaped.wrapped.len().saturating_sub(1));
+    let wrapped = shaped.wrapped.get(row)?;
+    let x = wrapped.shaped.x_for_index(
+        display
+            .saturating_sub(wrapped.display.start)
+            .min(wrapped.shaped.text.len()),
+    );
+    Some((unit, row, x + px(wrapped.x)))
 }
 
 impl EntityInputHandler for MarkdownEditor {
@@ -500,7 +657,7 @@ impl EntityInputHandler for MarkdownEditor {
                 .session
                 .commit_composition(&text, Selection::caret(caret));
         }
-        self.refresh_projection();
+        self.refresh_projection(cx);
         cx.notify();
     }
 
@@ -526,7 +683,7 @@ impl EntityInputHandler for MarkdownEditor {
                     .session
                     .commit_composition(text, Selection::caret(caret));
             }
-            self.refresh_projection();
+            self.refresh_projection(cx);
             cx.notify();
             return;
         }
@@ -566,7 +723,7 @@ impl EntityInputHandler for MarkdownEditor {
             if self.session.begin_composition().is_err() {
                 return;
             }
-            self.refresh_projection();
+            self.refresh_projection(cx);
         }
         let Some(current) = self.session.composition_range() else {
             return;
@@ -582,7 +739,7 @@ impl EntityInputHandler for MarkdownEditor {
         let _ = self
             .session
             .apply_composition(new_text, Selection::caret(caret));
-        self.refresh_projection();
+        self.refresh_projection(cx);
         cx.notify();
     }
 
@@ -593,17 +750,18 @@ impl EntityInputHandler for MarkdownEditor {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<Bounds<Pixels>> {
-        let layout = self.layout.clone()?;
         let display = utf16_to_byte(&self.projection.text, range_utf16.start);
-        let (line_index, _, x) = locate_display(&layout, display)?;
-        let line = &layout.lines[line_index];
+        let (unit_index, row, x) = locate_display(&self.layout, display)?;
+        let unit = &self.layout.units[unit_index];
         let origin = point(
             element_bounds.origin.x + px(PAD_X) + x,
-            element_bounds.origin.y + px(PAD_Y + line.top - layout.scroll),
+            element_bounds.origin.y
+                + px(PAD_Y + self.layout.tops[unit_index] - self.scroll
+                    + row as f32 * line_height(unit.font_size)),
         );
         Some(Bounds {
             origin,
-            size: size(px(1.), px(line.height)),
+            size: size(px(1.), px(line_height(unit.font_size))),
         })
     }
 
@@ -613,8 +771,7 @@ impl EntityInputHandler for MarkdownEditor {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<usize> {
-        let layout = self.layout.clone()?;
-        let display = hit_test(&layout, point)?;
+        let display = hit_test(&self.layout, self.scroll, point)?;
         Some(byte_to_utf16(&self.projection.text, display))
     }
 
@@ -647,127 +804,52 @@ impl MarkdownEditor {
     }
 
     /// Build and cache the shaped visual lines for the current surface size.
-    fn build_layout(
-        &mut self,
-        bounds: Bounds<Pixels>,
-        window: &mut Window,
-        cx: &mut App,
-    ) -> Rc<Layout> {
+    /// Bring the virtualized layout up to date for the current projection,
+    /// size and scroll position. Called from prepaint, so `paint` only reads.
+    fn build_layout(&mut self, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
         let key = LayoutKey {
             revision: self.session.revision(),
             view: self.view,
             width: f32::from(bounds.size.width).to_bits(),
         };
-        if let Some(layout) = self.layout.as_ref()
-            && layout.key == key
-            && layout.bounds.size == bounds.size
-        {
-            return layout.clone();
+        let measure = (f32::from(bounds.size.width) - PAD_X * 2.).clamp(80., MEASURE);
+        if self.layout.key != key || self.layout.bounds.size != bounds.size {
+            self.layout = Layout::build(key, bounds, measure, &self.projection);
         }
-        let theme = Theme::global(cx);
-        let body_font = font(theme.font_family.clone());
-        let mono_font = font(theme.mono_font_family.clone());
-        let width = f32::from(bounds.size.width) - PAD_X * 2.;
-        let measure = width.clamp(80., MEASURE);
-        let mut lines = Vec::with_capacity(self.projection.lines.len());
-        let mut top = 0.;
-        for line in self.projection.lines.iter() {
-            let (font_size, indent, base_font) = match line.kind {
-                BlockKind::Heading(level) => {
-                    let size = match level {
-                        1 => 28.,
-                        2 => 23.,
-                        3 => 20.,
-                        _ => BODY_SIZE,
-                    };
-                    (size, 0., body_font.clone())
-                }
-                BlockKind::Quote { depth } => (BODY_SIZE, 16. * depth as f32, body_font.clone()),
-                BlockKind::List { depth, .. } => (BODY_SIZE, 16. * depth as f32, body_font.clone()),
-                BlockKind::Fence | BlockKind::Code => (CODE_SIZE, 12., mono_font.clone()),
-                BlockKind::Paragraph | BlockKind::Table => (BODY_SIZE, 0., body_font.clone()),
-            };
-            let text = &self.projection.text[line.display.clone()];
-            let runs = build_runs(theme, text, &line.runs, base_font.clone(), font_size);
-            let shaped = window.text_system().shape_line(
-                text.to_string().into(),
-                px(font_size),
-                &runs,
-                None,
-            );
-            let wrapped = wrap_line(&shaped, px(measure - indent));
-            let mut wrapped = wrapped
-                .into_iter()
-                .map(|(fragment, shaped)| Wrapped {
-                    x: indent + fragment.start_offset,
-                    // Wrapping works in line-local bytes; selection, hit tests
-                    // and the mapping all use document display offsets.
-                    display: line.display.start + fragment.range.start
-                        ..line.display.start + fragment.range.end,
-                    shaped,
-                })
-                .collect::<Vec<_>>();
-            if wrapped.is_empty() {
-                // An empty display line still needs a caret position.
-                let empty = window
-                    .text_system()
-                    .shape_line("".into(), px(font_size), &runs, None);
-                wrapped.push(Wrapped {
-                    x: indent,
-                    display: line.display.start..line.display.start,
-                    shaped: empty,
-                });
-            }
-            let height = (font_size * 1.55).max(font_size + 6.);
-            lines.push(VisualLine {
-                kind: line.kind.clone(),
-                top,
-                height,
-                wrapped,
-            });
-            top += height;
-        }
-        let content_height = top + PAD_Y * 2.;
-        let viewport = f32::from(bounds.size.height);
-        let scroll = self.scroll.clamp(0., (content_height - viewport).max(0.));
-        let layout = Rc::new(Layout {
-            bounds,
-            key,
-            scroll,
-            content_height,
-            lines,
-        });
-        self.scroll = scroll;
-        self.layout = Some(layout.clone());
-        layout
+        let viewport = f32::from(bounds.size.height).max(1.);
+        self.layout
+            .ensure_measured(self.scroll, viewport, &self.projection, window, cx);
+        self.scroll = self.layout.anchor_top;
+        self.scroll = self
+            .scroll
+            .clamp(0., (self.layout.content_height - viewport).max(0.));
     }
 
     fn paint(&mut self, bounds: Bounds<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(layout) = self.layout.clone() else {
-            return;
-        };
         let theme = Theme::global(cx).clone();
-        let text_color = theme.foreground;
-        let selection_color = theme.selection;
-        let caret_color = theme.primary;
         let entity = cx.entity();
         let focus = self.focus.clone();
         let selection = self.display_selection();
-        let display_text = self.projection.text.clone();
-
-        for line in &layout.lines {
-            let y = bounds.origin.y + px(PAD_Y + line.top - layout.scroll);
-            if y + px(line.height) < bounds.origin.y || y > bounds.bottom() {
+        let scroll = self.scroll;
+        let viewport = f32::from(bounds.size.height).max(1.);
+        let (first, last) = self.layout.visible(scroll, viewport);
+        // Only units inside the viewport are painted; their neighbours are kept
+        // measured for smooth scrolling but draw outside the clip anyway.
+        for index in first..=last {
+            let Some(shaped) = self.layout.shaped.get(&index).cloned() else {
                 continue;
-            }
-            // Block decoration: a quote bar or a list baseline keeps the
-            // structure visible without falling back to a second renderer.
-            match line.kind {
+            };
+            let unit = &self.layout.units[index];
+            let top = self.layout.tops[index];
+            match unit.kind {
                 BlockKind::Quote { .. } => {
                     window.paint_quad(fill(
                         Bounds {
-                            origin: point(bounds.origin.x + px(8.), y),
-                            size: size(px(3.), px(line.height - 2.)),
+                            origin: point(
+                                bounds.origin.x + px(8.),
+                                bounds.origin.y + px(PAD_Y + top - scroll),
+                            ),
+                            size: size(px(3.), px(shaped.height - 2.)),
                         },
                         theme.border,
                     ));
@@ -775,55 +857,61 @@ impl MarkdownEditor {
                 BlockKind::Code | BlockKind::Fence => {
                     window.paint_quad(fill(
                         Bounds {
-                            origin: point(bounds.origin.x + px(PAD_X) - px(6.), y),
-                            size: size(px(measure_width(bounds) + 12.), px(line.height)),
+                            origin: point(
+                                bounds.origin.x + px(PAD_X) - px(6.),
+                                bounds.origin.y + px(PAD_Y + top - scroll),
+                            ),
+                            size: size(px(measure_width(bounds) + 12.), px(shaped.height)),
                         },
                         theme.muted.opacity(0.35),
                     ));
                 }
                 _ => {}
             }
-            for wrapped in &line.wrapped {
-                let origin = point(bounds.origin.x + px(PAD_X + wrapped.x), y);
-                let start = wrapped.display.start.max(selection.start);
-                let end = wrapped.display.end.min(selection.end);
-                if start < end {
-                    let x1 = wrapped.shaped.x_for_index(start - wrapped.display.start);
-                    let x2 = wrapped.shaped.x_for_index(end - wrapped.display.start);
+            let row_height = line_height(unit.font_size);
+            for (row, wrapped) in shaped.wrapped.iter().enumerate() {
+                let origin = point(
+                    bounds.origin.x + px(PAD_X + wrapped.x),
+                    bounds.origin.y + px(PAD_Y + top - scroll + row as f32 * row_height),
+                );
+                let segment_start = wrapped.display.start.max(selection.start);
+                let segment_end = wrapped.display.end.min(selection.end);
+                if segment_start < segment_end {
+                    let x1 = wrapped
+                        .shaped
+                        .x_for_index(segment_start - wrapped.display.start);
+                    let x2 = wrapped
+                        .shaped
+                        .x_for_index(segment_end - wrapped.display.start);
                     window.paint_quad(fill(
                         Bounds {
-                            origin: point(origin.x + x1, y),
-                            size: size(x2 - x1, px(line.height)),
+                            origin: point(origin.x + x1, origin.y),
+                            size: size(x2 - x1, px(row_height)),
                         },
-                        selection_color,
+                        theme.selection,
                     ));
                 }
-                let _ = wrapped.shaped.paint(
-                    origin,
-                    px(line.height),
-                    TextAlign::Left,
-                    None,
-                    window,
-                    cx,
-                );
-            }
-            if selection.is_empty() {
-                let caret = selection.start;
-                for wrapped in &line.wrapped {
-                    if wrapped.display.start <= caret && caret <= wrapped.display.end {
-                        let x = wrapped.shaped.x_for_index(caret - wrapped.display.start);
-                        window.paint_quad(fill(
-                            Bounds {
-                                origin: point(bounds.origin.x + px(PAD_X + wrapped.x) + x, y),
-                                size: size(px(1.5), px(line.height)),
-                            },
-                            caret_color,
-                        ));
-                    }
+                let _ =
+                    wrapped
+                        .shaped
+                        .paint(origin, px(row_height), TextAlign::Left, None, window, cx);
+                if selection.is_empty()
+                    && wrapped.display.start <= selection.start
+                    && selection.start <= wrapped.display.end
+                {
+                    let x = wrapped
+                        .shaped
+                        .x_for_index(selection.start - wrapped.display.start);
+                    window.paint_quad(fill(
+                        Bounds {
+                            origin: point(origin.x + x, origin.y),
+                            size: size(px(1.5), px(row_height)),
+                        },
+                        theme.primary,
+                    ));
                 }
             }
         }
-        let _ = (text_color, display_text);
 
         window.handle_input(
             &self.focus,
@@ -867,10 +955,7 @@ impl MarkdownEditor {
 
     fn pointer_down(&mut self, position: Point<Pixels>, extend: bool, cx: &mut Context<Self>) {
         self.finish_composition();
-        let Some(layout) = self.layout.clone() else {
-            return;
-        };
-        let Some(display) = hit_test(&layout, position) else {
+        let Some(display) = hit_test(&self.layout, self.scroll, position) else {
             return;
         };
         let source = self.projection.display_to_source(display, Affinity::After);
@@ -878,10 +963,7 @@ impl MarkdownEditor {
     }
 
     fn pointer_drag(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        let Some(layout) = self.layout.clone() else {
-            return;
-        };
-        let Some(display) = hit_test(&layout, position) else {
+        let Some(display) = hit_test(&self.layout, self.scroll, position) else {
             return;
         };
         let source = self.projection.display_to_source(display, Affinity::After);
@@ -893,53 +975,346 @@ fn measure_width(bounds: Bounds<Pixels>) -> f32 {
     (f32::from(bounds.size.width) - PAD_X * 2.).clamp(80., MEASURE)
 }
 
-/// The display offset nearest a window point inside the surface.
-fn hit_test(layout: &Layout, position: Point<Pixels>) -> Option<usize> {
-    let y = position.y - layout.bounds.origin.y - px(PAD_Y) + px(layout.scroll);
-    let x = position.x - layout.bounds.origin.x - px(PAD_X);
-    let line = layout
-        .lines
-        .iter()
-        .find(|line| px(line.top) <= y && y <= px(line.top + line.height))
-        .or_else(|| {
-            // Outside the text: clamp to the closest line, not the first one.
-            layout.lines.iter().min_by(|a, b| {
-                let da = distance_to_span(y, a.top, a.top + a.height);
-                let db = distance_to_span(y, b.top, b.top + b.height);
-                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-            })
-        })?;
-    let wrapped = line
-        .wrapped
-        .iter()
-        .find(|wrapped| {
-            let start = px(wrapped.x);
-            let end = start + wrapped.shaped.width();
-            start <= x && x <= end
-        })
-        .or_else(|| {
-            // Beyond the last fragment, or before the first: clamp to the
-            // nearest end of the line.
-            line.wrapped.iter().min_by(|a, b| {
-                let da = distance_to_span(x, a.x, a.x + f32::from(a.shaped.width()));
-                let db = distance_to_span(x, b.x, b.x + f32::from(b.shaped.width()));
-                da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-            })
-        })?;
-    let local = wrapped.shaped.closest_index_for_x(x - px(wrapped.x));
-    Some(wrapped.display.start + local)
+impl Layout {
+    /// Force the next layout pass to rebuild from the current projection.
+    ///
+    /// The derived geometry is dropped rather than merely marked stale, so a
+    /// frame that runs before the rebuild cannot paint or hit-test old rows.
+    fn invalidate(&mut self) {
+        let key = self.key;
+        *self = Self {
+            key: LayoutKey {
+                revision: u64::MAX,
+                ..key
+            },
+            ..Self::default()
+        };
+    }
+
+    /// Enumerate the addressable units and their height estimates.
+    fn build(
+        key: LayoutKey,
+        bounds: Bounds<Pixels>,
+        measure: f32,
+        projection: &Projection,
+    ) -> Self {
+        let mut units = Vec::with_capacity(projection.lines.len());
+        for (index, line) in projection.lines.iter().enumerate() {
+            let (font_size, indent) = line_metrics(&line.kind);
+            // Windowed so one enormous line never becomes one shape call; the
+            // split is at character boundaries and does not alter the source.
+            // An empty line still produces one unit so it keeps its row and its
+            // caret position.
+            let mut start = line.display.start;
+            loop {
+                let mut end = (start + MAX_UNIT_BYTES).min(line.display.end);
+                while end < line.display.end && !projection.text.is_char_boundary(end) {
+                    end += 1;
+                }
+                units.push(Unit {
+                    line: index,
+                    kind: line.kind.clone(),
+                    font_size,
+                    indent,
+                    advance: advance_width(&projection.text[start..end], font_size),
+                    display: start..end,
+                });
+                if end >= line.display.end {
+                    break;
+                }
+                start = end;
+            }
+        }
+        let mut layout = Self {
+            key,
+            bounds,
+            measure,
+            heights: units
+                .iter()
+                .map(|unit| estimated_height(unit, measure))
+                .collect(),
+            units,
+            ..Self::default()
+        };
+        layout.recompute_tops();
+        layout
+    }
+
+    #[cfg(test)]
+    fn unit_count(&self) -> usize {
+        self.units.len()
+    }
+
+    /// Shape the units near the viewport and drop the ones far away.
+    fn ensure_measured(
+        &mut self,
+        scroll: f32,
+        viewport: f32,
+        projection: &Projection,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if self.units.is_empty() {
+            self.anchor_top = scroll;
+            return;
+        }
+        let anchor = self.unit_at(scroll);
+        let anchor_offset = scroll - self.tops[anchor];
+        let (first, last) = self.visible(scroll, viewport);
+        // One viewport of lookahead in each direction, expressed in units.
+        let average = (self.content_height / self.units.len() as f32).max(1.);
+        let lookahead = ((viewport / average).ceil() as usize).max(4);
+        let low = first.saturating_sub(lookahead);
+        let high = (last + lookahead + 1).min(self.units.len());
+
+        for index in low..high {
+            if self.shaped.contains_key(&index) {
+                continue;
+            }
+            let shaped = shape_unit(&self.units[index], projection, self.measure, window, cx);
+            self.shaped_bytes += shaped_bytes(&shaped);
+            self.heights[index] = shaped.height;
+            self.dirty_from = self.dirty_from.min(index);
+            self.shaped.insert(index, Rc::new(shaped));
+        }
+        self.evict(low, high);
+        self.recompute_tops();
+        // Keep the anchor unit under the same on-screen offset after measuring.
+        self.anchor_top = self.tops[anchor] + anchor_offset;
+        let _ = scroll;
+    }
+
+    /// Drop measurements outside a window that keeps scrolling cheap.
+    fn evict(&mut self, low: usize, high: usize) {
+        let span = (high - low).max(1);
+        let keep_low = low.saturating_sub(span);
+        let keep_high = (high + span).min(self.units.len());
+        if self.shaped.len() <= keep_high - keep_low && self.shaped_bytes <= SHAPED_BUDGET {
+            return;
+        }
+        let mut removed: Vec<usize> = self
+            .shaped
+            .keys()
+            .copied()
+            .filter(|index| *index < keep_low || *index >= keep_high)
+            .collect();
+        // When the byte budget is what forced eviction, drop the furthest first.
+        if self.shaped_bytes > SHAPED_BUDGET {
+            let mut outside: Vec<usize> = self
+                .shaped
+                .keys()
+                .copied()
+                .filter(|index| *index >= keep_low && *index < keep_high)
+                .collect();
+            outside.sort_by_key(|index| {
+                if *index < low {
+                    low - *index
+                } else {
+                    index.saturating_sub(high)
+                }
+            });
+            removed.extend(outside);
+        }
+        for index in removed {
+            if let Some(shaped) = self.shaped.remove(&index) {
+                self.shaped_bytes = self.shaped_bytes.saturating_sub(shaped_bytes(&shaped));
+                // The unit falls back to its estimate until it is shown again.
+                self.heights[index] = estimated_height(&self.units[index], self.measure);
+                self.dirty_from = self.dirty_from.min(index);
+            }
+        }
+        self.recompute_tops();
+    }
+
+    fn recompute_tops(&mut self) {
+        if self.units.is_empty() {
+            self.tops.clear();
+            self.content_height = PAD_Y * 2.;
+            self.dirty_from = 0;
+            return;
+        }
+        // A resized unit list always needs a full pass; otherwise the pass
+        // resumes from the first unit whose height changed.
+        if self.tops.len() != self.units.len() || self.heights.len() != self.units.len() {
+            self.tops = vec![0.; self.units.len()];
+            self.heights.resize(self.units.len(), 0.);
+            self.dirty_from = 0;
+        }
+        let from = self.dirty_from.min(self.units.len() - 1);
+        let mut top = if from == 0 { 0. } else { self.tops[from] };
+        for index in from..self.units.len() {
+            self.tops[index] = top;
+            top += self.heights[index];
+        }
+        self.content_height = top + PAD_Y * 2.;
+        self.dirty_from = self.units.len();
+    }
+
+    /// The first unit whose bottom is below `scroll`.
+    fn unit_at(&self, scroll: f32) -> usize {
+        let target = scroll.max(0.);
+        let index = self
+            .tops
+            .partition_point(|top| *top <= target)
+            .saturating_sub(1);
+        index.min(self.units.len().saturating_sub(1))
+    }
+
+    /// The inclusive range of units intersecting the viewport.
+    fn visible(&self, scroll: f32, viewport: f32) -> (usize, usize) {
+        let first = self.unit_at(scroll);
+        let bottom = scroll + viewport;
+        let last = self
+            .tops
+            .partition_point(|top| *top < bottom)
+            .min(self.units.len().saturating_sub(1));
+        (first, last.max(first))
+    }
 }
 
-/// Distance from a coordinate to a one-dimensional span, zero when inside.
-fn distance_to_span(value: Pixels, start: f32, end: f32) -> f32 {
-    let value = f32::from(value);
-    if value < start {
-        start - value
-    } else if value > end {
-        value - end
-    } else {
-        0.
+/// The font size and indent one block kind renders at.
+fn line_metrics(kind: &BlockKind) -> (f32, f32) {
+    match kind {
+        BlockKind::Heading(level) => (
+            match level {
+                1 => 28.,
+                2 => 23.,
+                3 => 20.,
+                _ => BODY_SIZE,
+            },
+            0.,
+        ),
+        BlockKind::Quote { depth } => (BODY_SIZE, 16. * *depth as f32),
+        BlockKind::List { depth, .. } => (BODY_SIZE, 16. * *depth as f32),
+        BlockKind::Fence | BlockKind::Code => (CODE_SIZE, 12.),
+        BlockKind::Paragraph | BlockKind::Table => (BODY_SIZE, 0.),
     }
+}
+
+fn line_height(font_size: f32) -> f32 {
+    (font_size * 1.55).max(font_size + 6.)
+}
+
+/// Estimated advance width: wide characters take a full em, narrow ones about
+/// half, which is close enough for a first-pass scroll extent.
+fn advance_width(text: &str, font_size: f32) -> f32 {
+    let mut advance = 0.;
+    for character in text.chars() {
+        advance += if is_wide(character) {
+            font_size
+        } else {
+            font_size * 0.52
+        };
+    }
+    advance
+}
+
+fn is_wide(character: char) -> bool {
+    matches!(u32::from(character),
+        0x1100..=0x115F | 0x2E80..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF
+        | 0xFE30..=0xFE6F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6 | 0x1F300..=0x1FAFF)
+}
+
+fn estimated_height(unit: &Unit, measure: f32) -> f32 {
+    let usable = (measure - unit.indent).max(1.);
+    let rows = (unit.advance / usable).ceil().max(1.);
+    rows * line_height(unit.font_size)
+}
+
+/// Shape one unit and wrap it inside the measure.
+fn shape_unit(
+    unit: &Unit,
+    projection: &Projection,
+    measure: f32,
+    window: &mut Window,
+    cx: &mut App,
+) -> ShapedUnit {
+    let theme = Theme::global(cx).clone();
+    let text = &projection.text[unit.display.clone()];
+    let base_font = match unit.kind {
+        BlockKind::Fence | BlockKind::Code => font(theme.mono_font_family.clone()),
+        _ => font(theme.font_family.clone()),
+    };
+    let styles = styles_for(projection, unit);
+    let runs = build_runs(&theme, text, styles, base_font, unit.font_size);
+    let shaped =
+        window
+            .text_system()
+            .shape_line(text.to_string().into(), px(unit.font_size), &runs, None);
+    let mut wrapped: Vec<Wrapped> = wrap_line(&shaped, px((measure - unit.indent).max(1.)))
+        .into_iter()
+        .map(|(fragment, shaped)| Wrapped {
+            x: unit.indent + fragment.start_offset,
+            // Wrapping works in unit-local bytes; selection, hit tests and the
+            // mapping all use document display offsets.
+            display: unit.display.start + fragment.range.start
+                ..unit.display.start + fragment.range.end,
+            shaped,
+        })
+        .collect();
+    if wrapped.is_empty() {
+        let empty = window
+            .text_system()
+            .shape_line("".into(), px(unit.font_size), &runs, None);
+        wrapped.push(Wrapped {
+            x: unit.indent,
+            display: unit.display.start..unit.display.start,
+            shaped: empty,
+        });
+    }
+    let height = wrapped.len() as f32 * line_height(unit.font_size);
+    ShapedUnit { wrapped, height }
+}
+
+/// The style runs that intersect one unit, clipped to its display range.
+fn styles_for<'a>(
+    projection: &'a Projection,
+    unit: &Unit,
+) -> &'a [breeze_reflow::markdown::DisplayRun] {
+    let runs = &projection.lines[unit.line].runs;
+    let first = runs.partition_point(|run| run.range.end <= unit.display.start);
+    let last = runs.partition_point(|run| run.range.start < unit.display.end);
+    &runs[first..last.max(first)]
+}
+
+fn shaped_bytes(shaped: &ShapedUnit) -> usize {
+    shaped
+        .wrapped
+        .iter()
+        .map(|wrapped| 64 + wrapped.display.len() * 4)
+        .sum()
+}
+
+/// The display offset nearest a window point inside the surface.
+fn hit_test(layout: &Layout, scroll: f32, position: Point<Pixels>) -> Option<usize> {
+    if layout.units.is_empty() {
+        return None;
+    }
+    let y = position.y - layout.bounds.origin.y - px(PAD_Y) + px(scroll);
+    let x = position.x - layout.bounds.origin.x - px(PAD_X);
+    // Units are addressed by their stored tops; unmeasured ones use estimates,
+    // so a click below the text still lands on the last row.
+    let index = layout
+        .tops
+        .partition_point(|top| *top <= f32::from(y))
+        .saturating_sub(1)
+        .min(layout.units.len() - 1);
+    let unit = &layout.units[index];
+    let Some(shaped) = layout.shaped.get(&index) else {
+        // The row has not been shaped yet: report its first offset and let the
+        // next frame place the caret exactly.
+        return Some(unit.display.start);
+    };
+    let row = (((f32::from(y) - layout.tops[index]) / line_height(unit.font_size))
+        .floor()
+        .max(0.) as usize)
+        .min(shaped.wrapped.len().saturating_sub(1));
+    let wrapped = &shaped.wrapped[row];
+    let local = wrapped
+        .shaped
+        .closest_index_for_x(x - px(wrapped.x))
+        .min(wrapped.display.len());
+    Some(wrapped.display.start + local)
 }
 
 fn build_runs(
@@ -1260,8 +1635,8 @@ pub(super) mod tests {
                 // The initial caret sits in the heading marker, so the live view
                 // reveals it; moving the caret away hides it again.
                 assert!(editor.projection.text.starts_with("# Title"));
-                let layout = editor.layout.as_ref().expect("the surface laid out");
-                assert_eq!(layout.lines.len(), 3);
+                let layout = &editor.layout;
+                assert_eq!(layout.units.len(), 3, "one unit per source line");
                 assert!(layout.content_height > 0.);
                 // Moving the caret out of the marker hides it and invalidates
                 // the cached layout.
@@ -1271,11 +1646,15 @@ pub(super) mod tests {
                     "live view hid the heading marker: {:?}",
                     editor.projection.text
                 );
-                assert!(editor.layout.is_none(), "a new projection needs new layout");
+                assert_eq!(
+                    editor.layout.unit_count(),
+                    0,
+                    "a new projection needs a new layout"
+                );
             });
             window.render_frame(cx);
             editor.update(cx, |editor, cx| {
-                assert!(editor.layout.is_some(), "the surface laid out again");
+                assert!(editor.layout.unit_count() > 0, "the surface laid out again");
                 let bytes = editor.source_text();
                 let selection = editor.session.selection();
                 let revision = editor.session.revision();
@@ -1418,6 +1797,64 @@ pub(super) mod tests {
 }
 
 #[cfg(test)]
+mod virtualization_tests {
+    use super::*;
+    use gpui_kit::test::TestWindowExt;
+
+    /// A megabyte on one line must become many addressable units, not one shape
+    /// call over the whole document.
+    #[gpui_kit::test]
+    fn a_giant_single_line_is_windowed(cx: &mut TestAppContext) {
+        let mut text = String::with_capacity(1 << 21);
+        while text.len() < 1 << 20 {
+            text.push_str("word ");
+        }
+        let (handle, editor) = super::tests::editor_window(cx, "giant.md", &text);
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            editor.update(cx, |editor, _| {
+                let units = editor.layout.unit_count();
+                assert!(
+                    units > 200,
+                    "a megabyte line should be windowed into many units, got {units}"
+                );
+                // Only the viewport and its lookahead hold shaped lines.
+                assert!(
+                    editor.layout.shaped.len() < units / 4,
+                    "the layout shaped {} of {units} units",
+                    editor.layout.shaped.len()
+                );
+                assert!(editor.layout.content_height > 0.);
+            });
+        })
+        .unwrap();
+    }
+
+    /// A long document measures what is near the viewport, not every line.
+    #[gpui_kit::test]
+    fn offscreen_lines_are_not_measured(cx: &mut TestAppContext) {
+        let mut text = String::new();
+        for index in 0..2000 {
+            text.push_str(&format!("paragraph {index}\n\n"));
+        }
+        let (handle, editor) = super::tests::editor_window(cx, "long.md", &text);
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            editor.update(cx, |editor, _| {
+                let units = editor.layout.unit_count();
+                assert_eq!(units, 4000, "one unit per source line");
+                assert!(
+                    editor.layout.shaped.len() < 200,
+                    "the layout measured {} of {units} units",
+                    editor.layout.shaped.len()
+                );
+            });
+        })
+        .unwrap();
+    }
+}
+
+#[cfg(test)]
 mod hit_test_tests {
     use super::*;
     use gpui_kit::test::TestWindowExt;
@@ -1429,19 +1866,19 @@ mod hit_test_tests {
         cx.update_window(handle, |_, window, cx| {
             window.render_frame(cx);
             editor.update(cx, |editor, _| {
-                let layout = editor.layout.clone().expect("laid out");
-                let bounds = layout.bounds;
+                let bounds = editor.layout.bounds;
                 // Far below the content.
                 let below = point(
                     bounds.origin.x + px(PAD_X + 4.),
                     bounds.origin.y + px(10_000.),
                 );
-                let display = hit_test(&layout, below).expect("clamped inside the document");
+                let display = hit_test(&editor.layout, editor.scroll, below)
+                    .expect("clamped inside the document");
                 let source = editor.projection.display_to_source(display, Affinity::After);
                 assert!(
                     source >= 8,
-                    "clicking below the text must reach the last paragraph, got {source} (display {display}, lines {}, text {:?})",
-                    layout.lines.len(),
+                    "clicking below the text must reach the last paragraph, got {source} (display {display}, units {}, text {:?})",
+                    editor.layout.unit_count(),
                     editor.projection.text,
                 );
                 // Far above the content.
@@ -1449,7 +1886,8 @@ mod hit_test_tests {
                     bounds.origin.x + px(PAD_X + 4.),
                     bounds.origin.y - px(500.),
                 );
-                let display = hit_test(&layout, above).expect("clamped inside the document");
+                let display = hit_test(&editor.layout, editor.scroll, above)
+                    .expect("clamped inside the document");
                 let source = editor.projection.display_to_source(display, Affinity::After);
                 assert_eq!(source, 0, "clicking above the text reaches the first line");
             });

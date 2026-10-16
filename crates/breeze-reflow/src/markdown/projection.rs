@@ -162,6 +162,8 @@ impl Segment {
 #[derive(Clone, Debug)]
 pub struct Projection {
     pub mode: ProjectionMode,
+    /// The length of the source this projection was built from.
+    pub source_len: usize,
     pub text: String,
     pub lines: Vec<DisplayLine>,
     segments: Vec<Segment>,
@@ -239,18 +241,27 @@ impl Projection {
             text: String::with_capacity(source.len()),
             lines: Vec::new(),
             segments: Vec::new(),
+            paints: Vec::new(),
             fence: None,
         };
         builder.run();
         let segments = std::mem::take(&mut builder.segments);
-        let mut display_index: Vec<(usize, usize)> = segments
+        // Segments are emitted in display order, so their start offsets are
+        // already ascending and ties keep segment order. Sorting here would cost
+        // a full sort of every line's segments on each rebuild.
+        debug_assert!(
+            segments
+                .windows(2)
+                .all(|pair| pair[0].display_start() <= pair[1].display_start())
+        );
+        let display_index: Vec<(usize, usize)> = segments
             .iter()
             .enumerate()
             .map(|(index, segment)| (segment.display_start(), index))
             .collect();
-        display_index.sort_unstable();
         Projection {
             mode,
+            source_len: source.len(),
             text: builder.text,
             lines: builder.lines,
             segments,
@@ -260,6 +271,11 @@ impl Projection {
 
     pub fn line_count(&self) -> usize {
         self.lines.len()
+    }
+
+    /// The length of the display text this projection covers.
+    pub fn text_len(&self) -> usize {
+        self.text.len()
     }
 
     /// The line containing a source offset, or the last line for EOF.
@@ -351,35 +367,36 @@ struct Builder<'a> {
     text: String,
     lines: Vec<DisplayLine>,
     segments: Vec<Segment>,
+    /// Style applications for the line being rendered, flattened per line.
+    paints: Vec<(Range<usize>, RunStyle)>,
     fence: Option<char>,
     literal: Option<Range<usize>>,
     semantic: Option<&'a Semantic>,
 }
 
-/// Appends source-derived display text while recording the mapping segments.
-struct LineBuilder<'a> {
+/// What one line contributed beyond its text, which already lives in the
+/// projection's buffer.
+struct Rendered {
+    runs: Vec<DisplayRun>,
+    kind: BlockKind,
+    revealed: bool,
+}
+
+/// Renders one line straight into the projection's output buffer.
+///
+/// Writing into the shared buffer instead of a per-line `String` removes one
+/// allocation and one copy per source line, which at a megabyte is the
+/// difference between meeting the input budget and missing it.
+struct LineBuilder<'a, 'b> {
     line: &'a str,
     base: usize,
     selection: Range<usize>,
-    text: String,
-    /// Style applications in paint order; flattened into disjoint runs later so
-    /// nested spans compose instead of producing overlapping text runs.
-    paints: Vec<(Range<usize>, RunStyle)>,
-    segments: Vec<Segment>,
+    text: &'b mut String,
+    paints: &'b mut Vec<(Range<usize>, RunStyle)>,
+    segments: &'b mut Vec<Segment>,
 }
 
-impl<'a> LineBuilder<'a> {
-    fn new(line: &'a str, base: usize, selection: Range<usize>) -> Self {
-        Self {
-            line,
-            base,
-            selection,
-            text: String::with_capacity(line.len()),
-            paints: Vec::new(),
-            segments: Vec::new(),
-        }
-    }
-
+impl LineBuilder<'_, '_> {
     fn absolute(&self, range: Range<usize>) -> Range<usize> {
         self.base + range.start..self.base + range.end
     }
@@ -424,56 +441,47 @@ impl<'a> LineBuilder<'a> {
         }
         self.paints.push((display, style));
     }
-
-    /// Flatten painted styles into sorted, disjoint display runs.
-    fn into_runs(self) -> (String, Vec<DisplayRun>, Vec<Segment>) {
-        let mut boundaries: Vec<usize> = self
-            .paints
-            .iter()
-            .flat_map(|(range, _)| [range.start, range.end])
-            .collect();
-        boundaries.push(0);
-        boundaries.push(self.text.len());
-        boundaries.sort_unstable();
-        boundaries.dedup();
-        let mut runs: Vec<DisplayRun> = Vec::new();
-        for window in boundaries.windows(2) {
-            let range = window[0]..window[1];
-            if range.is_empty() {
-                continue;
-            }
-            let mut style = RunStyle::default();
-            for (paint, painted) in &self.paints {
-                if paint.start <= range.start && paint.end >= range.end {
-                    style = style.union(*painted);
-                }
-            }
-            if style.is_plain() {
-                continue;
-            }
-            if let Some(last) = runs.last_mut()
-                && last.style == style
-                && last.range.end == range.start
-            {
-                last.range.end = range.end;
-                continue;
-            }
-            runs.push(DisplayRun { range, style });
-        }
-        // A run must never split a UTF-8 character.
-        runs.retain(|run| {
-            self.text.is_char_boundary(run.range.start) && self.text.is_char_boundary(run.range.end)
-        });
-        (self.text, runs, self.segments)
-    }
 }
 
-struct Rendered {
-    text: String,
-    runs: Vec<DisplayRun>,
-    segments: Vec<Segment>,
-    kind: BlockKind,
-    revealed: bool,
+/// Flatten painted styles into sorted, disjoint display runs.
+fn flatten_runs(paints: &mut Vec<(Range<usize>, RunStyle)>, len: usize) -> Vec<DisplayRun> {
+    if paints.is_empty() {
+        return Vec::new();
+    }
+    let mut boundaries: Vec<usize> = paints
+        .iter()
+        .flat_map(|(range, _)| [range.start, range.end])
+        .collect();
+    boundaries.push(0);
+    boundaries.push(len);
+    boundaries.sort_unstable();
+    boundaries.dedup();
+    let mut runs: Vec<DisplayRun> = Vec::new();
+    for window in boundaries.windows(2) {
+        let range = window[0]..window[1];
+        if range.is_empty() {
+            continue;
+        }
+        let mut style = RunStyle::default();
+        for (paint, painted) in paints.iter() {
+            if paint.start <= range.start && paint.end >= range.end {
+                style = style.union(*painted);
+            }
+        }
+        if style.is_plain() {
+            continue;
+        }
+        if let Some(last) = runs.last_mut()
+            && last.style == style
+            && last.range.end == range.start
+        {
+            last.range.end = range.end;
+            continue;
+        }
+        runs.push(DisplayRun { range, style });
+    }
+    paints.clear();
+    runs
 }
 
 struct ListPrefix {
@@ -485,6 +493,12 @@ struct ListPrefix {
 
 impl Builder<'_> {
     fn run(&mut self) {
+        self.run_window(None)
+    }
+
+    /// Render every line, or only those in `only` while still scanning the rest
+    /// so fenced-code state stays correct.
+    fn run_window(&mut self, only: Option<Range<usize>>) {
         // The semantic layer already owns line splitting, so its lines are used
         // verbatim; otherwise the projection falls back to its own scanner.
         // Each entry keeps the line's terminator end so the bytes between lines
@@ -517,18 +531,25 @@ impl Builder<'_> {
                 ranges
             }
         };
+        self.lines.reserve(ranges.len());
         for (index, (range, next)) in ranges.into_iter().enumerate() {
             let line_start = range.start;
             let line_end = range.end;
+            if only
+                .as_ref()
+                .is_some_and(|only| index < only.start || index > only.end)
+            {
+                // Still advance the fence state so the window renders in the
+                // same context a full pass would have given it.
+                self.skip_line(line_start, line_end);
+                continue;
+            }
             let display_start = self.text.len();
             let rendered = self.render_line(index, line_start, line_end);
-            self.text.push_str(&rendered.text);
-            for segment in rendered.segments {
-                self.segments.push(offset_segment(segment, display_start));
-            }
+            let display_end = self.text.len();
             self.lines.push(DisplayLine {
                 source: line_start..line_end,
-                display: display_start..self.text.len(),
+                display: display_start..display_end,
                 kind: rendered.kind,
                 runs: rendered.runs,
                 revealed: rendered.revealed,
@@ -537,18 +558,39 @@ impl Builder<'_> {
             // when the next line is hidden, so a setext underline keeps its
             // bytes reachable from the mapping.
             if next > line_end {
+                let start = self.text.len();
                 self.text.push_str(&self.source[line_end..next]);
                 self.segments.push(Segment::Copy {
                     source: line_end..next,
-                    display: self.text.len() - (next - line_end),
+                    display: start,
                 });
             }
         }
     }
 
+    /// Advance cross-line state for a line that will not be rendered.
+    fn skip_line(&mut self, start: usize, end: usize) {
+        let trimmed = self.source[start..end].trim_start();
+        if let Some(marker) = self.fence {
+            if trimmed.starts_with(&marker.to_string().repeat(3)) {
+                self.fence = None;
+            }
+        } else if let Some(marker) = fence_opener(trimmed) {
+            self.fence = Some(marker);
+        }
+    }
+
     fn render_line(&mut self, index: usize, start: usize, end: usize) -> Rendered {
         let line = &self.source[start..end];
-        let mut local = LineBuilder::new(line, start, self.selection.clone());
+        self.paints.clear();
+        let mut local = LineBuilder {
+            line,
+            base: start,
+            selection: self.selection.clone(),
+            text: &mut self.text,
+            paints: &mut self.paints,
+            segments: &mut self.segments,
+        };
 
         let literal = self
             .literal
@@ -727,18 +769,22 @@ fn quote_markers(line: &str, depth: usize) -> Option<usize> {
     Some(index)
 }
 
-fn finish(local: LineBuilder<'_>, kind: BlockKind, revealed: bool) -> Rendered {
-    let (text, runs, segments) = local.into_runs();
+/// Finish a line: flatten the styles painted over it into display runs.
+///
+/// The line's text and mapping segments are already in the projection buffer,
+/// so only the runs and the block kind are returned.
+fn finish(local: LineBuilder<'_, '_>, kind: BlockKind, revealed: bool) -> Rendered {
+    // Runs address the document's display text, so the bound is the end of this
+    // line's contribution rather than the end of the document.
+    let len = local.text.len();
+    let runs = flatten_runs(local.paints, len);
     Rendered {
-        text,
         runs,
-        segments,
         kind,
         revealed,
     }
 }
 
-/// The line's terminator: `\r\n`, `\n`, `\r` or the end of the document.
 fn line_bounds(source: &str, start: usize) -> (usize, usize) {
     let bytes = source.as_bytes();
     let mut index = start;
@@ -846,7 +892,7 @@ fn list_prefix(line: &str) -> Option<ListPrefix> {
 
 /// Style non-nested inline spans, hiding their delimiters unless the selection
 /// touches them. Everything unrecognised is copied verbatim.
-fn inline(local: &mut LineBuilder<'_>, range: Range<usize>) {
+fn inline(local: &mut LineBuilder<'_, '_>, range: Range<usize>) {
     let line = local.line;
     let mut index = range.start;
     while index < range.end {
@@ -1000,26 +1046,16 @@ fn escaped(line: &str, index: usize) -> bool {
     backslashes % 2 == 1
 }
 
-/// Shift a segment's display range into the document-wide display text.
-fn offset_segment(segment: Segment, by: usize) -> Segment {
-    match segment {
-        Segment::Copy { source, display } => Segment::Copy {
-            source,
-            display: display + by,
-        },
-        Segment::Replace { source, display } => Segment::Replace {
-            source,
-            display: display.start + by..display.end + by,
-        },
-    }
-}
-
 /// Emit a line range using the parser's inline spans.
 ///
 /// Each span hides its own delimiters unless the selection touches it, and
 /// nested spans recurse so every level hides what belongs to it. Without a
 /// semantic layer this delegates to the line-local scanner.
-fn inline_styled(local: &mut LineBuilder<'_>, range: Range<usize>, spans: Option<&[super::Span]>) {
+fn inline_styled(
+    local: &mut LineBuilder<'_, '_>,
+    range: Range<usize>,
+    spans: Option<&[super::Span]>,
+) {
     let Some(spans) = spans else {
         return inline(local, range);
     };
@@ -1028,7 +1064,7 @@ fn inline_styled(local: &mut LineBuilder<'_>, range: Range<usize>, spans: Option
 }
 
 fn emit_spans(
-    local: &mut LineBuilder<'_>,
+    local: &mut LineBuilder<'_, '_>,
     range: Range<usize>,
     spans: &[super::Span],
     cursor: &mut usize,
@@ -1068,10 +1104,13 @@ fn emit_spans(
                 continue;
             }
         }
-        let Some(character) = local.line[position..].chars().next() else {
-            break;
-        };
-        local.copy(position..position + character.len_utf8());
-        position += character.len_utf8();
+        // Copy the run up to the next candidate span as one segment.
+        let limit = spans
+            .get(*cursor)
+            .map(|span| span.full.start.saturating_sub(base))
+            .filter(|start| *start > position && *start <= range.end)
+            .unwrap_or(range.end);
+        local.copy(position..limit);
+        position = limit;
     }
 }

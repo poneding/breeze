@@ -368,26 +368,31 @@ fn link() -> RunStyle {
 }
 
 /// Resolve every source line's block context from the parsed block frames.
+///
+/// One sweep over lines and frames: a document with 200 000 lines and 40 000
+/// blocks must not cost their product, so frames are pushed when the sweep
+/// reaches them and dropped when they end.
 fn lines_with_kinds(source: &str, blocks: &[BlockFrame]) -> Vec<LineKind> {
+    // Pre-order: a parent starts before its children, so pushing in this order
+    // leaves the innermost frame last, which is what the leaf lookup needs.
+    let mut ordered: Vec<&BlockFrame> = blocks.iter().collect();
+    ordered.sort_by_key(|frame| (frame.source.start, std::cmp::Reverse(frame.source.end)));
+
     let mut lines = Vec::new();
     let mut frames: Vec<&BlockFrame> = Vec::new();
-    let mut cursor = 0;
-    while cursor <= source.len() {
-        let (end, next) = line_end(source, cursor);
-        if cursor == source.len() && end == cursor && !lines.is_empty() {
+    let mut pending = 0usize;
+    let mut start = 0usize;
+    while start <= source.len() {
+        let (end, next) = line_end(source, start);
+        if start == source.len() && (end != start || !lines.is_empty()) {
             break;
         }
-        // Drop frames that ended before this line and adopt those that start here.
-        frames.retain(|frame| frame.source.end > cursor);
-        for block in blocks {
-            // An indented sublist's own range starts after the indentation, so
-            // adoption is by line overlap rather than by the line's first byte.
-            if block.source.start < end
-                && cursor < block.source.end
-                && !frames.iter().any(|open| std::ptr::eq(*open, block))
-            {
-                frames.push(block);
+        frames.retain(|frame| frame.source.end > start);
+        while pending < ordered.len() && ordered[pending].source.start < end {
+            if ordered[pending].source.end > start {
+                frames.push(ordered[pending]);
             }
+            pending += 1;
         }
         let quote_depth = frames.iter().filter(|frame| frame.quote).count();
         let leaf = frames.iter().rev().find(|frame| frame.leaf).copied();
@@ -402,22 +407,21 @@ fn lines_with_kinds(source: &str, blocks: &[BlockFrame]) -> Vec<LineKind> {
                 .saturating_sub(1)
                 .min(8);
         }
-        // A setext underline is part of its heading and has no display row.
         let hidden = leaf.is_some_and(|frame| {
             matches!(frame.kind, BlockKind::Heading(_))
                 && frame.source.end > end
-                && is_setext_underline(&source[cursor..end])
+                && is_setext_underline(&source[start..end])
         });
         lines.push(LineKind {
-            source: cursor..end,
+            source: start..end,
             kind,
             quote_depth,
             hidden,
         });
-        if next == cursor {
+        if next == start {
             break;
         }
-        cursor = next;
+        start = next;
     }
     lines
 }
