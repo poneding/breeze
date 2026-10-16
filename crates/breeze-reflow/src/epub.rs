@@ -265,8 +265,8 @@ pub struct SearchHit {
     pub snippet: String,
 }
 
-const SEARCH_SNIPPET_CHARS: usize = 160;
-const SEARCH_SNIPPET_LEAD_CHARS: usize = 48;
+const SEARCH_SNIPPET_CHARS: usize = 72;
+const SEARCH_SNIPPET_LEAD_CHARS: usize = 12;
 
 /// Builds a single-line result preview around the first match.
 ///
@@ -387,16 +387,23 @@ pub(crate) fn xhtml_text(source: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{search_snippet, source_char_index};
+    use super::{SEARCH_SNIPPET_CHARS, search_snippet, source_char_index};
 
     #[test]
-    fn search_snippet_removes_leading_layout_whitespace() {
-        let snippet = search_snippet(
-            "\n\n  \n  \n简要内容\n1 ■ 了解大型语言模型\n4.2 使用层归一化归一化激活函数",
-            "层归一化",
-        );
+    fn search_snippet_is_short_single_line_context_around_the_match() {
+        let prefix = "前置内容".repeat(20);
+        let suffix = "后续内容".repeat(20);
+        let text = format!("\n\n  {prefix}层归一化{suffix}\n");
+        let snippet = search_snippet(&text, "layer");
         assert!(!snippet.starts_with(char::is_whitespace), "{snippet:?}");
+        let snippet = search_snippet(&text, "层归一化");
         assert!(snippet.contains("层归一化"), "{snippet:?}");
+        assert!(snippet.starts_with('…'), "{snippet:?}");
+        assert!(snippet.ends_with('…'), "{snippet:?}");
+        assert!(
+            snippet.chars().count() <= SEARCH_SNIPPET_CHARS + 2,
+            "{snippet:?}"
+        );
     }
 
     #[test]

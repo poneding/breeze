@@ -184,7 +184,11 @@ impl Breeze {
                 );
                 Ok::<_, anyhow::Error>(
                     hits.into_iter()
-                        .map(|hit| (hit.href, 0, format!("{} · {}", hit.title, hit.snippet)))
+                        .map(|hit| {
+                            let text =
+                                reflow_search_result_text(&hit.title, &hit.href, &hit.snippet);
+                            (hit.href, 0, text)
+                        })
                         .collect(),
                 )
             }
@@ -1804,6 +1808,16 @@ impl Breeze {
         }
     }
 }
+/// Formats an EPUB result without exposing the spine filename when navigation
+/// has no title for that chapter.
+fn reflow_search_result_text(title: &str, href: &str, snippet: &str) -> String {
+    if title.is_empty() || title == href {
+        snippet.to_owned()
+    } else {
+        format!("{title} · {snippet}")
+    }
+}
+
 /// Whether the row owns nested rows, the same test the PDF outline uses.
 fn outline_has_children(outline: &[OutlineEntry], index: usize) -> bool {
     outline
@@ -1892,7 +1906,19 @@ fn visible_active_outline(visible: &[usize], active: Option<usize>) -> Option<us
 
 #[cfg(test)]
 mod tests {
-    use super::grouped_characters;
+    use super::{grouped_characters, reflow_search_result_text};
+
+    #[test]
+    fn search_result_hides_spine_filenames() {
+        assert_eq!(
+            reflow_search_result_text("index_split_004.html", "index_split_004.html", "…命中…"),
+            "…命中…"
+        );
+        assert_eq!(
+            reflow_search_result_text("鸣谢", "index_split_004.html", "…命中…"),
+            "鸣谢 · …命中…"
+        );
+    }
 
     #[test]
     fn character_counts_group_by_thousands() {
