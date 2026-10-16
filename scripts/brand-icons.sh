@@ -1,10 +1,11 @@
 #!/bin/sh
 # Regenerate the Breeze application-icon rasters from the SVG master.
 #
-# Platform canvases differ. macOS frames an app icon on Apple's grid, where the
-# artwork covers 824 of 1024 px and the canvas supplies the clear margin, while
-# Windows and Linux draw an icon file edge to edge. The master therefore holds
-# the tile alone and this script adds whichever canvas each consumer expects.
+# Every raster is the master at a different render size, with nothing added and
+# nothing cropped: the master's own viewBox is the canvas, so the tile keeps
+# Apple's app-icon grid (824 of 1024 px) in the Dock, in the About page, in the
+# Windows installer and in the Linux hicolor icon alike. Nothing in this script
+# second-guesses the master's composition.
 #
 # ImageMagick rasterizes the master at every target size and assembles the ICO
 # container; iconutil assembles the ICNS container. These are asset-authoring
@@ -17,12 +18,11 @@ cd "$(dirname "$0")/.."
 BRAND=assets/brand
 MASTER=$BRAND/breeze-icon.svg
 WORK=target/brand-icons
-# Apple's macOS app-icon grid, in 1024ths of the canvas.
-MACOS_ARTWORK_PX=824
-MACOS_CANVAS_PX=1024
-# Artwork shares below are expressed in 1024ths of a canvas, and no raster is
-# rendered from a sample grid smaller than this.
-SHARE_UNIT=1024
+# The master's canvas is 1024 px and its tile covers 824 of them. The rasters are
+# checked against that grid so a resized or recentred tile cannot ship unnoticed.
+CANVAS_PX=1024
+ARTWORK_PX=824
+# No raster is rendered from a sample grid smaller than this.
 MIN_SAMPLED_PX=1024
 # Every Windows representation, largest first: the ICO container order follows
 # this list.
@@ -31,9 +31,6 @@ ICO_SIZES="256 128 64 48 32 16"
 ICNS_ENTRIES="16:icon_16x16 32:icon_16x16@2x 32:icon_32x32 64:icon_32x32@2x \
 128:icon_128x128 256:icon_128x128@2x 256:icon_256x256 512:icon_256x256@2x \
 512:icon_512x512 1024:icon_512x512@2x"
-# The tile's rounded square spans these units in the master's viewBox.
-TILE_MIN=2
-TILE_SIZE=20
 
 for tool in magick iconutil awk sed; do
 	if ! command -v "$tool" >/dev/null 2>&1; then
@@ -45,38 +42,22 @@ done
 rm -rf "$WORK"
 mkdir -p "$WORK/Breeze.iconset" "$WORK/ico"
 
-# Centering the tile on a canvas that keeps `artwork` of `canvas` pixels for it
-# needs a margin of (canvas / artwork - 1) * TILE_SIZE / 2 units per side.
-macos_viewbox=$(awk -v artwork="$MACOS_ARTWORK_PX" -v canvas="$MACOS_CANVAS_PX" \
-	-v min="$TILE_MIN" -v size="$TILE_SIZE" 'BEGIN {
-		margin = (canvas / artwork - 1) * size / 2
-		printf "%.5f %.5f %.5f %.5f", min - margin, min - margin, size + 2 * margin, size + 2 * margin
-	}')
-
-# render <viewBox override> <pixels> <destination>
+# render <pixels> <destination>
 #
 # Rasterize four times the target size, never below MIN_SAMPLED_PX, and filter
 # down: ImageMagick's own SVG renderer antialiases curves coarsely, and the page
-# corners have to stay smooth from 16 px upwards. An empty override keeps the
-# master's own full-bleed viewBox, which renders the tile edge to edge.
+# corners have to stay smooth from 16 px upwards. The master is rendered as
+# authored; only its declared pixel size is raised for the sample grid.
 render() {
-	viewbox=$1
-	pixels=$2
-	destination=$3
+	pixels=$1
+	destination=$2
 	sampled=$((pixels * 4))
 	if [ "$sampled" -lt "$MIN_SAMPLED_PX" ]; then
 		sampled=$MIN_SAMPLED_PX
 	fi
-	if [ -n "$viewbox" ]; then
-		sed -e "s|width=\"[0-9]*\"|width=\"$sampled\"|" \
-			-e "s|height=\"[0-9]*\"|height=\"$sampled\"|" \
-			-e "s|viewBox=\"[^\"]*\"|viewBox=\"$viewbox\"|" \
-			"$MASTER" >"$WORK/render.svg"
-	else
-		sed -e "s|width=\"[0-9]*\"|width=\"$sampled\"|" \
-			-e "s|height=\"[0-9]*\"|height=\"$sampled\"|" \
-			"$MASTER" >"$WORK/render.svg"
-	fi
+	sed -e "s|width=\"[0-9]*\"|width=\"$sampled\"|" \
+		-e "s|height=\"[0-9]*\"|height=\"$sampled\"|" \
+		"$MASTER" >"$WORK/render.svg"
 	# `-strip` drops the date and profile chunks ImageMagick would otherwise
 	# write, so the same master produces byte-identical rasters on every run and
 	# no local timestamp reaches a release asset.
@@ -86,37 +67,35 @@ render() {
 
 # macOS app icon. `bundle-macos.sh` and `release.py` ship this container.
 for entry in $ICNS_ENTRIES; do
-	render "$macos_viewbox" "${entry%%:*}" "$WORK/Breeze.iconset/${entry#*:}.png"
+	render "${entry%%:*}" "$WORK/Breeze.iconset/${entry#*:}.png"
 done
 iconutil -c icns "$WORK/Breeze.iconset" -o "$BRAND/Breeze.icns"
 
-# General 1024 px raster, also the About page tile. It follows the macOS canvas
-# so the logo reads at one size in the Dock, in About, and in installer artwork.
-render "$macos_viewbox" "$MACOS_CANVAS_PX" "$BRAND/breeze-icon.png"
+# The 1024 px raster is the same picture as the app icon, and is also what the
+# About page decodes.
+render "$CANVAS_PX" "$BRAND/breeze-icon.png"
 
-# Windows installer artwork and the Linux hicolor icon are drawn edge to edge,
-# which is how both platforms display an icon file.
+# Windows installer artwork and the Linux hicolor icon are the same picture again.
 ico_inputs=""
 for pixels in $ICO_SIZES; do
-	render "" "$pixels" "$WORK/ico/$pixels.png"
+	render "$pixels" "$WORK/ico/$pixels.png"
 	ico_inputs="$ico_inputs $WORK/ico/$pixels.png"
 done
 # shellcheck disable=SC2086
 magick $ico_inputs "$BRAND/breeze.ico"
-render "" 256 "$BRAND/breeze-icon-256.png"
+render 256 "$BRAND/breeze-icon-256.png"
 
-# Report what each raster actually contains, and fail when a canvas no longer
-# holds the artwork share its platform expects. A 50% alpha threshold measures
-# the tile's rounded square; the two-pixel tolerance covers threshold rounding
-# at 16 px.
+# Report what each raster actually contains, and fail when the artwork no longer
+# covers the master's share of the canvas. A 50% alpha threshold measures the
+# tile's rounded square; the two-pixel tolerance covers threshold rounding at
+# 16 px.
 failed=0
 check() {
 	file=$1
-	artwork_px=$2
 	canvas=$(magick "$file" -format '%w' info:)
 	bbox=$(magick "$file" -alpha extract -threshold 50% -trim -format '%wx%h' info:)
 	corner=$(magick "$file" -alpha extract -format '%[fx:int(255*u.p{0,0})]' info:)
-	want=$(((canvas * artwork_px + 512) / SHARE_UNIT))
+	want=$(((canvas * ARTWORK_PX + CANVAS_PX / 2) / CANVAS_PX))
 	printf '%-32s %5s px canvas  %-9s artwork  %4s px expected  corner alpha %s\n' \
 		"$file" "$canvas" "$bbox" "$want" "$corner"
 	if [ "$corner" != 0 ]; then
@@ -132,14 +111,14 @@ check() {
 	done
 }
 
-check "$BRAND/breeze-icon.png" "$MACOS_ARTWORK_PX"
+check "$BRAND/breeze-icon.png"
 for entry in $ICNS_ENTRIES; do
-	check "$WORK/Breeze.iconset/${entry#*:}.png" "$MACOS_ARTWORK_PX"
+	check "$WORK/Breeze.iconset/${entry#*:}.png"
 done
 for pixels in $ICO_SIZES; do
-	check "$WORK/ico/$pixels.png" "$SHARE_UNIT"
+	check "$WORK/ico/$pixels.png"
 done
-check "$BRAND/breeze-icon-256.png" "$SHARE_UNIT"
+check "$BRAND/breeze-icon-256.png"
 
 if [ "$failed" != 0 ]; then
 	exit 1
