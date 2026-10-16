@@ -17,6 +17,69 @@ fn squiggle_selection_follows_the_rendered_crest() {
 }
 
 #[test]
+fn handles_align_with_the_frame_edges() {
+    // The frame centerlines and every handle square snap to the same device
+    // grid. A side handle may slide along its own edge, but it must never sit
+    // off that edge, and a corner handle must land exactly on the corner.
+    for scale in [1., 2., 3.] {
+        for offset in [0.0, 0.13, 0.5, 0.87] {
+            let (x, y) = (58.31 + offset, 139.62 + offset);
+            let (width, height) = (102.4, 145.9);
+            let frame = selection_frame(x, y, width, height, scale);
+            let half_tolerance = 0.5 / scale + 0.0001;
+            for handle in geometry::ResizeHandle::ALL {
+                let (fraction_x, fraction_y) = handle.position();
+                let square =
+                    handle_square(x + width * fraction_x, y + height * fraction_y, 4.5, scale);
+                let center_x = (square[0] + square[2]) / 2.;
+                let center_y = (square[1] + square[3]) / 2.;
+                if fraction_x == 0. {
+                    assert!((center_x - frame[0]).abs() < 0.0001, "{handle:?} left");
+                } else if fraction_x == 1. {
+                    assert!((center_x - frame[2]).abs() < 0.0001, "{handle:?} right");
+                } else {
+                    let middle = (frame[0] + frame[2]) / 2.;
+                    assert!(
+                        (center_x - middle).abs() <= half_tolerance,
+                        "{handle:?} mid x"
+                    );
+                }
+                if fraction_y == 0. {
+                    assert!((center_y - frame[1]).abs() < 0.0001, "{handle:?} top");
+                } else if fraction_y == 1. {
+                    assert!((center_y - frame[3]).abs() < 0.0001, "{handle:?} bottom");
+                } else {
+                    let middle = (frame[1] + frame[3]) / 2.;
+                    assert!(
+                        (center_y - middle).abs() <= half_tolerance,
+                        "{handle:?} mid y"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn handle_square_stays_symmetric_about_its_frame_point() {
+    for scale in [1., 2., 3.] {
+        for offset in [0.0, 0.13, 0.5, 0.87] {
+            let (cx, cy) = (120.37 + offset, 241.61 + offset);
+            let square = handle_square(cx, cy, 4.5, scale);
+            let center = ((square[0] + square[2]) / 2., (square[1] + square[3]) / 2.);
+            let snapped = selection_frame(cx, cy, 0., 0., scale);
+            assert!((center.0 - snapped[0]).abs() < 0.001);
+            assert!((center.1 - snapped[1]).abs() < 0.001);
+            assert!((square[0] + square[2] - 2. * snapped[0]).abs() < 0.001);
+            assert!((square[1] + square[3] - 2. * snapped[1]).abs() < 0.001);
+            let width = square[2] - square[0];
+            let height = square[3] - square[1];
+            assert!((8. ..=11.).contains(&width) && (8. ..=11.).contains(&height));
+        }
+    }
+}
+
+#[test]
 fn selection_frame_centres_edges_on_device_pixels() {
     // Page coordinates reach the overlay as fractions. Painting element borders
     // at those offsets gave each edge different antialiasing, which read as an
@@ -55,13 +118,22 @@ fn selection_frame_centres_edges_on_device_pixels() {
 fn resize_handle_squares_stay_uniform_and_on_the_device_grid() {
     for scale in [1., 2., 3.] {
         for offset in [0.07, 0.5, 0.93] {
-            let square = snapped_square(300.4 + offset, 180.9 + offset, 4.5, scale);
+            let square = handle_square(300.4 + offset, 180.9 + offset, 4.5, scale);
+            // Edges share the frame's half-pixel grid, so a stroked square keeps
+            // identical weight on all four sides.
             for edge in square {
                 let device = edge * scale - 0.5;
-                assert!((device - device.round()).abs() < 0.0001);
+                // f32 multiply-add leaves ~1e-4 logical pixels of rounding noise
+                // at fractional scales; anything larger is a real misalignment.
+                assert!(
+                    (device - device.round()).abs() < 0.001,
+                    "edge {edge} is off the device grid at scale {scale}"
+                );
             }
-            assert!((square[2] - square[0]) > 8.);
-            assert!((square[2] - square[0]) < 10.);
+            let (width, height) = (square[2] - square[0], square[3] - square[1]);
+            assert!((8. ..=11.).contains(&width), "width {width}");
+            assert!((8. ..=11.).contains(&height), "height {height}");
+            assert!((width - height).abs() < 0.0001, "the square is not square");
         }
     }
 }

@@ -654,13 +654,13 @@ impl Breeze {
                 bounds.height / h * height
             };
             if selected.preview.kind != Kind::Note {
+                // Unit positions inside the frame, resolved against the same
+                // origin the outline uses. Passing page-local points here would
+                // offset every handle by the page surface's own origin.
                 let handles = resizable.then(|| {
                     geometry::ResizeHandle::ALL
                         .into_iter()
-                        .map(|handle| {
-                            let (hx, hy) = handle.position();
-                            (x + sw * hx, y + sh * hy)
-                        })
+                        .map(|handle| handle.position())
                         .collect::<Vec<_>>()
                 });
                 layers.push(
@@ -947,6 +947,19 @@ fn selection_rect_path(
     path.build().ok()
 }
 
+fn selection_fill_path(rect: [f32; 4], scale: f32) -> Option<gpui_kit::Path<gpui_kit::Pixels>> {
+    let [left, top, right, bottom] = rect;
+    let mut path = PathBuilder::fill().with_style(PathStyle::Fill(
+        gpui_kit::FillOptions::default().with_tolerance(0.1 / scale.max(1.)),
+    ));
+    path.move_to(point(px(left), px(top)));
+    path.line_to(point(px(right), px(top)));
+    path.line_to(point(px(right), px(bottom)));
+    path.line_to(point(px(left), px(bottom)));
+    path.close();
+    path.build().ok()
+}
+
 /// Soft blue frame with a fading halo, plus matching resize handles.
 fn paint_selection(
     origin_x: gpui_kit::Pixels,
@@ -965,38 +978,41 @@ fn paint_selection(
             window.paint_path(path, rgba(color));
         }
     }
-    for &(local_x, local_y) in handles.unwrap_or_default() {
-        let square = snapped_square(x + local_x, y + local_y, 4.5, scale);
+    for &(fraction_x, fraction_y) in handles.unwrap_or_default() {
+        let square = handle_square(x + width * fraction_x, y + height * fraction_y, 4.5, scale);
         if let Some(path) = selection_rect_path(square, 5.5, scale) {
             window.paint_path(path, rgba(0x8fb6ff33));
         }
-        window.paint_quad(fill(
-            Bounds {
-                origin: point(px(square[0]), px(square[1])),
-                size: size(px(square[2] - square[0]), px(square[3] - square[1])),
-            },
-            rgb(0xffffff),
-        ));
+        // The fill is a path, not a quad: the renderer snaps quads to whole
+        // device pixels, which would leave every handle half a pixel off the
+        // frame centerline.
+        if let Some(path) = selection_fill_path(square, scale) {
+            window.paint_path(path, rgb(0xffffff));
+        }
         if let Some(path) = selection_rect_path(square, 1.5, scale) {
             window.paint_path(path, rgba(0x5f92e8e0));
         }
     }
 }
 
-/// A handle square whose stroked outline lands on pixel centers, so the four
-/// sides of every handle have identical weight.
-fn snapped_square(center_x: f32, center_y: f32, half: f32, scale: f32) -> [f32; 4] {
+/// A handle square centred exactly on its frame point.
+///
+/// The centre snaps to the same device-pixel centers the frame uses, and the
+/// half-extent is a whole number of device pixels, so the square stays symmetric
+/// about the frame and its four sides get identical stroke coverage.
+fn handle_square(center_x: f32, center_y: f32, half: f32, scale: f32) -> [f32; 4] {
     let scale = if scale.is_finite() { scale.max(1.) } else { 1. };
     let snap = |value: f32| {
         (value * scale - 0.5)
             .round()
             .mul_add(1. / scale, 0.5 / scale)
     };
+    let half_device = (half * scale).round().max(1.) / scale;
     [
-        snap(center_x - half),
-        snap(center_y - half),
-        snap(center_x + half),
-        snap(center_y + half),
+        snap(center_x) - half_device,
+        snap(center_y) - half_device,
+        snap(center_x) + half_device,
+        snap(center_y) + half_device,
     ]
 }
 

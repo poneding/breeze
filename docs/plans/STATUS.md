@@ -1,3 +1,37 @@
+## October 16 selection handle alignment
+
+Reported after the frame pixel-alignment change: the corner and edge squares did
+not sit on the frame; they were offset from it. Two independent causes, both in
+the new canvas paint path:
+
+- The handle list was built from page-local points and then painted with the
+  canvas origin added again, shifting every square by the page surface's own
+  origin. On the sample fixture that put the handles 58 x 139.5 logical pixels
+  away from the frame.
+- The square fills were quads. The renderer snaps quads to whole device pixels
+  while the frame path sits on half-pixel centers, leaving a fixed half-device-
+  pixel disagreement even after the origin was fixed.
+
+The handle list now carries only the unit positions inside the frame and is
+resolved against the same origin as the outline. Handle fills are paths rather
+than quads, so the outline, the fill, and the frame share one coordinate grid.
+Square centers snap to the frame centerlines and half-extents are whole device
+pixels, which keeps each square symmetric about its frame point at 1x, 2x, and
+3x scale.
+
+Validation used the isolated tree for the pixel-alignment change. Formatting,
+`cargo test --workspace --locked` (206 app tests and all remaining suites) and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. A new
+component test renders a selected rectangle through the real window and compares
+every painted handle quad against the frame's snapped corners and edge midpoints,
+rejecting any offset beyond one device pixel; it fails on the pre-fix code with
+the handle 1.1 device pixels from its frame point. Another test pins the square's
+symmetry and device-grid edges. Native macOS inspection measured all eight handle
+fills against the frame: every center landed within 3 device pixels (1.5 logical
+pixels) of its frame corner or edge midpoint, and a corner-handle drag still
+resized the ellipse while the frame and handles stayed aligned. Windows and Linux
+remain unverified.
+
 ## October 16 selection scrolling and late pages
 
 Two limits of the cross-page selection are gone. Holding a drag past the reading
