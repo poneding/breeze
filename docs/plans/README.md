@@ -16,8 +16,10 @@ Stages are independently testable, not a promise that every PDF can be read with
 
 EPUB and Markdown reading are authorized in [work package 24](24-reflowable-reading.md).
 Markdown live editing was requested with research first on October 16, 2026;
-[work package 25](25-markdown-live-editing.md) records the proposed implementation
-sequence. Its assessment is complete; editor implementation is unstarted.
+[technical design 14](../specs/14-markdown-editor-design.md) defines the source,
+input, rendering and persistence contracts. [Work package 25](25-markdown-live-editing.md)
+maps them to seven implementation phases with dependencies and acceptance gates.
+Research, design and planning are complete; editor implementation is unstarted.
 
 - Preserve the accepted compact layout and GPUI Kit components.
 - Do not write to the original PDF while drawing annotations.
