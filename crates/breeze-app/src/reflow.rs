@@ -923,6 +923,29 @@ impl Breeze {
                             .aria_label(position.clone())
                             .child(position)
                     })
+                    .when(!epub, |bar| match self.markdown_characters(cx) {
+                        Some(characters) => {
+                            // The accessibility label repeats the visible text
+                            // so tests and assistive technology read one value.
+                            let text: SharedString =
+                                tf!("{} characters", grouped_characters(characters)).into();
+                            bar.child(
+                                div()
+                                    .id("markdown-characters")
+                                    .test_support()
+                                    .flex_shrink_0()
+                                    .text_size(px(11.))
+                                    .text_color(p.muted)
+                                    .aria_label(text.clone())
+                                    .tooltip(|window, cx| {
+                                        Tooltip::new(tr!("Characters in the Markdown text"))
+                                            .build(window, cx)
+                                    })
+                                    .child(text),
+                            )
+                        }
+                        None => bar,
+                    })
                     .child(
                         div()
                             .flex_1()
@@ -1068,6 +1091,26 @@ impl Breeze {
     /// number its pages would cost what the chapter-local design exists to avoid
     /// — so the count is the page within the open chapter. Markdown has no pages
     /// and keeps reporting its reading progress.
+    /// Characters the Markdown reading surface shows, or `None` for EPUB.
+    ///
+    /// An open draft reports its own projection, so the count follows the text
+    /// on screen while it is edited. The loaded document supplies the count
+    /// otherwise, which is the same rendered-text measure the document details
+    /// panel already reports.
+    fn markdown_characters(&self, cx: &App) -> Option<usize> {
+        let book = &self.books[self.active];
+        book.markdown_editing
+            .then_some(book.markdown_edit.as_ref())
+            .flatten()
+            .map(|editor| editor.read(cx).characters())
+            .or_else(|| {
+                self.reflow
+                    .markdown
+                    .as_ref()
+                    .map(|document| document.characters)
+            })
+    }
+
     fn reflow_position_text(&self) -> String {
         if let Some(frame) = &self.reflow.frame {
             let left = frame.chapter_page + 1;
@@ -1823,6 +1866,19 @@ fn visible_outline_rows(outline: &[OutlineEntry], collapsed: &HashSet<usize>) ->
         .collect()
 }
 
+/// Group a character count so a long document stays readable at a glance.
+fn grouped_characters(count: usize) -> String {
+    let digits = count.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.char_indices() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    grouped
+}
+
 /// A hidden active row belongs to the last visible ancestor preceding it.
 fn visible_active_outline(visible: &[usize], active: Option<usize>) -> Option<usize> {
     active.and_then(|active| {
@@ -1832,4 +1888,19 @@ fn visible_active_outline(visible: &[usize], active: Option<usize>) -> Option<us
             .find(|&&index| index <= active)
             .copied()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::grouped_characters;
+
+    #[test]
+    fn character_counts_group_by_thousands() {
+        assert_eq!(grouped_characters(0), "0");
+        assert_eq!(grouped_characters(22), "22");
+        assert_eq!(grouped_characters(999), "999");
+        assert_eq!(grouped_characters(1_000), "1,000");
+        assert_eq!(grouped_characters(47_025), "47,025");
+        assert_eq!(grouped_characters(1_234_567), "1,234,567");
+    }
 }

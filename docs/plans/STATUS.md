@@ -1,3 +1,30 @@
+## October 16 Markdown character count in the status bar
+
+The Markdown status bar now reports how many characters the reading surface
+shows, next to the existing reading progress. The count comes from the parsed
+rendered text in reading mode, so Markdown syntax markers are excluded exactly
+as they are from the page. While a draft editor is open, the same element
+reports the open session's projection instead, which keeps the number in step
+with typing and with the instant-layout/source-view toggle. Counts of a thousand
+or more are grouped with thousands separators, and the element carries the
+visible text as its accessibility label. EPUB and PDF do not show it.
+
+The character count for an editor draft is captured whenever a projection is
+installed: the provisional line-local projection, the refined semantic one, and
+the caret-driven rebuilds all update it, so the status bar never shows a stale
+number after a keystroke.
+
+Validation in an isolated worktree at `4e5f836`: `cargo fmt --all -- --check`,
+the full workspace suite (202 app tests plus the other crates), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. New
+coverage asserts the reader count and its accessibility label, the absence of
+the element for EPUB, the grouped formatter, and that entering edit mode plus
+switching to the source view and back keeps the reported count in step with the
+session. A native macOS run confirmed `44 个字符` for a short document,
+`2,169 个字符` for a longer one, live `49 个字符` after typing, and the same
+count in instant-layout and source views. Windows and Linux native checks remain
+open.
+
 ## October 16 Markdown source publication and recovery records (P4, storage layer)
 
 [Work package 25](25-markdown-live-editing.md) phase P4's storage layer is

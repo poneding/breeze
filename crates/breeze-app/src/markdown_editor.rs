@@ -123,6 +123,8 @@ pub(super) struct MarkdownEditor {
     focus: FocusHandle,
     scroll: f32,
     projection: Arc<Projection>,
+    /// Characters in `projection`, which is the text this surface shows.
+    characters: usize,
     /// The refined projection for the current revision, once a worker produced it.
     semantic: Option<Arc<breeze_reflow::markdown::Semantic>>,
     /// The revision `semantic` describes.
@@ -154,6 +156,16 @@ impl MarkdownEditor {
         self.session.dirty()
     }
 
+    /// Characters in the text this editor currently shows.
+    ///
+    /// The reader counts the characters of the rendered document, so the count
+    /// here comes from the projection rather than from the raw source. Markdown
+    /// markers the live view hides are therefore excluded, exactly as they are
+    /// when the document is read.
+    pub(super) fn characters(&self) -> usize {
+        self.characters
+    }
+
     pub(super) fn open(path: PathBuf, cx: &mut Context<Self>) -> Self {
         let (session, notice) = load_session(&path);
         let mut editor = Self {
@@ -162,6 +174,7 @@ impl MarkdownEditor {
             focus: cx.focus_handle(),
             scroll: 0.,
             projection: Arc::new(Projection::live("", 0..0)),
+            characters: 0,
             semantic: None,
             semantic_revision: u64::MAX,
             pipeline: Pipeline::default(),
@@ -186,6 +199,12 @@ impl MarkdownEditor {
     /// this frame; the refined one comes from a worker and replaces it when it
     /// lands. `edit` is the source range the last change touched, which lets the
     /// worker's result be validated against the revision that produced it.
+    /// Install a projection and record how many characters it displays.
+    fn install_projection(&mut self, projection: Projection) {
+        self.characters = projection.text.chars().count();
+        self.projection = Arc::new(projection);
+    }
+
     fn refresh_projection(&mut self, cx: &mut Context<Self>) {
         let source: Arc<str> = self.source_text().into();
         let selection = self.session.selection().range();
@@ -194,7 +213,7 @@ impl MarkdownEditor {
             EditView::Live => ProjectionMode::Live,
             EditView::Source => ProjectionMode::Source,
         };
-        self.projection = Arc::new(Projection::build_with_literal(
+        self.install_projection(Projection::build_with_literal(
             &source,
             selection.clone(),
             mode,
@@ -206,7 +225,7 @@ impl MarkdownEditor {
         if let Some(semantic) = self.semantic.clone()
             && self.semantic_revision == self.session.revision()
         {
-            self.projection = Arc::new(Projection::build_semantic(
+            self.install_projection(Projection::build_semantic(
                 &source, selection, mode, literal, &semantic,
             ));
             self.layout.invalidate();
@@ -261,7 +280,7 @@ impl MarkdownEditor {
                 if current {
                     self.semantic_revision = refined.revision;
                     self.semantic = Some(Arc::new(refined.semantic));
-                    self.projection = Arc::new(refined.projection);
+                    self.install_projection(refined.projection);
                     self.layout.invalidate();
                     cx.notify();
                 }

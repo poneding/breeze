@@ -247,6 +247,7 @@ catalog! {
     "Title" => ("标题", "標題"),
     "Chapters" => ("章节", "章節"),
     "Text" => ("文字", "文字"),
+    "Characters in the Markdown text" => ("Markdown 正文的字符数量", "Markdown 正文的字元數量"),
     "Reading progress" => ("阅读进度", "閱讀進度"),
     "Read-only document" => ("只读文档", "唯讀文件"),
     "{} characters" => ("{} 个字符", "{} 個字元"),

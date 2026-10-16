@@ -2987,6 +2987,16 @@ fn markdown_has_no_paging_and_toggles_its_reading_width(cx: &mut TestAppContext)
         assert!(window.try_find("reflow-previous").is_none());
         assert!(window.try_find("reflow-next").is_none());
 
+        // The status bar reports the rendered character count of the document.
+        let characters = view.read(cx).reflow.markdown.as_ref().unwrap().characters;
+        assert_eq!(characters, 22, "the width fixture renders 22 characters");
+        let expected = i18n::format_message(i18n::text("{} characters"), &[characters.to_string()]);
+        assert_eq!(
+            window.find("markdown-characters").label(),
+            Some(expected.as_str()),
+            "the Markdown status bar must report its character count"
+        );
+
         let status = window.find("reflow-status").bounds();
         let toggle = window.find("reflow-width").bounds();
         assert!(
@@ -3256,6 +3266,10 @@ fn epub_paging_has_no_status_bar_buttons(cx: &mut TestAppContext) {
         // no longer shows arrow buttons.
         assert!(window.try_find("reflow-previous").is_none());
         assert!(window.try_find("reflow-next").is_none());
+        assert!(
+            window.try_find("markdown-characters").is_none(),
+            "paginated EPUB has no Markdown character count"
+        );
         for (label, action) in [
             ("Previous page", &PreviousPage as &dyn Action),
             ("Next page", &NextPage),
@@ -3608,14 +3622,40 @@ fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppCon
             .expect("entering edit mode creates the session");
         assert!(!session.read(cx).dirty());
 
+        // The status bar counts the text the draft shows rather than the file
+        // that was loaded, so the number follows the open session.
+        let live = i18n::format_message(
+            i18n::text("{} characters"),
+            &[session.read(cx).characters().to_string()],
+        );
+        assert_eq!(
+            window.find("markdown-characters").label(),
+            Some(live.as_str()),
+            "the status bar must count the open draft"
+        );
+
         // The live/source toggle lives in the reader toolbar and does not edit.
         window.click("markdown-source-view", cx);
         window.render_frame(cx);
         assert_eq!(session.read(cx).view(), markdown_editor::EditView::Source);
         assert!(!session.read(cx).dirty(), "switching views must not edit");
+        let source = i18n::format_message(
+            i18n::text("{} characters"),
+            &[session.read(cx).characters().to_string()],
+        );
+        assert_eq!(
+            window.find("markdown-characters").label(),
+            Some(source.as_str()),
+            "the count follows the source view too"
+        );
         window.click("markdown-live-view", cx);
         window.render_frame(cx);
         assert_eq!(session.read(cx).view(), markdown_editor::EditView::Live);
+        assert_eq!(
+            window.find("markdown-characters").label(),
+            Some(live.as_str()),
+            "returning to the live view restores its count"
+        );
 
         // Leaving edit mode returns to reading but keeps the draft session.
         window.click("markdown-edit-toggle", cx);
