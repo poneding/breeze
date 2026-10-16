@@ -1,3 +1,4 @@
+use crate::document_icons::AnnotationIcon;
 use crate::*;
 use breeze_core::library::CategoryColor;
 use gpui_kit::component::{
@@ -11,19 +12,19 @@ use std::time::Duration;
 
 actions!(breeze_tool_settings, [CloseToolSettings]);
 
-pub(super) fn annotation_tools() -> [(IconName, &'static str); 11] {
+pub(super) fn annotation_tools() -> [(AnnotationIcon, &'static str); 11] {
     [
-        (IconName::Highlighter, tr!("Text highlight")),
-        (IconName::Scan, tr!("Area highlight")),
-        (IconName::Underline, tr!("Underline")),
-        (IconName::Strikethrough, tr!("Strikethrough")),
-        (IconName::Pencil, tr!("Pen")),
-        (IconName::Type, tr!("Text note")),
-        (IconName::Circle, tr!("Ellipse")),
-        (IconName::Square, tr!("Rectangle")),
-        (IconName::Minus, tr!("Line")),
-        (IconName::LineSquiggle, tr!("Wavy line")),
-        (IconName::ArrowUpRight, tr!("Arrow")),
+        (IconName::Highlighter.into(), tr!("Text highlight")),
+        (IconName::Scan.into(), tr!("Area highlight")),
+        (IconName::Underline.into(), tr!("Underline")),
+        (IconName::Strikethrough.into(), tr!("Strikethrough")),
+        (IconName::Pencil.into(), tr!("Pen")),
+        (IconName::Type.into(), tr!("Text note")),
+        (IconName::Circle.into(), tr!("Ellipse")),
+        (IconName::Square.into(), tr!("Rectangle")),
+        (IconName::Minus.into(), tr!("Line")),
+        (AnnotationIcon::WavyLine, tr!("Wavy line")),
+        (IconName::ArrowUpRight.into(), tr!("Arrow")),
     ]
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,7 +98,7 @@ pub(super) fn bind(cx: &mut App) {
 impl Breeze {
     pub(super) fn tools(&self, mode: Mode, cx: &mut Context<Self>) -> Stateful<Div> {
         let tools = match mode {
-            Mode::Read => vec![(IconName::MousePointer2, tr!("Browse"))],
+            Mode::Read => vec![(IconName::MousePointer2.into(), tr!("Browse"))],
             Mode::Annotate => annotation_tools().to_vec(),
         };
         row()

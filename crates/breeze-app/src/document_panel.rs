@@ -1,3 +1,4 @@
+use crate::document_icons::AnnotationIcon;
 use crate::*;
 use breeze_core::annotations::{Annotation, Kind};
 use gpui_kit::component::{
@@ -48,19 +49,19 @@ impl DocumentPanel {
     }
 }
 
-fn kind_presentation(kind: Kind) -> (IconName, &'static str) {
+fn kind_presentation(kind: Kind) -> (AnnotationIcon, &'static str) {
     match kind {
-        Kind::Highlight => (IconName::Highlighter, tr!("Text highlight")),
-        Kind::Area => (IconName::Scan, tr!("Area highlight")),
-        Kind::Underline => (IconName::Underline, tr!("Underline")),
-        Kind::Strikeout => (IconName::Strikethrough, tr!("Strikethrough")),
-        Kind::Ink => (IconName::Pencil, tr!("Pen")),
-        Kind::Note => (IconName::Type, tr!("Text note")),
-        Kind::Ellipse => (IconName::Circle, tr!("Ellipse")),
-        Kind::Rectangle => (IconName::Square, tr!("Rectangle")),
-        Kind::Line => (IconName::Minus, tr!("Line")),
-        Kind::Squiggle => (IconName::LineSquiggle, tr!("Wavy line")),
-        Kind::Arrow => (IconName::ArrowUpRight, tr!("Arrow")),
+        Kind::Highlight => (IconName::Highlighter.into(), tr!("Text highlight")),
+        Kind::Area => (IconName::Scan.into(), tr!("Area highlight")),
+        Kind::Underline => (IconName::Underline.into(), tr!("Underline")),
+        Kind::Strikeout => (IconName::Strikethrough.into(), tr!("Strikethrough")),
+        Kind::Ink => (IconName::Pencil.into(), tr!("Pen")),
+        Kind::Note => (IconName::Type.into(), tr!("Text note")),
+        Kind::Ellipse => (IconName::Circle.into(), tr!("Ellipse")),
+        Kind::Rectangle => (IconName::Square.into(), tr!("Rectangle")),
+        Kind::Line => (IconName::Minus.into(), tr!("Line")),
+        Kind::Squiggle => (AnnotationIcon::WavyLine, tr!("Wavy line")),
+        Kind::Arrow => (IconName::ArrowUpRight.into(), tr!("Arrow")),
     }
 }
 
@@ -449,7 +450,7 @@ impl Breeze {
                     let source = source.clone();
                     let (icon, label) = kind
                         .map(kind_presentation)
-                        .unwrap_or((IconName::List, tr!("All types")));
+                        .unwrap_or((IconName::List.into(), tr!("All types")));
                     menu = menu.item(
                         PopupMenuItem::new(label)
                             .icon(icon)

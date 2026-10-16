@@ -45,7 +45,7 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Select annotations | `mouse-pointer-2` | `MousePointer2` |
 | Delete selected annotation | `trash` | `Trash` |
 | Circle / rectangle | `circle` / `square` | `Circle` / `Square` |
-| Line / wavy line / arrow | `minus` / `line-squiggle` / `arrow-up-right` | `Minus` / `LineSquiggle` / `ArrowUpRight` |
+| Line / wavy line / arrow | `minus` / `zodiac-aquarius` derivative / `arrow-up-right` | `Minus` / `AnnotationIcon::WavyLine` / `ArrowUpRight` |
 | Edit / insert text | `text-cursor-input` / `type` | `TextCursorInput` / `Type` |
 | Edit / insert image | `image` / `image-plus` | `Image` / `ImagePlus` |
 | Bold / italic | `bold` / `italic` | `Bold` / `Italic` |

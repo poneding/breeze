@@ -9,7 +9,11 @@ fn annotation_toolbar_has_no_eraser_and_keeps_note_and_shape_tools(cx: &mut Test
         window.render_frame(cx);
         let tools = annotation_tools();
         assert_eq!(tools.len(), 11);
-        assert!(!tools.iter().any(|(icon, _)| *icon == IconName::Eraser));
+        assert!(
+            !tools
+                .iter()
+                .any(|(icon, _)| *icon == IconName::Eraser.into())
+        );
         for index in 0..11usize {
             assert!(window.find(("tool", index)).visible());
         }
@@ -21,9 +25,10 @@ fn annotation_toolbar_has_no_eraser_and_keeps_note_and_shape_tools(cx: &mut Test
                 .checked(),
             Some(true)
         );
-        assert_eq!(tools[5].0, IconName::Type);
-        assert_eq!(tools[6].0, IconName::Circle);
-        assert_eq!(tools[7].0, IconName::Square);
+        assert_eq!(tools[5].0, IconName::Type.into());
+        assert_eq!(tools[6].0, IconName::Circle.into());
+        assert_eq!(tools[7].0, IconName::Square.into());
+        assert_eq!(tools[9].0, AnnotationIcon::WavyLine);
     })
     .unwrap();
 }

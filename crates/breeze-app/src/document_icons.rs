@@ -32,3 +32,29 @@ pub(super) fn bookmark_icon(favorite: bool) -> Icon {
         Icon::new(IconName::Bookmark)
     }
 }
+
+/// An annotation-tool icon: a bundled catalog name or an application SVG.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum AnnotationIcon {
+    Bundled(IconName),
+    WavyLine,
+}
+
+impl From<IconName> for AnnotationIcon {
+    fn from(name: IconName) -> Self {
+        Self::Bundled(name)
+    }
+}
+
+impl From<AnnotationIcon> for Icon {
+    fn from(value: AnnotationIcon) -> Self {
+        match value {
+            AnnotationIcon::Bundled(name) => Icon::new(name),
+            // One stroke of the Lucide `zodiac-aquarius` pair, centered in its
+            // viewBox: the bundled `line-squiggle` reads as a loop, not a wave.
+            AnnotationIcon::WavyLine => {
+                Icon::default().data(include_bytes!("../../../assets/icons/wavy-line.svg"))
+            }
+        }
+    }
+}

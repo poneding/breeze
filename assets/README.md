@@ -12,6 +12,8 @@ The application uses the SVG catalog embedded by `gpui-kit-assets`; this directo
 
 `icons/bookmark-filled.svg` is a filled derivative of the Lucide bookmark from `gpui-kit-assets` 0.7.0. It retains the upstream path and stroke and changes `fill` from `none` to `currentColor` for the favorite state. The same Lucide ISC notice applies.
 
+`icons/wavy-line.svg` is a derivative of the Lucide `zodiac-aquarius` icon from `gpui-kit-assets` 0.7.0. It keeps the upper of the two strokes, translates it from viewBox rows 10 to 14 so its ink centers in the 24-unit square, and draws it with one path; the bundled `line-squiggle` reads as a loop rather than a wave at toolbar size. Geometry, stroke, caps, and joins are otherwise unchanged. The same Lucide ISC notice applies.
+
 The function-to-icon map and selection guidance are maintained in [the icon specification](../docs/specs/06-icons.md). Other dependency licenses remain governed by their respective crates; this notice is not a complete release-license audit.
 
 ## Built-in themes
