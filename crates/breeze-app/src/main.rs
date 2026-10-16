@@ -41,7 +41,7 @@ use breeze_core::document::{DocumentFormat, ReflowState};
 use breeze_core::{Mode, ReaderState, ReadingLayout, ReadingPreferences, Zoom};
 use breeze_pdf::{PdfWorker, Pixels, Source};
 use gpui_kit::component::{
-    ResizableState, Theme, TitleBar,
+    ResizableState, TITLE_BAR_HEIGHT, Theme, TitleBar,
     select::{SelectEvent, SelectState},
 };
 use gpui_kit::{
@@ -198,6 +198,11 @@ struct Breeze {
     /// Page text kept between searches of the same document revision.
     search_cache: Option<Arc<breeze_pdf::SearchCache>>,
     full_screen: bool,
+    /// Whether the status-bar Fullscreen action entered native fullscreen from
+    /// a windowed state and should therefore leave it again on exit.
+    full_screen_entered_windowed: bool,
+    window_fullscreen: bool,
+    fullscreen_titlebar_revealed: bool,
     library_input: Entity<InputState>,
     _subscriptions: Vec<Subscription>,
     books: Vec<Book>,
@@ -290,7 +295,16 @@ impl Breeze {
         let category_input =
             cx.new(|cx| InputState::new(window, cx).placeholder(tr!("Category name")));
         let window_bounds_observer = cx.observe_window_bounds(window, |this, window, cx| {
-            this.on_native_window_bounds(window, cx)
+            let fullscreen = window.is_fullscreen();
+            let fullscreen_changed = fullscreen != this.window_fullscreen;
+            if fullscreen_changed {
+                this.window_fullscreen = fullscreen;
+                this.fullscreen_titlebar_revealed = false;
+            }
+            this.on_native_window_bounds(window, cx);
+            if fullscreen_changed {
+                cx.notify();
+            }
         });
         let navigation_split = cx.new(|_| ResizableState::default());
         let resize_observer = cx.observe(&navigation_split, |this, state, cx| {
@@ -368,6 +382,9 @@ impl Breeze {
             search_cancel: None,
             search_cache: None,
             full_screen: false,
+            full_screen_entered_windowed: false,
+            window_fullscreen: window.is_fullscreen(),
+            fullscreen_titlebar_revealed: false,
             library_input,
             _subscriptions: vec![
                 page_submission,
@@ -831,10 +848,29 @@ impl Breeze {
         if self.full_screen == on {
             return;
         }
-        if window.is_fullscreen() != on {
-            window.toggle_fullscreen();
+        if on {
+            self.full_screen_entered_windowed = !window.is_fullscreen();
+            if self.full_screen_entered_windowed {
+                window.toggle_fullscreen();
+            }
+        } else {
+            if self.full_screen_entered_windowed && window.is_fullscreen() {
+                window.toggle_fullscreen();
+            }
+            self.full_screen_entered_windowed = false;
         }
         self.apply_full_screen(on, window, cx);
+    }
+    fn update_fullscreen_titlebar(&mut self, y: f32, cx: &mut Context<Self>) {
+        if !cfg!(target_os = "macos") || !self.window_fullscreen || self.full_screen {
+            return;
+        }
+        let revealed =
+            y <= 2. || (self.fullscreen_titlebar_revealed && y <= f32::from(TITLE_BAR_HEIGHT));
+        if revealed != self.fullscreen_titlebar_revealed {
+            self.fullscreen_titlebar_revealed = revealed;
+            cx.notify();
+        }
     }
     fn apply_full_screen(&mut self, on: bool, window: &mut Window, cx: &mut Context<Self>) {
         self.full_screen = on;
@@ -888,9 +924,19 @@ impl Render for Breeze {
         }
         // Immersive reading keeps the document only: no title bar, no banners.
         let immersive = self.full_screen && self.screen == Screen::Reader;
+        // macOS's green button owns the window's fullscreen Space. Its title
+        // bar is hidden with the rest of that system chrome and revealed as an
+        // overlay when the pointer reaches the top edge, like a browser.
+        let titlebar_hidden = cfg!(target_os = "macos") && self.window_fullscreen && !immersive;
+        let titlebar_overlay = titlebar_hidden && self.fullscreen_titlebar_revealed;
+        let header =
+            (!immersive && !titlebar_hidden).then(|| self.header(window, cx).into_any_element());
+        let overlay_header = titlebar_overlay.then(|| self.header(window, cx).into_any_element());
         let mut chrome: Vec<AnyElement> = Vec::new();
         if !immersive {
-            chrome.push(self.header(window, cx).into_any_element());
+            if let Some(header) = header {
+                chrome.push(header);
+            }
             if let Some(error) = self.storage_error.clone() {
                 chrome.push(
                     div()
@@ -924,10 +970,14 @@ impl Render for Breeze {
             }
         };
         column()
+            .id("breeze-root")
             .size_full()
             .bg(p.bg)
             .text_color(p.text)
             .text_size(px(13.))
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, _, cx| {
+                this.update_fullscreen_titlebar(f32::from(event.position.y), cx)
+            }))
             .track_focus(&self.focus)
             .key_context("Breeze")
             .on_action(
@@ -1064,6 +1114,19 @@ impl Render for Breeze {
             }))
             .children(chrome)
             .child(body)
+            .when_some(overlay_header, |root, header| {
+                root.child(
+                    div()
+                        .id("fullscreen-titlebar-overlay")
+                        .test_support()
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .right_0()
+                        .h(TITLE_BAR_HEIGHT)
+                        .child(header),
+                )
+            })
     }
 }
 fn texture(p: Pixels) -> Result<Arc<RenderImage>> {

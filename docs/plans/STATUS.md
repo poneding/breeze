@@ -9,10 +9,12 @@ fullscreen belongs to the reader's status-bar control.
 
 The green traffic light now keeps AppKit's native fullscreen behavior and enters
 a new macOS Space. Breeze does not adopt that window state into
-`Breeze::full_screen`, so the application title bar, navigation, toolbar, and
-status bar remain visible. The custom title bar's double-click handler remains
-suppressed while the window is natively fullscreen, avoiding AppKit's zoom
-behavior inside the fullscreen Space.
+`Breeze::full_screen`, so the navigation, reader toolbar, and status bar remain
+visible. The title bar is hidden with the system chrome; moving the pointer to
+the top edge reveals it as a 34 px overlay with the traffic lights and document
+tabs, and moving away hides it again. The custom title bar's double-click
+handler remains suppressed while the window is natively fullscreen, avoiding
+AppKit's zoom behavior inside the fullscreen Space.
 
 The status-bar Fullscreen and F11 controls continue to request native window
 fullscreen and then render only the document. When the window is already in
@@ -23,12 +25,11 @@ Automated coverage keeps a native fullscreen transition outside the Fullscreen
 command from hiding reader chrome, and continues to cover entry and exit through
 the status-bar control.
 
-Validation: an isolated worktree containing only this change passes
-`cargo fmt --all -- --check`, `cargo test -p breeze-app --locked` (176 tests),
-and `cargo clippy -p breeze-app --all-targets --locked -- -D warnings`. A native
-macOS check confirmed that the green traffic light entered the fullscreen Space
-at 1512×945 with the Breeze title bar, navigation, toolbar, and status bar still
-visible.
+Validation: `cargo fmt --all -- --check`, focused fullscreen component tests,
+and a native macOS check confirm that the green traffic light enters the
+fullscreen Space at 1512×945; the title bar is absent until the pointer reaches
+the top edge, where the traffic lights and document tabs reappear as an overlay.
+The navigation, toolbar, and status bar remain in place throughout.
 
 ## October 15 reader toolbar matches the title bar at 34 px
 
