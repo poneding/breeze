@@ -1,5 +1,14 @@
 # Delivery Status
 
+## October 16 grid cover fallback icon size
+
+Library grid covers without a thumbnail showed the list view's 16-pixel format
+mark inside a 120x156 card, so the file type was hard to read. The grid fallback
+now renders that mark at 48 logical pixels; real first-page covers and the list
+row's compact icon are unchanged. A component test measures both fallback
+bounds, and native macOS inspection of an isolated library confirmed the grid
+and list sizes.
+
 ## October 16 annotation selection, shape resizing, and eraser removal
 
 The Select annotation button uses Kit's filled primary variant while active and

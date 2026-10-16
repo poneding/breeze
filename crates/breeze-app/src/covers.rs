@@ -245,6 +245,44 @@ mod tests {
         })
         .unwrap();
     }
+
+    /// Grid covers leave much more room, so their fallback format mark is
+    /// larger than the compact list thumbnail's icon.
+    #[gpui_kit::test]
+    fn grid_cover_fallback_icon_is_larger_than_the_list_icon(cx: &mut TestAppContext) {
+        let (handle, view) = crate::ui_tests::app(cx);
+        cx.update_window(handle, |_, window, cx| {
+            view.update(cx, |view, cx| {
+                // A Markdown entry never requests a PDF cover, so it always
+                // renders the fallback instead of a real first page.
+                view.books.push(Book {
+                    source: Source::File("notes.md".into()),
+                    title: "Notes".into(),
+                    favorite: false,
+                    categories: Vec::new(),
+                    state: ReaderState::default(),
+                    reflow: ReflowState::default(),
+                    opened: false,
+                    last_opened: 0,
+                    annotations: DocumentAnnotations::default(),
+                });
+                view.show_home(cx);
+                view.library_grid = false;
+            });
+            window.render_frame(cx);
+            let list = window.find(("cover-fallback", 1usize)).bounds();
+            view.update(cx, |view, cx| {
+                view.library_grid = true;
+                cx.notify();
+            });
+            window.render_frame(cx);
+            let grid = window.find(("cover-fallback", 1usize)).bounds();
+            assert!(list.size.width < px(24.) && list.size.height < px(24.));
+            assert!(grid.size.width > px(40.) && grid.size.height > px(40.));
+        })
+        .unwrap();
+    }
+
     #[gpui_kit::test]
     fn cover_cache_bounds_bytes_and_count(cx: &mut TestAppContext) {
         cx.update(|cx| {

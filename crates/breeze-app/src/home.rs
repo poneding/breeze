@@ -426,9 +426,20 @@ impl Breeze {
                         .size_full()
                         .object_fit(ObjectFit::Contain),
                 ),
-                Some(Err(_)) | None => {
-                    d.child(document_icons::file_icon(&self.books[index].source, cx))
-                }
+                Some(Err(_)) | None => d.child(
+                    // A grid cover has room for a legible format mark; the list
+                    // thumbnail stays at the compact icon size.
+                    div()
+                        .id(("cover-fallback", index))
+                        .test_support()
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .child(
+                            document_icons::file_icon(&self.books[index].source, cx)
+                                .when(grid, |icon| icon.with_size(px(48.))),
+                        ),
+                ),
             })
     }
     fn library_card(&self, index: usize, cx: &mut Context<Self>) -> Button {
