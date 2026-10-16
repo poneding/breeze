@@ -1,3 +1,33 @@
+## October 16 selection scrolling and late pages
+
+Two limits of the cross-page selection are gone. Holding a drag past the reading
+viewport's edge now scrolls the document and keeps selecting, at a speed that
+grows with how far past the edge the pointer is (2 to 18 logical pixels per 16 ms
+step, from a 24 px band), the way a text editor scrolls past its last visible
+line; the scroll stops when the document ends, when the pointer comes back
+inside, and on release.
+
+The selection is also no longer tied to the surfaces that happened to be laid out.
+Each page surface registers its bounds every frame and the pointer resolves
+against those, so a pointer in the gap between two pages, or in the viewport's
+own padding, belongs to the nearer page instead of dropping the move. A page
+whose text has not been prepared leaves the selection where it is and is retried
+when its text arrives, so a drag held over a page still being rendered catches up
+on its own. Moves and releases are handled at the window level, so a drag that
+ends over the toolbar or the status bar still commits and its edge scroll always
+stops; a fast scroll during a drag can still move a page under a stationary
+pointer before the next frame.
+
+Validation: `cargo fmt` on the touched files, the app suite (207 tests) and
+Clippy with warnings denied for `breeze-app` and `breeze-pdf` pass. The
+auto-scroll test drives real press/move/release events and asserts that the
+viewport scrolled, the selection grew, and nothing kept scrolling after a release
+outside the viewport. One new test covers a page whose text arrives mid-drag
+joining the selection; the cross-page test now also crosses the gap between the
+two pages. The workspace-wide `--all-targets` Clippy could not run because
+another session's in-flight Markdown test file does not compile; the crates this
+change touches were checked directly.
+
 ## October 16 selection frame pixel alignment and glow
 
 The selection frame was built from two nested element borders placed on the
@@ -188,36 +218,6 @@ unit, 10 Markdown semantic integration, 7 storage; exit 0) and `cargo clippy
 tests assert that a megabyte on one line becomes many units with only a fraction
 shaped, and that 2000 paragraphs measure under 200 units. The 16 MiB stress case
 was measured, not natively exercised in the editor.
-
-## October 16 selection scrolling and late pages
-
-Two limits of the cross-page selection are gone. Holding a drag past the reading
-viewport's edge now scrolls the document and keeps selecting, at a speed that
-grows with how far past the edge the pointer is (2 to 18 logical pixels per 16 ms
-step, from a 24 px band), the way a text editor scrolls past its last visible
-line; the scroll stops when the document ends, when the pointer comes back
-inside, and on release.
-
-The selection is also no longer tied to the surfaces that happened to be laid out.
-Each page surface registers its bounds every frame and the pointer resolves
-against those, so a pointer in the gap between two pages, or in the viewport's
-own padding, belongs to the nearer page instead of dropping the move. A page
-whose text has not been prepared leaves the selection where it is and is retried
-when its text arrives, so a drag held over a page still being rendered catches up
-on its own. Moves and releases are handled at the window level, so a drag that
-ends over the toolbar or the status bar still commits and its edge scroll always
-stops; a fast scroll during a drag can still move a page under a stationary
-pointer before the next frame.
-
-Validation: `cargo fmt` on the touched files, the app suite (207 tests) and
-Clippy with warnings denied for `breeze-app` and `breeze-pdf` pass. The
-auto-scroll test drives real press/move/release events and asserts that the
-viewport scrolled, the selection grew, and nothing kept scrolling after a release
-outside the viewport. One new test covers a page whose text arrives mid-drag
-joining the selection; the cross-page test now also crosses the gap between the
-two pages. The workspace-wide `--all-targets` Clippy could not run because
-another session's in-flight Markdown test file does not compile; the crates this
-change touches were checked directly.
 
 ## October 16 text selection follows the pointer across pages
 
