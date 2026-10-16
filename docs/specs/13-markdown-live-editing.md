@@ -7,6 +7,11 @@ The earlier read-only Markdown scope is superseded as a product requirement;
 the current application still implements reading only. EPUB and PDF content
 remain read-only.
 
+The subsequent [technical design](14-markdown-editor-design.md) is the
+implementation baseline. It resolves this assessment's proposed choices; retain
+the assessment as the source record rather than treating every candidate as an
+adopted dependency. Prototype and platform acceptance remain outstanding.
+
 ## Recommendation
 
 Build a native GPUI live editor around **one preserved Markdown source buffer**,
