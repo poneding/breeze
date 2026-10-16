@@ -27,9 +27,11 @@ pub fn data_directory() -> Result<PathBuf> {
 ///
 /// Size and modification time alone cannot see a same-size rewrite that
 /// preserves the timestamp, which is exactly what a coarse-timestamp filesystem
-/// or an in-place editor can produce. The device and inode (or the Windows
-/// volume and file index) change when a file is replaced by rename, so callers
-/// can detect that case without re-hashing the whole document.
+/// or an in-place editor can produce. A replaced file would otherwise look
+/// untouched, so each platform adds the strongest identity its stable standard
+/// library exposes: the device and inode on Unix, and the creation time on
+/// Windows. The content fingerprint stays the authoritative check; this one only
+/// avoids re-hashing a source that did not change.
 #[derive(PartialEq, Eq)]
 pub struct SourceIdentity {
     len: u64,
@@ -39,9 +41,7 @@ pub struct SourceIdentity {
     #[cfg(unix)]
     inode: u64,
     #[cfg(windows)]
-    volume: u32,
-    #[cfg(windows)]
-    index: u64,
+    created: std::time::SystemTime,
 }
 
 impl SourceIdentity {
@@ -56,32 +56,35 @@ impl SourceIdentity {
 
 pub fn source_identity(path: &Path) -> Result<SourceIdentity> {
     let metadata = fs::metadata(path)?;
+    let len = metadata.len();
+    let modified = metadata.modified()?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::MetadataExt;
         Ok(SourceIdentity {
-            len: metadata.len(),
-            modified: metadata.modified()?,
+            len,
+            modified,
             device: metadata.dev(),
             inode: metadata.ino(),
         })
     }
     #[cfg(windows)]
     {
-        use std::os::windows::fs::MetadataExt;
+        // The volume serial number and the file index live behind the unstable
+        // `windows_by_handle` feature, and this workspace forbids first-party
+        // FFI. Creation time is the stable stand-in: replacing a file by rename
+        // does not preserve it, which is the case this identity exists to
+        // catch. A filesystem that reports no creation time falls back to the
+        // modification time rather than failing the read.
         Ok(SourceIdentity {
-            len: metadata.len(),
-            modified: metadata.modified()?,
-            volume: metadata.volume_serial_number().unwrap_or_default(),
-            index: metadata.file_index().unwrap_or_default(),
+            len,
+            modified,
+            created: metadata.created().unwrap_or(modified),
         })
     }
     #[cfg(not(any(unix, windows)))]
     {
-        Ok(SourceIdentity {
-            len: metadata.len(),
-            modified: metadata.modified()?,
-        })
+        Ok(SourceIdentity { len, modified })
     }
 }
 
