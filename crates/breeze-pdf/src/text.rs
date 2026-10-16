@@ -209,8 +209,10 @@ impl PageText {
 
     /// The caret nearest a point: the index of the glyph it precedes. A point
     /// above or below its nearest row lands at that row's start or end, so the
-    /// gap between paragraphs and the page margins select whole lines.
-    fn caret(&self, point: Point) -> Option<usize> {
+    /// gap between paragraphs and the page margins select whole lines. A point
+    /// beyond the last row, or before the first, lands at the page's own end or
+    /// start, which is how a drag past the page edge clamps to the page.
+    pub fn caret(&self, point: Point) -> Option<usize> {
         let row = self.rows.iter().min_by(|a, b| {
             let (a, b) = (a.reach(point), b.reach(point));
             a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1))

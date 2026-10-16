@@ -704,7 +704,11 @@ fn text_selection_uses_extracted_geometry(cx: &mut TestAppContext) {
             "the selection must end where the pointer is, not at the page margin: {:?}",
             snapshot.selected_text
         );
-        let rects = snapshot.selection.clone();
+        let rects: Vec<_> = snapshot
+            .selection
+            .iter()
+            .flat_map(|(_, rects)| rects.clone())
+            .collect();
         assert_eq!(rects.len(), 3, "one rectangle per selected row: {rects:?}");
         for pair in rects.windows(2) {
             assert!(
@@ -3634,6 +3638,291 @@ fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppCon
         assert!(
             view.read(cx).books[0].markdown_edit.is_some(),
             "the draft session must survive leaving edit mode"
+        );
+    })
+    .unwrap();
+}
+
+/// Two pages of the sample side by side, in Read mode, ready to drag on.
+fn spread_pages(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
+    let worker = PdfWorker::new().unwrap();
+    let first = futures::executor::block_on(worker.request(Source::Sample, 0).unwrap())
+        .unwrap()
+        .unwrap();
+    let second = futures::executor::block_on(worker.request(Source::Sample, 1).unwrap())
+        .unwrap()
+        .unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.reading.sizes = first.page_sizes.clone();
+            let first = Preview::from_page(first).unwrap();
+            view.reading.insert(0, first.clone());
+            view.reading.insert(1, Preview::from_page(second).unwrap());
+            view.preview = Some(first);
+            view.books[0].state.layout = ReadingLayout::Spread;
+            view.books[0].state.zoom = Zoom::FitPage;
+            view.loading = false;
+        });
+        window.render_frame(cx);
+    })
+    .unwrap();
+    (handle, view)
+}
+
+#[gpui_kit::test]
+fn text_selection_crosses_page_surfaces_in_reading_order(cx: &mut TestAppContext) {
+    let (handle, view) = spread_pages(cx);
+    cx.update_window(handle, |_, window, cx| {
+        let left = window
+            .within(("page-frame", 0usize))
+            .find("page-surface")
+            .bounds();
+        let right = window
+            .within(("page-frame", 1usize))
+            .find("page-surface")
+            .bounds();
+        // From the middle of the left page into the right page: the selection
+        // runs to the end of the page it started on and continues on the next.
+        window.drag(
+            left.origin + point(px(40.), px(300.)),
+            right.origin + point(px(200.), px(120.)),
+            cx,
+        );
+        let snapshot = view.read(cx);
+        assert!(
+            snapshot
+                .selected_text
+                .contains("Keep the details that help you think"),
+            "the rest of the starting page must be selected: {:?}",
+            snapshot.selected_text
+        );
+        assert!(
+            snapshot.selected_text.contains("Space to think"),
+            "the page the pointer reached must be selected too: {:?}",
+            snapshot.selected_text
+        );
+        assert!(
+            snapshot
+                .selected_text
+                .find("PROTOTYPE EDITION")
+                .is_some_and(|footer| snapshot
+                    .selected_text
+                    .find("ON READING WELL")
+                    .is_some_and(|next| footer < next)),
+            "the second page's text follows the first page's: {:?}",
+            snapshot.selected_text
+        );
+        let pages: Vec<usize> = snapshot.selection.iter().map(|(page, _)| *page).collect();
+        assert_eq!(pages, vec![0, 1], "both pages carry highlight rectangles");
+        assert!(snapshot.gesture.is_empty(), "the release ends the gesture");
+
+        // The next gesture still selects: a cross-page drag leaves no state
+        // behind that a fresh selection cannot replace.
+        view.update(cx, |view, _| view.clear_text_selection());
+        // Over the second page's own title and body rows.
+        window.drag(
+            right.origin + point(px(20.), px(100.)),
+            right.origin + point(px(360.), px(200.)),
+            cx,
+        );
+        let snapshot = view.read(cx);
+        assert!(
+            snapshot.selected_text.contains("Space to think")
+                && snapshot.selected_text.contains("A little less noise"),
+            "selection still works after a cross-page drag: {:?}",
+            snapshot.selected_text
+        );
+        assert_eq!(
+            snapshot
+                .selection
+                .iter()
+                .map(|(page, _)| *page)
+                .collect::<Vec<_>>(),
+            vec![1]
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn dragging_back_selects_the_same_text_as_dragging_forward(cx: &mut TestAppContext) {
+    let (handle, view) = spread_pages(cx);
+    cx.update_window(handle, |_, window, cx| {
+        let left = window
+            .within(("page-frame", 0usize))
+            .find("page-surface")
+            .bounds();
+        let high = left.origin + point(px(320.), px(140.));
+        let low = left.origin + point(px(40.), px(380.));
+        window.drag(high, low, cx);
+        let forward = view.read(cx).selected_text.clone();
+        assert!(!forward.is_empty());
+        view.update(cx, |view, _| view.clear_text_selection());
+        window.drag(low, high, cx);
+        assert_eq!(
+            view.read(cx).selected_text,
+            forward,
+            "the caret model is direction-free"
+        );
+    })
+    .unwrap();
+}
+
+/// The reported symptom: dragging onto the next page and back must follow the
+/// pointer each way, not freeze where the selection first left its page.
+#[gpui_kit::test]
+fn a_selection_that_crosses_a_page_and_returns_follows_the_pointer(cx: &mut TestAppContext) {
+    let (handle, view) = spread_pages(cx);
+    cx.update_window(handle, |_, window, cx| {
+        let left = window
+            .within(("page-frame", 0usize))
+            .find("page-surface")
+            .bounds();
+        let right = window
+            .within(("page-frame", 1usize))
+            .find("page-surface")
+            .bounds();
+        let (first, second) = {
+            let view = view.read(cx);
+            (
+                view.page_preview(0).expect("page 1"),
+                view.page_preview(1).expect("page 2"),
+            )
+        };
+        let press = left.origin + point(px(20.), px(120.));
+        let onto_second = right.origin + point(px(200.), px(160.));
+        let back = left.origin + point(px(160.), px(120.));
+        view.update(cx, |view, _| {
+            // A press in flight: the gesture marker the reader also gates on.
+            view.gesture
+                .push(breeze_core::annotations::Point::new(0., 0.));
+            assert!(
+                view.begin_text_selection(press),
+                "the press starts a selection"
+            );
+            assert!(view.select_text_at(1, &second, Some(right), onto_second));
+            let crossed = view.selected_text.clone();
+            assert!(
+                crossed.contains("Space to think"),
+                "the second page joins the selection: {crossed:?}"
+            );
+            assert_eq!(
+                view.selection
+                    .iter()
+                    .map(|(page, _)| *page)
+                    .collect::<Vec<_>>(),
+                vec![0, 1],
+                "both pages are drawn while the pointer is on the second"
+            );
+            // Back onto the first page: the selection follows it back.
+            assert!(view.select_text_at(0, &first, Some(left), back));
+            let returned = view.selected_text.clone();
+            assert!(
+                !returned.contains("Space to think"),
+                "leaving the second page drops it again: {returned:?}"
+            );
+            assert_eq!(
+                view.selection
+                    .iter()
+                    .map(|(page, _)| *page)
+                    .collect::<Vec<_>>(),
+                vec![0],
+                "only the page the pointer is on is drawn"
+            );
+            assert!(
+                !returned.is_empty(),
+                "the selection follows the pointer in: {returned:?}"
+            );
+        });
+        // A pointer over a page whose text is not loaded keeps the selection.
+        let missing = Arc::new(Preview {
+            page: 5,
+            points: first.points,
+            geometry: first.geometry,
+            text: breeze_pdf::PageText::default(),
+            text_warning: None,
+            outline: first.outline.clone(),
+            bytes: 0,
+        });
+        view.update(cx, |view, _| {
+            assert!(!view.select_text_at(5, &missing, Some(left), back));
+            assert_eq!(
+                view.selection
+                    .iter()
+                    .map(|(page, _)| *page)
+                    .collect::<Vec<_>>(),
+                vec![0]
+            );
+        });
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn a_press_that_never_moves_selects_nothing(cx: &mut TestAppContext) {
+    let (handle, view) = spread_pages(cx);
+    cx.update_window(handle, |_, window, cx| {
+        let left = window
+            .within(("page-frame", 0usize))
+            .find("page-surface")
+            .bounds();
+        window.drag(
+            left.origin + point(px(40.), px(200.)),
+            left.origin + point(px(300.), px(140.)),
+            cx,
+        );
+        assert!(!view.read(cx).selected_text.is_empty());
+        window
+            .within(("page-frame", 0usize))
+            .click("page-surface", cx);
+        let snapshot = view.read(cx);
+        assert!(snapshot.text_selection.is_none());
+        assert!(snapshot.selected_text.is_empty());
+        assert!(snapshot.selection.is_empty());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn markup_a_cross_page_drag_creates_clamps_to_its_page(cx: &mut TestAppContext) {
+    use breeze_core::annotations::Kind;
+    let (handle, view) = spread_pages(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.books[0].state.mode = Mode::Annotate;
+            view.books[0].annotations.ready = true;
+            view.tool = 0;
+        });
+        window.render_frame(cx);
+        let left = window
+            .within(("page-frame", 0usize))
+            .find("page-surface")
+            .bounds();
+        let right = window
+            .within(("page-frame", 1usize))
+            .find("page-surface")
+            .bounds();
+        window.drag(
+            left.origin + point(px(40.), px(300.)),
+            right.origin + point(px(200.), px(120.)),
+            cx,
+        );
+        let history = &view.read(cx).books[0].annotations.history;
+        let annotation = history.items.last().expect("a highlight was created");
+        assert_eq!(annotation.kind, Kind::Highlight);
+        assert_eq!(annotation.page, 0, "markup never spans pages");
+        assert!(annotation.validate().is_ok());
+        let quads = &annotation.quads;
+        assert!(
+            quads
+                .iter()
+                .all(|quad| quad.y >= 0. && quad.y + quad.height <= 792.),
+            "every quad stays inside the page it marks"
+        );
+        assert!(
+            quads.len() >= 2,
+            "the markup covers the rows the drag passed over: {quads:?}"
         );
     })
     .unwrap();

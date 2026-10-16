@@ -198,9 +198,9 @@ struct Breeze {
     category_action_bounds: HashMap<usize, Bounds<gpui_kit::Pixels>>,
     gesture: Vec<breeze_core::annotations::Point>,
     selected_text: String,
-    /// Page the current selection belongs to, and its highlight rectangles.
-    selection_page: usize,
-    selection: Vec<breeze_core::annotations::Rect>,
+    /// The selection model, and the rectangles drawn for it on each page.
+    text_selection: Option<annotations::TextSelection>,
+    selection: Vec<(usize, Vec<breeze_core::annotations::Rect>)>,
     search_input: Entity<InputState>,
     search_open: bool,
     search_restore_document_panel_open: Option<bool>,
@@ -377,7 +377,7 @@ impl Breeze {
             category_action_bounds: HashMap::new(),
             gesture: Vec::new(),
             selected_text: String::new(),
-            selection_page: 0,
+            text_selection: None,
             selection: Vec::new(),
             search_input,
             search_open: false,
@@ -518,6 +518,7 @@ impl Breeze {
         self.raster.cancel();
         self.pending_fit = None;
         self.gesture.clear();
+        self.text_selection = None;
         self.selected_text.clear();
         self.selection.clear();
         self.surface_bounds = None;

@@ -18,6 +18,49 @@ pub(super) enum AnnotationFailure {
     InvalidData,
 }
 
+/// A text selection: the caret it started at and the caret it has reached, each
+/// a page and a glyph index in that page's reading order. Pages between them are
+/// selected whole, so a drag that crosses page surfaces keeps working.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct TextSelection {
+    anchor: (usize, usize),
+    focus: (usize, usize),
+}
+
+impl TextSelection {
+    fn collapsed(page: usize, caret: usize) -> Self {
+        Self {
+            anchor: (page, caret),
+            focus: (page, caret),
+        }
+    }
+
+    /// Anchor and focus in reading order; dragging backwards selects the same
+    /// text as dragging forwards.
+    fn ordered(self) -> ((usize, usize), (usize, usize)) {
+        if self.anchor <= self.focus {
+            (self.anchor, self.focus)
+        } else {
+            (self.focus, self.anchor)
+        }
+    }
+
+    fn collapsed_to_page(&self) -> bool {
+        self.anchor.0 == self.focus.0 && self.anchor.1 == self.focus.1
+    }
+
+    /// The glyphs selected on one page, clamped to what that page holds.
+    fn on_page(self, page: usize, glyphs: usize) -> Option<std::ops::Range<usize>> {
+        let (start, end) = self.ordered();
+        if page < start.0 || page > end.0 {
+            return None;
+        }
+        let low = if page == start.0 { start.1 } else { 0 }.min(glyphs);
+        let high = if page == end.0 { end.1 } else { glyphs }.min(glyphs);
+        Some(low..high.max(low))
+    }
+}
+
 #[derive(Default)]
 pub(super) struct DocumentAnnotations {
     pub history: History,
@@ -376,13 +419,11 @@ impl Breeze {
         &self,
         position: gpui_kit::Point<gpui_kit::Pixels>,
     ) -> Option<DocPoint> {
-        let bounds = self.surface_bounds?;
-        let preview = self.preview.as_ref()?;
-        let geometry = self.view_geometry(preview.geometry);
-        let (w, h) = geometry.size();
-        let x = f32::from(position.x - bounds.origin.x) / f32::from(bounds.size.width) * w;
-        let y = f32::from(position.y - bounds.origin.y) / f32::from(bounds.size.height) * h;
-        Some(geometry.document(DocPoint::new(x.clamp(0., w), y.clamp(0., h))))
+        document_point(
+            self.view_geometry(self.preview.as_ref()?.geometry),
+            self.surface_bounds?,
+            position,
+        )
     }
     fn pointer_down(
         &mut self,
@@ -401,8 +442,7 @@ impl Breeze {
         let Some(point) = self.document_pointer(event.position) else {
             return;
         };
-        self.selected_text.clear();
-        self.selection.clear();
+        self.clear_text_selection();
         if self.books[self.active].state.mode == Mode::Annotate {
             let data = &self.books[self.active].annotations;
             if !data.ready || data.error.is_some() {
@@ -419,6 +459,10 @@ impl Breeze {
         if mode == Mode::Annotate && self.tool == annotation_editing::SELECT_TOOL {
             cx.notify();
             return;
+        }
+        // Reading starts a caret-anchored selection; the drag extends it.
+        if mode == Mode::Read {
+            self.begin_text_selection(event.position);
         }
         self.gesture = vec![point];
         cx.notify();
@@ -446,9 +490,6 @@ impl Breeze {
             self.gesture.push(point);
         } else {
             self.gesture[1] = point;
-        }
-        if self.books[self.active].state.mode == Mode::Read {
-            self.select_text_range();
         }
         cx.notify();
     }
@@ -546,42 +587,132 @@ impl Breeze {
         self.gesture.clear();
         cx.notify();
     }
-    /// Draws the range between the gesture's carets. A drag updates it live; the
-    /// status message and the copied text wait for the release.
-    fn select_text_range(&mut self) {
-        let (Some(first), Some(last)) =
-            (self.gesture.first().copied(), self.gesture.last().copied())
+    /// Reading mode: the pointer starts a selection anchored at its caret.
+    /// Returns whether a selection began.
+    pub(super) fn begin_text_selection(
+        &mut self,
+        position: gpui_kit::Point<gpui_kit::Pixels>,
+    ) -> bool {
+        if self.books[self.active].state.mode != Mode::Read {
+            return false;
+        }
+        let Some(preview) = self.preview.clone() else {
+            return false;
+        };
+        let Some(caret) = self
+            .document_pointer(position)
+            .and_then(|point| preview.text.caret(point))
         else {
-            return;
+            return false;
         };
-        let Some(preview) = &self.preview else {
-            return;
-        };
-        let text = &preview.text;
-        let range = text.select(first, last);
-        self.selection_page = preview.page;
-        self.selection = text.highlight_rects(range.clone());
-        self.selected_text = text.text(range);
+        self.text_selection = Some(TextSelection::collapsed(preview.page, caret));
+        self.refresh_text_selection();
+        true
     }
 
-    /// Reports the selection that the release just committed.
+    /// The page's own preview, current or cached.
+    pub(super) fn page_preview(&self, page: usize) -> Option<Arc<Preview>> {
+        self.reading
+            .page(page)
+            .or_else(|| self.preview.clone().filter(|preview| preview.page == page))
+    }
+
+    /// Extends the text selection with a pointer over one page surface. Each
+    /// surface maps the pointer through its own bounds, so a drag that crosses
+    /// into a neighbouring page keeps selecting instead of freezing.
+    pub(super) fn select_text_at(
+        &mut self,
+        page: usize,
+        preview: &Arc<Preview>,
+        bounds: Option<Bounds<gpui_kit::Pixels>>,
+        position: gpui_kit::Point<gpui_kit::Pixels>,
+    ) -> bool {
+        if self.books[self.active].state.mode != Mode::Read
+            || self.gesture.is_empty()
+            || self.text_selection.is_none()
+        {
+            return false;
+        }
+        let Some(bounds) = bounds else {
+            return false;
+        };
+        let Some(point) = document_point(self.view_geometry(preview.geometry), bounds, position)
+        else {
+            return false;
+        };
+        // A page whose text is not ready yet keeps the selection where it is.
+        let Some(caret) = preview.text.caret(point) else {
+            return false;
+        };
+        if let Some(selection) = &mut self.text_selection {
+            selection.focus = (page, caret);
+        }
+        self.refresh_text_selection();
+        true
+    }
+
+    /// Recomputes the copied text and the rectangles drawn for a selection.
+    fn refresh_text_selection(&mut self) {
+        let Some(selection) = self.text_selection else {
+            self.selected_text.clear();
+            self.selection.clear();
+            return;
+        };
+        let (start, end) = selection.ordered();
+        let mut text = String::new();
+        let mut rects: Vec<(usize, Vec<Rect>)> = Vec::new();
+        for page in start.0..=end.0 {
+            let Some(preview) = self.page_preview(page) else {
+                continue;
+            };
+            let Some(range) = selection.on_page(page, preview.text.glyphs().len()) else {
+                continue;
+            };
+            if range.is_empty() {
+                continue;
+            }
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(&preview.text.text(range.clone()));
+            let page_rects = preview.text.highlight_rects(range);
+            if !page_rects.is_empty() {
+                rects.push((page, page_rects));
+            }
+        }
+        self.selected_text = text;
+        self.selection = rects;
+    }
+
+    /// Drops the selection and everything derived from it.
+    pub(super) fn clear_text_selection(&mut self) {
+        self.text_selection = None;
+        self.selected_text.clear();
+        self.selection.clear();
+    }
+
+    /// Reports the selection the release just committed. A press that never
+    /// moved selects nothing.
     fn commit_text_selection(&mut self, cx: &mut Context<Self>) {
-        self.select_text_range();
-        self.message = tf!(
-            "{} characters selected · ⌘/Ctrl+C to copy",
-            self.selected_text.chars().count()
-        );
+        if self.text_selection.is_some_and(|s| s.collapsed_to_page()) {
+            self.clear_text_selection();
+            self.message.clear();
+        } else {
+            self.refresh_text_selection();
+            self.message = tf!(
+                "{} characters selected · ⌘/Ctrl+C to copy",
+                self.selected_text.chars().count()
+            );
+        }
         cx.notify();
     }
 
     /// The selection rectangles to paint on the page being drawn, if any.
-    fn selection_layer(
-        &self,
-        current: usize,
-        geometry: ViewGeometry,
-    ) -> Option<(Vec<Rect>, ViewGeometry)> {
-        (self.selection_page == current && !self.selection.is_empty())
-            .then(|| (self.selection.clone(), geometry))
+    fn selection_layer(&self, current: usize) -> Option<Vec<Rect>> {
+        self.selection
+            .iter()
+            .find(|(page, _)| *page == current)
+            .map(|(_, rects)| rects.clone())
     }
 
     pub(super) fn page_surface(
@@ -624,7 +755,9 @@ impl Breeze {
         let view = cx.entity();
         let bounds_cell = std::rc::Rc::new(std::cell::Cell::new(None));
         let capture_bounds = bounds_cell.clone();
+        let surface_bounds = bounds_cell.clone();
         let page_preview = preview.clone();
+        let move_preview = preview.clone();
         div()
             .id("page-surface")
             .test_support()
@@ -659,11 +792,20 @@ impl Breeze {
                     this.pointer_down(event, window, cx);
                 }),
             )
-            .on_mouse_move(cx.listener(move |this, event, window, cx| {
-                if current == this.books[this.active].state.navigation.page() {
-                    this.pointer_move(event, window, cx);
-                }
-            }))
+            .on_mouse_move(
+                cx.listener(move |this, event: &MouseMoveEvent, window, cx| {
+                    if this.select_text_at(
+                        current,
+                        &move_preview,
+                        surface_bounds.get(),
+                        event.position,
+                    ) {
+                        cx.notify();
+                    } else if current == this.books[this.active].state.navigation.page() {
+                        this.pointer_move(event, window, cx);
+                    }
+                }),
+            )
             .on_mouse_up(
                 MouseButton::Left,
                 cx.listener(move |this, event, window, cx| {
@@ -681,33 +823,30 @@ impl Breeze {
                 }),
             )
             .child(self.raster_surface(current, geometry, cx))
-            .children(
-                self.selection_layer(current, geometry)
-                    .map(|(rects, geometry)| {
-                        canvas(
-                            move |_, _, _| rects,
-                            move |bounds, rects, window, _| {
-                                for rect in &rects {
-                                    paint_doc_rect(
-                                        *rect,
-                                        geometry,
-                                        bounds,
-                                        Rgba {
-                                            a: 0.28,
-                                            ..rgb(annotation_editing::SELECTION_COLOR)
-                                        },
-                                        window,
-                                    );
-                                }
-                            },
-                        )
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .size_full()
-                        .into_any_element()
-                    }),
-            )
+            .children(self.selection_layer(current).map(|rects| {
+                canvas(
+                    move |_, _, _| rects,
+                    move |bounds, rects, window, _| {
+                        for rect in &rects {
+                            paint_doc_rect(
+                                *rect,
+                                geometry,
+                                bounds,
+                                Rgba {
+                                    a: 0.28,
+                                    ..rgb(annotation_editing::SELECTION_COLOR)
+                                },
+                                window,
+                            );
+                        }
+                    },
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .into_any_element()
+            }))
             .child(
                 div()
                     .id("annotation-overlay")
@@ -826,6 +965,19 @@ fn annotation_polyline(
         }
     }
     Ok(combined.unwrap_or_else(|| gpui_kit::Path::new(Point::default())))
+}
+
+/// Maps a pointer position on one page surface back to unrotated PDF user space,
+/// clamped to the page so a drag past its edge still selects its text.
+fn document_point(
+    geometry: ViewGeometry,
+    bounds: Bounds<gpui_kit::Pixels>,
+    position: gpui_kit::Point<gpui_kit::Pixels>,
+) -> Option<DocPoint> {
+    let (w, h) = geometry.size();
+    let x = f32::from(position.x - bounds.origin.x) / f32::from(bounds.size.width) * w;
+    let y = f32::from(position.y - bounds.origin.y) / f32::from(bounds.size.height) * h;
+    Some(geometry.document(DocPoint::new(x.clamp(0., w), y.clamp(0., h))))
 }
 
 /// Fills one user-space rectangle where the page surface shows it, following the
