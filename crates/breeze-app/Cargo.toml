@@ -18,14 +18,6 @@ ureq = { version = "=3.4.2", default-features = false, features = ["rustls"] }
 semver = "=1.0.28"
 sys-locale = "=0.3.2"
 
-[target.'cfg(target_os = "macos")'.dependencies]
-objc2 = "=0.6.5"
-objc2-app-kit = { version = "=0.3.2", default-features = false, features = [
-    "NSApplication",
-    "NSResponder",
-    "NSWindow",
-] }
-
 [lints]
 workspace = true
 

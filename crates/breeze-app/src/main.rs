@@ -1,8 +1,6 @@
 #[macro_use]
 mod i18n;
 mod localization;
-#[cfg(target_os = "macos")]
-mod macos_window;
 mod updates;
 #[cfg(test)]
 use core::prelude::v1::test;
@@ -820,9 +818,10 @@ impl Breeze {
         self.apply_theme(cx);
         cx.notify();
     }
-    /// Toggles immersive reading. macOS uses borderless fullscreen so the
-    /// reader mode does not take over AppKit's fullscreen Space; other
-    /// platforms use their native fullscreen state.
+    /// Toggles immersive reading. The window and the reader mode are separate:
+    /// macOS's green traffic light can enter native fullscreen without hiding
+    /// application chrome, while this control also requests native fullscreen
+    /// and then removes the chrome from the reading surface.
     pub(crate) fn set_full_screen(
         &mut self,
         on: bool,
@@ -832,11 +831,6 @@ impl Breeze {
         if self.full_screen == on {
             return;
         }
-        #[cfg(target_os = "macos")]
-        if window.is_simple_fullscreen() != on {
-            window.toggle_simple_fullscreen();
-        }
-        #[cfg(not(target_os = "macos"))]
         if window.is_fullscreen() != on {
             window.toggle_fullscreen();
         }
@@ -1120,8 +1114,6 @@ fn main() -> Result<()> {
             },
             cx,
             move |window, cx| {
-                #[cfg(target_os = "macos")]
-                macos_window::install(window, 3);
                 let view = cx.new(|cx| Breeze::new(worker, window, cx));
                 // Attach before draining so an event that arrives during
                 // startup is delivered to this window instead of waiting.

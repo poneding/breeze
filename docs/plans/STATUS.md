@@ -1,24 +1,34 @@
 # Delivery Status
 
-## October 16 macOS traffic-light maximize
+## October 16 macOS traffic-light fullscreen
 
-The October 15 traffic-light change made the green button and the reader's
-Fullscreen command share the document-only immersive layout. That coupling was
-wrong for the green button: it is the window control, not the reader mode.
+The October 15 change coupled AppKit's green traffic light to immersive reading
+by adopting the window's fullscreen state into `Breeze::full_screen`. That was
+wrong: the green button is the macOS window control, while content-only
+fullscreen belongs to the reader's status-bar control.
 
-AppKit's green button now receives
-`NSWindowCollectionBehavior::FullScreenNone`, so it performs the standard zoom
-or maximize action and keeps the title bar, navigation, toolbar, and status bar
-visible. A native fullscreen transition that arrives from outside the app no
-longer changes `Breeze::full_screen`. The status-bar Fullscreen and F11 controls
-keep their immersive behavior; on macOS they now use GPUI's simple borderless
-fullscreen so they do not create or consume the AppKit fullscreen Space.
+The green traffic light now keeps AppKit's native fullscreen behavior and enters
+a new macOS Space. Breeze does not adopt that window state into
+`Breeze::full_screen`, so the application title bar, navigation, toolbar, and
+status bar remain visible. The custom title bar's double-click handler remains
+suppressed while the window is natively fullscreen, avoiding AppKit's zoom
+behavior inside the fullscreen Space.
 
-Automated coverage keeps native fullscreen outside the app action from hiding
-reader chrome and continues to cover entry and exit through the Fullscreen
-command. Native macOS inspection remains required for the green button's
-collection behavior because GPUI's test platform does not implement AppKit
-window behavior.
+The status-bar Fullscreen and F11 controls continue to request native window
+fullscreen and then render only the document. When the window is already in
+native fullscreen, they toggle the immersive chrome layer without creating a
+second Space.
+
+Automated coverage keeps a native fullscreen transition outside the Fullscreen
+command from hiding reader chrome, and continues to cover entry and exit through
+the status-bar control.
+
+Validation: an isolated worktree containing only this change passes
+`cargo fmt --all -- --check`, `cargo test -p breeze-app --locked` (176 tests),
+and `cargo clippy -p breeze-app --all-targets --locked -- -D warnings`. A native
+macOS check confirmed that the green traffic light entered the fullscreen Space
+at 1512×945 with the Breeze title bar, navigation, toolbar, and status bar still
+visible.
 
 ## October 15 reader toolbar matches the title bar at 34 px
 
@@ -41,6 +51,10 @@ both the PDF and Markdown readers, with the status bar unchanged at 32 px.
 Windows and Linux native checks remain open.
 
 ## October 15 macOS traffic-light fullscreen
+
+Superseded by the October 16 behavior above: the green traffic light remains a
+window-level fullscreen control and does not enter document-only immersive
+reading.
 
 Reported on macOS: entering fullscreen with the green traffic light removed the
 only way back out with the pointer, because the traffic lights never reappeared

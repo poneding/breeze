@@ -1733,7 +1733,6 @@ fn fullscreen_shows_only_the_document_and_leaves_on_escape_or_f11(cx: &mut TestA
     .unwrap();
     cx.update_window(handle, |_, window, cx| {
         assert!(view.read(cx).full_screen);
-        #[cfg(not(target_os = "macos"))]
         assert!(window.is_fullscreen());
         window.render_frame(cx);
         // Immersive reading hides the title bar, both panels, the toolbar and the status bar.
@@ -1756,7 +1755,6 @@ fn fullscreen_shows_only_the_document_and_leaves_on_escape_or_f11(cx: &mut TestA
     .unwrap();
     cx.update_window(handle, |_, window, cx| {
         assert!(!view.read(cx).full_screen);
-        #[cfg(not(target_os = "macos"))]
         assert!(!window.is_fullscreen());
         window.render_frame(cx);
         assert!(window.find("status-scroll").visible());
@@ -1782,8 +1780,8 @@ fn fullscreen_shows_only_the_document_and_leaves_on_escape_or_f11(cx: &mut TestA
 }
 
 /// A native fullscreen transition outside the Fullscreen command must not turn
-/// on immersive reading. macOS reserves that transition for the reader-only
-/// control; its green traffic light is configured as zoom instead.
+/// on immersive reading: macOS's green traffic light is a window control, so
+/// the reader must keep its chrome while the window occupies the new Space.
 #[gpui_kit::test]
 fn native_fullscreen_does_not_change_reader_layout(cx: &mut TestAppContext) {
     let page = rendered_sample();
