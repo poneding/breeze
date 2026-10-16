@@ -119,6 +119,16 @@ jobs:
           cargo test --workspace --locked --target '${{ matrix.target }}'
           cargo clippy --workspace --all-targets --locked --target '${{ matrix.target }}' -- -D warnings
           python -B -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Reclaim the verification build tree
+        # The hosted runners have a small disk, and packaging runs after the
+        # release build. The debug tree the checks just produced is the largest
+        # disposable directory under target/ and the release profile never reads
+        # it, so a run that keeps it can exhaust the filesystem before hdiutil
+        # packages the disk image.
+        run: |
+          du -sh 'target/${{ matrix.target }}/debug' 2>/dev/null || true
+          rm -rf 'target/${{ matrix.target }}/debug'
+          df -h . || true
       - name: Build release binary
         run: cargo build --release --locked -p breeze-app --target '${{ matrix.target }}'
       - name: Build installers
