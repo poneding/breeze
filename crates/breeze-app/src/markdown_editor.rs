@@ -685,7 +685,7 @@ impl MarkdownEditor {
                 BlockKind::Quote { depth } => (BODY_SIZE, 16. * depth as f32, body_font.clone()),
                 BlockKind::List { depth, .. } => (BODY_SIZE, 16. * depth as f32, body_font.clone()),
                 BlockKind::Fence | BlockKind::Code => (CODE_SIZE, 12., mono_font.clone()),
-                BlockKind::Paragraph => (BODY_SIZE, 0., body_font.clone()),
+                BlockKind::Paragraph | BlockKind::Table => (BODY_SIZE, 0., body_font.clone()),
             };
             let text = &self.projection.text[line.display.clone()];
             let runs = build_runs(theme, text, &line.runs, base_font.clone(), font_size);
