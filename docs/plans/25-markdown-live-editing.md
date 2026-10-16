@@ -21,7 +21,7 @@ recorded in [delivery status](STATUS.md).
 | P1 Source model | Design baseline | Source-preserving buffer, transactions, history and source positions | G1 model tests and dependency checks | Complete (October 16) |
 | P2 Native feasibility | P1 | One native surface with live/source projection and Chinese composition | G2 prototype evidence; explicit feasibility decision | Complete (October 16, native macOS; Windows/Linux open) |
 | P3 Semantic/layout pipeline | P2 passes | Bounded parsing, projection invalidation, viewport and giant-block virtualization | G3 tests and first Release report | Complete except the 16 MiB provisional budget (October 16) |
-| P4 Save and session lifetime | P1; P2 for composition behavior | Conflict-checked saves/recovery and per-tab lifecycle guards | G4 storage and component tests | Not started |
+| P4 Save and session lifetime | P1; P2 for composition behavior | Conflict-checked saves/recovery and per-tab lifecycle guards | G4 storage and component tests | Storage layer complete; application wiring blocked by a concurrent reader refactor |
 | P5 Core authoring integration | P2, P3, P4 | Usable core live editing in the application | G1–G5 core authoring evidence | Not started |
 | P6 Tables and local images | P5 | Native structured editing and existing-file image references | G5 table/image matrix and regression checks | Not started |
 | P7 Acceptance | P6 | Full verification record, remaining limitations and platform status | G1–G6 evidence; production gates still open if unverified | Not started |

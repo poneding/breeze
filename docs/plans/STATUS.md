@@ -1,3 +1,33 @@
+## October 16 Markdown source publication and recovery records (P4, storage layer)
+
+[Work package 25](25-markdown-live-editing.md) phase P4's storage layer is
+implemented and tested; its application wiring is **not** complete.
+
+`breeze_storage::markdown` reads a Markdown source once and hashes those exact
+bytes, publishes a new destination without clobbering, and replaces an existing
+destination only when its fingerprint still matches the one the draft adopted —
+refusing symbolically linked or multiply linked targets, and taking an advisory
+per-Breeze lock around the recheck and the write. A damaged or unsupported
+recovery record is reported rather than silently discarded; recovery drafts are
+bounded, validated before writing, and pruned clean-first against a 256 MiB
+directory budget with the record being written protected from eviction.
+
+Validation: `cargo test -p breeze-storage --offline` (7 unit and 6 new
+`markdown_save` integration tests, covering non-clobbering publication, a
+fingerprint conflict, invalid UTF-8 and oversized input, recovery round trips,
+pruning, an invalid record, and a symlink destination) and `cargo clippy
+-p breeze-storage --all-targets --offline -- -D warnings`, both exit 0.
+
+**Blocker recorded, not worked around:** the editor-side save, recovery and
+close-guard wiring (`markdown_editor.rs`, `reflow.rs`, `commands.rs`, `main.rs`,
+`ui_tests.rs`, `i18n_catalog.rs`) was written and then reverted without being
+committed, because a concurrent refactor of `reflow.rs` and `ui_tests.rs` in the
+shared working tree changed the reader toolbar and removed the page-turn buttons
+underneath it. Merging that wiring is a rebase-and-retest step, not a
+mechanical one: the affected tests assert exact toolbar and status-bar contents.
+Markdown drafts therefore still cannot be saved from the application, and
+phases P5–P7 are unstarted.
+
 ## October 16 page-turn buttons removed
 
 The PDF and EPUB status bars no longer show Previous Page or Next Page arrow

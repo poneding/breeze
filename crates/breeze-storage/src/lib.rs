@@ -1,4 +1,5 @@
 //! Local, atomic persistence. All public I/O functions must run outside the UI thread.
+pub mod markdown;
 use anyhow::{Context, Result, ensure};
 use breeze_core::annotations::Annotation;
 use futures::channel::oneshot;
