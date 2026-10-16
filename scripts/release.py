@@ -327,33 +327,44 @@ def wix_source(version: str, target: str, payload: Path, icon: Path) -> str:
     progid = _identifier("cmp", f"{target}/pdf-progid")
     open_with = _identifier("cmp", f"{target}/pdf-open-with")
     command = f'"[INSTALLFOLDER]{WINDOWS_EXECUTABLE}" "%1"'
+    # Python 3.11 rejects a backslash inside an f-string expression, and the
+    # release tooling supports 3.11+, so every registry key is assembled here
+    # rather than inside the interpolations below.
+    classes = "Software\\Classes"
+    progid_key = f"{classes}\\{PDF_PROGID}"
+    progid_icon_key = f"{progid_key}\\DefaultIcon"
+    progid_command_key = f"{progid_key}\\shell\\open\\command"
+    open_with_key = f"{classes}\\{WINDOWS_PDF_EXTENSION}\\OpenWithProgids"
+    application_key = f"{classes}\\Applications\\{WINDOWS_EXECUTABLE}"
+    supported_types_key = f"{application_key}\\SupportedTypes"
+    application_command_key = f"{application_key}\\shell\\open\\command"
     lines.extend(
         [
             f"          <Component Id={_attr(progid)} "
             f"Guid={_attr(_guid('registry', target, 'pdf-progid'))}>",
             f'            <RegistryValue Root="HKLM" '
-            f'Key={_attr(f"Software\\Classes\\{PDF_PROGID}")} Type="string" '
+            f'Key={_attr(progid_key)} Type="string" '
             f'Value="Breeze PDF Document" KeyPath="yes" />',
             f'            <RegistryValue Root="HKLM" '
-            f'Key={_attr(f"Software\\Classes\\{PDF_PROGID}\\DefaultIcon")} '
+            f'Key={_attr(progid_icon_key)} '
             f'Type="string" Value={_attr(f"[INSTALLFOLDER]{WINDOWS_EXECUTABLE},0")} />',
             f'            <RegistryValue Root="HKLM" '
-            f'Key={_attr(f"Software\\Classes\\{PDF_PROGID}\\shell\\open\\command")} '
+            f'Key={_attr(progid_command_key)} '
             f'Type="string" Value={_attr(command)} />',
             "          </Component>",
             f"          <Component Id={_attr(open_with)} "
             f"Guid={_attr(_guid('registry', target, 'pdf-open-with'))}>",
             f'            <RegistryValue Root="HKLM" '
-            f'Key={_attr(f"Software\\Classes\\{WINDOWS_PDF_EXTENSION}\\OpenWithProgids")} '
+            f'Key={_attr(open_with_key)} '
             f'Name={_attr(PDF_PROGID)} Type="string" Value="" KeyPath="yes" />',
             f'            <RegistryValue Root="HKLM" '
-            f'Key={_attr(f"Software\\Classes\\Applications\\{WINDOWS_EXECUTABLE}\\SupportedTypes")} '
+            f'Key={_attr(supported_types_key)} '
             f'Name={_attr(WINDOWS_PDF_EXTENSION)} Type="string" Value="" />',
             f'            <RegistryValue Root="HKLM" '
-            f'Key={_attr(f"Software\\Classes\\Applications\\{WINDOWS_EXECUTABLE}")} '
+            f'Key={_attr(application_key)} '
             f'Name="FriendlyAppName" Type="string" Value={_attr(DISPLAY_NAME)} />',
             f'            <RegistryValue Root="HKLM" '
-            f'Key={_attr(f"Software\\Classes\\Applications\\{WINDOWS_EXECUTABLE}\\shell\\open\\command")} '
+            f'Key={_attr(application_command_key)} '
             f'Type="string" Value={_attr(command)} />',
             "          </Component>",
             "        </Directory>",
