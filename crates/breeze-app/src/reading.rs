@@ -374,6 +374,22 @@ fn active_outline(outline: &[breeze_pdf::Outline], page: usize) -> Option<usize>
 }
 
 impl Breeze {
+    pub(super) fn scroll_reading(&mut self, distance: gpui_kit::Pixels, cx: &mut Context<Self>) {
+        let book = &self.books[self.active];
+        match book.format() {
+            Some(DocumentFormat::Markdown) => self.scroll_markdown(distance, cx),
+            Some(DocumentFormat::Pdf) if book.state.layout.is_continuous() => {
+                let scroll = &self.reading.pages_scroll;
+                let mut offset = scroll.offset();
+                offset.y = (offset.y - distance).clamp(-scroll.max_offset().y, px(0.));
+                scroll.set_offset(offset);
+                // The virtual list's normal prepaint updates visible pages and navigation.
+                cx.notify();
+            }
+            _ => {}
+        }
+    }
+
     pub(super) fn defer_visible(
         &mut self,
         range: Range<usize>,

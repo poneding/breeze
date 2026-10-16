@@ -186,6 +186,8 @@ catalog! {
     "Toggle document sidebar" => ("展开 / 收起文档侧栏", "展開 / 收起文件側欄"),
     "Next page" => ("下一页", "下一頁"),
     "Previous page" => ("上一页", "上一頁"),
+    "Scroll up (Markdown / continuous PDF)" => ("向上滚动（Markdown / PDF 连续模式）", "向上捲動（Markdown / PDF 連續模式）"),
+    "Scroll down (Markdown / continuous PDF)" => ("向下滚动（Markdown / PDF 连续模式）", "向下捲動（Markdown / PDF 連續模式）"),
     "Go to page" => ("跳转到页", "跳轉到頁"),
     "Zoom in" => ("放大", "放大"),
     "Zoom out" => ("缩小", "縮小"),

@@ -691,6 +691,21 @@ impl Breeze {
         cx.notify();
     }
 
+    pub(super) fn scroll_markdown(&mut self, distance: gpui_kit::Pixels, cx: &mut Context<Self>) {
+        if self.reflow.markdown.is_none() {
+            return;
+        }
+        let mut offset = self.reflow.list.scroll_px_offset_for_scrollbar();
+        offset.y -= distance;
+        // Use the list's bounded pixel offset before recording its position.
+        // Unlike scroll_by, this cannot temporarily overshoot the document end.
+        self.reflow.list.set_offset_from_scrollbar(offset);
+        let top = self.reflow.list.logical_scroll_top();
+        let at_end = -self.reflow.list.scroll_px_offset_for_scrollbar().y
+            >= self.reflow.list.max_offset_for_scrollbar().y;
+        self.record_markdown_position(top.item_ix, at_end, cx);
+    }
+
     /// Two-page EPUB reading.
     ///
     /// The chapter is re-paginated at half the content width, so a toggle is a

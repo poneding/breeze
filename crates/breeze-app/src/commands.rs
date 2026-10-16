@@ -38,6 +38,8 @@ pub fn bind(cx: &mut App) {
         KeyBinding::new("pageup", PreviousPage, Some("Breeze && !Input")),
         KeyBinding::new("right", NextPage, Some("Breeze && !Input")),
         KeyBinding::new("left", PreviousPage, Some("Breeze && !Input")),
+        KeyBinding::new("up", ScrollReaderUp, Some("Breeze && !Input")),
+        KeyBinding::new("down", ScrollReaderDown, Some("Breeze && !Input")),
         KeyBinding::new("secondary-=", ZoomIn, Some("Breeze && !Input")),
         KeyBinding::new("secondary-+", ZoomIn, Some("Breeze && !Input")),
         KeyBinding::new("secondary-shift-=", ZoomIn, Some("Breeze && !Input")),
@@ -215,6 +217,15 @@ impl Breeze {
                 self.next_page(1, cx);
             } else if action.as_any().is::<PreviousPage>() {
                 self.next_page(-1, cx);
+            } else if action.as_any().is::<ScrollReaderUp>()
+                || action.as_any().is::<ScrollReaderDown>()
+            {
+                let distance = if action.as_any().is::<ScrollReaderDown>() {
+                    px(48.)
+                } else {
+                    px(-48.)
+                };
+                self.scroll_reading(distance, cx);
             } else if action.as_any().is::<ToggleSidebar>() {
                 self.sidebar = !self.sidebar;
                 cx.notify();
@@ -559,6 +570,11 @@ fn action_label(action: &dyn Action) -> &'static str {
     name!(ToggleDocumentPanel, tr!("Toggle document sidebar"));
     name!(NextPage, tr!("Next page"));
     name!(PreviousPage, tr!("Previous page"));
+    name!(ScrollReaderUp, tr!("Scroll up (Markdown / continuous PDF)"));
+    name!(
+        ScrollReaderDown,
+        tr!("Scroll down (Markdown / continuous PDF)")
+    );
     name!(FocusPage, tr!("Go to page"));
     name!(Favorite, tr!("Toggle favorite"));
     name!(ZoomIn, tr!("Zoom in"));

@@ -1,5 +1,28 @@
 # Delivery Status
 
+## October 16 vertical arrow scrolling
+
+Up Arrow and Down Arrow scroll Markdown and continuous PDF reading by 48 logical
+pixels per key event, using the existing native list handles. Both continuous
+single-page and continuous-spread PDF layouts are supported. PDF page loading
+and navigation still follow the virtual list's visible range; Markdown records
+its bounded scroll position and reports completion at the document end.
+
+The bindings exclude Input contexts and use normal system key-repeat events.
+They do not turn pages in EPUB or non-continuous PDF layouts. The shortcut
+reference lists their supported formats in all three interface languages.
+
+Validation used an isolated checkout and build directory to exclude concurrent
+PDF adapter work: formatting, the full workspace suite (180 app tests), and
+Clippy with warnings denied pass. Component coverage checks pixel steps, key
+repeat, both continuous PDF layouts, non-continuous exclusion, document bounds,
+Markdown progress, and focused inputs. Native macOS checks confirmed Markdown
+content/progress movement and PDF scrolling in both directions with page-number
+updates across a page boundary. The UI tool's held-key simulation emitted only
+one event, so physical held-key repetition remains a manual check; repeated
+presses and repeat-event dispatch were verified. Windows/Linux native checks
+remain open.
+
 ## October 16 horizontal arrow page shortcuts
 
 Left Arrow and Right Arrow invoke the existing Previous Page and Next Page

@@ -63,6 +63,8 @@ actions!(
         Preferences,
         NextPage,
         PreviousPage,
+        ScrollReaderUp,
+        ScrollReaderDown,
         Home,
         Quit,
         CloseTab,
@@ -1021,6 +1023,12 @@ impl Render for Breeze {
                 cx.listener(|this, action: &NextPage, window, cx| this.execute(action, window, cx)),
             )
             .on_action(cx.listener(|this, action: &PreviousPage, window, cx| {
+                this.execute(action, window, cx)
+            }))
+            .on_action(cx.listener(|this, action: &ScrollReaderUp, window, cx| {
+                this.execute(action, window, cx)
+            }))
+            .on_action(cx.listener(|this, action: &ScrollReaderDown, window, cx| {
                 this.execute(action, window, cx)
             }))
             .on_action(

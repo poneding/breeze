@@ -27,6 +27,14 @@ pub(super) fn groups() -> Vec<(&'static str, Vec<Shortcut>)> {
             vec![
                 row(tr!("Previous page"), vec![&PreviousPage]),
                 row(tr!("Next page"), vec![&NextPage]),
+                row(
+                    tr!("Scroll up (Markdown / continuous PDF)"),
+                    vec![&ScrollReaderUp],
+                ),
+                row(
+                    tr!("Scroll down (Markdown / continuous PDF)"),
+                    vec![&ScrollReaderDown],
+                ),
                 row(tr!("Go to page"), vec![&FocusPage]),
                 row(tr!("Zoom in"), vec![&ZoomIn]),
                 row(tr!("Zoom out"), vec![&ZoomOut]),
