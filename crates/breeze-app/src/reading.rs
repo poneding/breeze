@@ -590,6 +590,9 @@ impl Breeze {
                         );
                     } else {
                         let preview = Preview::from_page(page)?;
+                        // A page the selection already reaches joins it now that
+                        // its text exists.
+                        this.refresh_selection_page(page_index);
                         anyhow::ensure!(
                             this.reading.insert(page_index, preview.clone()),
                             tr!("Visible page text exceeds the 8 MiB budget. Switch to single page.")
@@ -1220,24 +1223,62 @@ impl Breeze {
             .min_w_0()
             .min_h_0()
             .bg(p.canvas)
+            .on_prepaint({
+                let view = cx.entity();
+                move |bounds, _, cx| {
+                    view.update(cx, |this, _| {
+                        this.page_bounds.clear();
+                        this.viewport_bounds = Some(bounds);
+                    });
+                }
+            })
             .child(
                 canvas(
                     |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
-                    move |_, hitbox, window, _| {
-                        window.on_mouse_event(
-                            move |event: &ScrollWheelEvent, phase, window, cx| {
-                                // Capture before either the virtual list or the single-page scroller.
-                                if phase == DispatchPhase::Capture
-                                    && hitbox.should_handle_scroll(window)
-                                    && event.modifiers.secondary()
-                                    && !event.modifiers.alt
-                                    && !event.modifiers.shift
-                                {
-                                    cx.stop_propagation();
-                                    view.update(cx, |this, cx| this.scroll_zoom(event, window, cx));
+                    {
+                        let select_view = view.clone();
+                        let end_view = view.clone();
+                        move |_: Bounds<gpui_kit::Pixels>,
+                              hitbox: gpui_kit::Hitbox,
+                              window: &mut Window,
+                              _: &mut App| {
+                            // The selection follows the pointer even when it leaves
+                            // the viewport, so a drag released over the toolbar still
+                            // commits and its edge scroll always stops.
+                            window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                                if phase != DispatchPhase::Bubble {
+                                    return;
                                 }
-                            },
-                        );
+                                let position = event.position;
+                                select_view.update(cx, |this, cx| {
+                                    if this.update_text_selection(position, cx) {
+                                        cx.notify();
+                                    }
+                                });
+                            });
+                            window.on_mouse_event(move |_: &MouseUpEvent, phase, _, cx| {
+                                if phase != DispatchPhase::Bubble {
+                                    return;
+                                }
+                                end_view.update(cx, |this, cx| this.end_text_selection(cx));
+                            });
+                            window.on_mouse_event(
+                                move |event: &ScrollWheelEvent, phase, window, cx| {
+                                    // Capture before either the virtual list or the single-page scroller.
+                                    if phase == DispatchPhase::Capture
+                                        && hitbox.should_handle_scroll(window)
+                                        && event.modifiers.secondary()
+                                        && !event.modifiers.alt
+                                        && !event.modifiers.shift
+                                    {
+                                        cx.stop_propagation();
+                                        view.update(cx, |this, cx| {
+                                            this.scroll_zoom(event, window, cx)
+                                        });
+                                    }
+                                },
+                            );
+                        }
                     },
                 )
                 .absolute()

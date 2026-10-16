@@ -3,6 +3,37 @@ use breeze_core::Rotation;
 use gpui_kit::InputEvent as _;
 use gpui_kit::test::TestWindowExt;
 
+/// A press, a move, or a release dispatched through the window's own event
+/// path, so a selection can be held open across clock steps.
+fn pointer_press(window: &mut Window, position: gpui_kit::Point<gpui_kit::Pixels>, cx: &mut App) {
+    window.dispatch_event(
+        MouseDownEvent {
+            button: MouseButton::Left,
+            position,
+            modifiers: Default::default(),
+            click_count: 1,
+            first_mouse: false,
+        }
+        .to_platform_input(),
+        cx,
+    );
+    window.render_frame(cx);
+}
+
+fn pointer_release(window: &mut Window, position: gpui_kit::Point<gpui_kit::Pixels>, cx: &mut App) {
+    window.dispatch_event(
+        MouseUpEvent {
+            button: MouseButton::Left,
+            position,
+            modifiers: Default::default(),
+            click_count: 1,
+        }
+        .to_platform_input(),
+        cx,
+    );
+    window.render_frame(cx);
+}
+
 pub(super) fn app(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
     // This integration fixture owns a real PDF worker thread. Allow its wakeups
     // instead of treating them as deterministic scheduler violations.
@@ -3820,7 +3851,7 @@ fn a_selection_that_crosses_a_page_and_returns_follows_the_pointer(cx: &mut Test
         let press = left.origin + point(px(20.), px(120.));
         let onto_second = right.origin + point(px(200.), px(160.));
         let back = left.origin + point(px(160.), px(120.));
-        view.update(cx, |view, _| {
+        view.update(cx, |view, cx| {
             // A press in flight: the gesture marker the reader also gates on.
             view.gesture
                 .push(breeze_core::annotations::Point::new(0., 0.));
@@ -3828,7 +3859,7 @@ fn a_selection_that_crosses_a_page_and_returns_follows_the_pointer(cx: &mut Test
                 view.begin_text_selection(press),
                 "the press starts a selection"
             );
-            assert!(view.select_text_at(1, &second, Some(right), onto_second));
+            assert!(view.update_text_selection(onto_second, cx));
             let crossed = view.selected_text.clone();
             assert!(
                 crossed.contains("Space to think"),
@@ -3842,8 +3873,12 @@ fn a_selection_that_crosses_a_page_and_returns_follows_the_pointer(cx: &mut Test
                 vec![0, 1],
                 "both pages are drawn while the pointer is on the second"
             );
+            // Into the gap between the two pages: the nearer one still tracks
+            // the pointer instead of dropping the move.
+            let gap = point(right.origin.x - px(8.), right.origin.y + px(160.));
+            assert!(view.update_text_selection(gap, cx));
             // Back onto the first page: the selection follows it back.
-            assert!(view.select_text_at(0, &first, Some(left), back));
+            assert!(view.update_text_selection(back, cx));
             let returned = view.selected_text.clone();
             assert!(
                 !returned.contains("Space to think"),
@@ -3862,9 +3897,10 @@ fn a_selection_that_crosses_a_page_and_returns_follows_the_pointer(cx: &mut Test
                 "the selection follows the pointer in: {returned:?}"
             );
         });
-        // A pointer over a page whose text is not loaded keeps the selection.
-        let missing = Arc::new(Preview {
-            page: 5,
+        // A page whose text has not been prepared joins the selection as soon
+        // as it arrives, without another pointer move.
+        let later = Arc::new(Preview {
+            page: 1,
             points: first.points,
             geometry: first.geometry,
             text: breeze_pdf::PageText::default(),
@@ -3872,18 +3908,118 @@ fn a_selection_that_crosses_a_page_and_returns_follows_the_pointer(cx: &mut Test
             outline: first.outline.clone(),
             bytes: 0,
         });
-        view.update(cx, |view, _| {
-            assert!(!view.select_text_at(5, &missing, Some(left), back));
+        view.update(cx, |view, cx| {
+            view.reading.insert(1, later);
+            let before = view.selected_text.clone();
+            assert!(!view.update_text_selection(onto_second, cx));
             assert_eq!(
-                view.selection
-                    .iter()
-                    .map(|(page, _)| *page)
-                    .collect::<Vec<_>>(),
-                vec![0]
+                view.selected_text, before,
+                "a page without text keeps the selection where it was"
+            );
+            view.reading.insert(1, second.clone());
+            view.refresh_selection_page(1);
+            assert!(
+                view.selected_text.contains("Space to think"),
+                "the page's text joins the selection when it arrives: {:?}",
+                view.selected_text
             );
         });
     })
     .unwrap();
+}
+
+/// Holding a drag past the viewport's edge scrolls the reader and keeps
+/// selecting, so a range can be dragged past the page on screen. The release
+/// lands outside the viewport, the way a drag that ends on the status bar does.
+#[gpui_kit::test]
+fn holding_a_drag_past_the_edge_scrolls_and_keeps_selecting(cx: &mut TestAppContext) {
+    let worker = PdfWorker::new().unwrap();
+    let page = futures::executor::block_on(worker.request(Source::Sample, 0).unwrap())
+        .unwrap()
+        .unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.reading.sizes = page.page_sizes.clone();
+            let preview = Preview::from_page(page).unwrap();
+            view.reading.insert(0, preview.clone());
+            view.preview = Some(preview);
+            view.books[0].state.layout = ReadingLayout::Continuous;
+            view.books[0].state.zoom = Zoom::FitWidth;
+            view.loading = false;
+        });
+        window.render_frame(cx);
+        let viewport = window.find("document-viewport").bounds();
+        let start = viewport.origin + point(px(60.), px(80.));
+        // Past the bottom edge, in the status bar: outside the viewport.
+        let past_edge = point(viewport.center().x, viewport.bottom() + px(20.));
+        pointer_press(window, start, cx);
+        window.simulate_mouse_move(past_edge, cx);
+        view.update(cx, |view, _| {
+            assert!(
+                view.text_selection.is_some(),
+                "the press anchored a selection"
+            );
+            assert!(
+                view.selection_scroll.is_some_and(|speed| speed > 0.),
+                "a pointer past the bottom edge scrolls down"
+            );
+        });
+    })
+    .unwrap();
+    // The auto-scroll runs on its own clock, a step at a time.
+    let before = view.update(cx, |view, _| view.reading.pages_scroll.offset().y);
+    for _ in 0..12 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(16));
+        cx.run_until_parked();
+    }
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        view.update(cx, |view, _| {
+            let after = view.reading.pages_scroll.offset().y;
+            assert!(
+                after < before,
+                "the view scrolled down: {before:?} to {after:?}"
+            );
+            assert!(
+                !view.selected_text.is_empty(),
+                "the selection keeps extending while the view scrolls"
+            );
+            let rows: usize = view.selection.iter().map(|(_, rects)| rects.len()).sum();
+            assert!(rows > 0, "the extended range still draws rows");
+        });
+        // A release outside the viewport still ends the gesture.
+        let viewport = window.find("document-viewport").bounds();
+        pointer_release(
+            window,
+            point(viewport.center().x, viewport.bottom() + px(20.)),
+            cx,
+        );
+        view.update(cx, |view, _| {
+            assert!(
+                view.autoscroll.is_none(),
+                "no auto-scroll survives the release"
+            );
+            assert!(view.selection_scroll.is_none());
+            assert!(
+                !view.selected_text.is_empty(),
+                "the release keeps what was selected"
+            );
+        });
+    })
+    .unwrap();
+    let stopped = view.update(cx, |view, _| view.reading.pages_scroll.offset().y);
+    for _ in 0..8 {
+        cx.executor()
+            .advance_clock(std::time::Duration::from_millis(16));
+        cx.run_until_parked();
+    }
+    assert_eq!(
+        view.update(cx, |view, _| view.reading.pages_scroll.offset().y),
+        stopped,
+        "no scroll continues after the release"
+    );
 }
 
 #[gpui_kit::test]

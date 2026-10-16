@@ -201,6 +201,14 @@ struct Breeze {
     /// The selection model, and the rectangles drawn for it on each page.
     text_selection: Option<annotations::TextSelection>,
     selection: Vec<(usize, Vec<breeze_core::annotations::Rect>)>,
+    /// Where each page surface was laid out last frame, for pointer lookups.
+    page_bounds: HashMap<usize, Bounds<gpui_kit::Pixels>>,
+    /// Where the reading viewport was laid out last frame.
+    viewport_bounds: Option<Bounds<gpui_kit::Pixels>>,
+    /// The pointer of the selection in flight, and its edge scroll.
+    selection_pointer: Option<gpui_kit::Point<gpui_kit::Pixels>>,
+    selection_scroll: Option<f32>,
+    autoscroll: Option<Task<()>>,
     search_input: Entity<InputState>,
     search_open: bool,
     search_restore_document_panel_open: Option<bool>,
@@ -379,6 +387,11 @@ impl Breeze {
             selected_text: String::new(),
             text_selection: None,
             selection: Vec::new(),
+            page_bounds: HashMap::new(),
+            viewport_bounds: None,
+            selection_pointer: None,
+            selection_scroll: None,
+            autoscroll: None,
             search_input,
             search_open: false,
             search_restore_document_panel_open: None,

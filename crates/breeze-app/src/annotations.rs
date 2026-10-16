@@ -18,6 +18,32 @@ pub(super) enum AnnotationFailure {
     InvalidData,
 }
 
+/// Distance from the reading viewport's edge at which a drag starts scrolling,
+/// and the scroll speed there and at the edge itself, in logical pixels.
+const AUTOSCROLL_MARGIN: f32 = 24.;
+const AUTOSCROLL_MIN: f32 = 2.;
+const AUTOSCROLL_MAX: f32 = 18.;
+const AUTOSCROLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(16);
+
+/// Distance from a point to a page surface, zero inside it: the page a pointer
+/// in a gap, a margin, or a spread's middle belongs to.
+fn page_distance(
+    bounds: Bounds<gpui_kit::Pixels>,
+    position: gpui_kit::Point<gpui_kit::Pixels>,
+) -> f32 {
+    let dx = f32::from(
+        (bounds.left() - position.x)
+            .max(position.x - bounds.right())
+            .max(px(0.)),
+    );
+    let dy = f32::from(
+        (bounds.top() - position.y)
+            .max(position.y - bounds.bottom())
+            .max(px(0.)),
+    );
+    dx * dx + dy * dy
+}
+
 /// A text selection: the caret it started at and the caret it has reached, each
 /// a page and a glyph index in that page's reading order. Pages between them are
 /// selected whole, so a drag that crosses page surfaces keeps working.
@@ -617,15 +643,31 @@ impl Breeze {
             .or_else(|| self.preview.clone().filter(|preview| preview.page == page))
     }
 
-    /// Extends the text selection with a pointer over one page surface. Each
-    /// surface maps the pointer through its own bounds, so a drag that crosses
-    /// into a neighbouring page keeps selecting instead of freezing.
-    pub(super) fn select_text_at(
-        &mut self,
-        page: usize,
-        preview: &Arc<Preview>,
-        bounds: Option<Bounds<gpui_kit::Pixels>>,
+    /// The page surface under a pointer, or the nearest one when the pointer is
+    /// in a gap between pages or in the reading viewport's own padding. Pages
+    /// that are not laid out right now are not candidates.
+    fn selection_page_at(
+        &self,
         position: gpui_kit::Point<gpui_kit::Pixels>,
+    ) -> Option<(usize, Bounds<gpui_kit::Pixels>)> {
+        self.page_bounds
+            .iter()
+            .min_by(|(page_a, a), (page_b, b)| {
+                page_distance(**a, position)
+                    .total_cmp(&page_distance(**b, position))
+                    // A pointer exactly between two pages stays with the earlier.
+                    .then(page_a.cmp(page_b))
+            })
+            .map(|(page, bounds)| (*page, *bounds))
+    }
+
+    /// Extends the text selection with a pointer anywhere in the reading
+    /// viewport: over a page, in the gap between two pages, or in the padding
+    /// past the last one. Returns whether the selection took the pointer.
+    pub(super) fn update_text_selection(
+        &mut self,
+        position: gpui_kit::Point<gpui_kit::Pixels>,
+        cx: &mut Context<Self>,
     ) -> bool {
         if self.books[self.active].state.mode != Mode::Read
             || self.gesture.is_empty()
@@ -633,14 +675,30 @@ impl Breeze {
         {
             return false;
         }
-        let Some(bounds) = bounds else {
+        self.selection_pointer = Some(position);
+        let extended = self.extend_text_selection(position);
+        self.update_selection_autoscroll(cx);
+        extended
+    }
+
+    /// Points the selection's focus at one window position, resolving the page
+    /// from the surfaces that are laid out.
+    fn extend_text_selection(&mut self, position: gpui_kit::Point<gpui_kit::Pixels>) -> bool {
+        if self.gesture.is_empty() || self.text_selection.is_none() {
+            return false;
+        }
+        let Some((page, bounds)) = self.selection_page_at(position) else {
+            return false;
+        };
+        let Some(preview) = self.page_preview(page) else {
             return false;
         };
         let Some(point) = document_point(self.view_geometry(preview.geometry), bounds, position)
         else {
             return false;
         };
-        // A page whose text is not ready yet keeps the selection where it is.
+        // A page whose text is not ready yet keeps the selection where it is;
+        // it joins as soon as its text arrives.
         let Some(caret) = preview.text.caret(point) else {
             return false;
         };
@@ -651,8 +709,87 @@ impl Breeze {
         true
     }
 
+    /// A drag held past the viewport's edge scrolls the reader, the way a text
+    /// editor scrolls past its last visible line.
+    fn update_selection_autoscroll(&mut self, cx: &mut Context<Self>) {
+        let speed = match (self.selection_pointer, self.viewport_bounds) {
+            (Some(position), Some(bounds)) => {
+                let margin = px(AUTOSCROLL_MARGIN);
+                let over_bottom = f32::from(position.y - (bounds.bottom() - margin));
+                let over_top = f32::from((bounds.top() + margin) - position.y);
+                let overshoot = over_bottom.max(over_top).max(0.);
+                let direction = if over_bottom > 0. {
+                    1.
+                } else if over_top > 0. {
+                    -1.
+                } else {
+                    0.
+                };
+                if direction == 0. {
+                    0.
+                } else {
+                    direction
+                        * (AUTOSCROLL_MIN
+                            + (AUTOSCROLL_MAX - AUTOSCROLL_MIN)
+                                * (overshoot / AUTOSCROLL_MARGIN).min(1.))
+                }
+            }
+            _ => 0.,
+        };
+        self.selection_scroll = (speed != 0.).then_some(speed);
+        if self.selection_scroll.is_none() {
+            self.autoscroll = None;
+            return;
+        }
+        if self.autoscroll.is_some() {
+            return;
+        }
+        let executor = cx.background_executor().clone();
+        self.autoscroll = Some(cx.spawn(async move |this, cx| {
+            loop {
+                executor.timer(AUTOSCROLL_INTERVAL).await;
+                let keep = this
+                    .update(cx, |this, cx| this.autoscroll_step(cx))
+                    .unwrap_or(false);
+                if !keep {
+                    break;
+                }
+            }
+        }));
+    }
+
+    /// One auto-scroll step: scroll the reader, carry the page bounds with it,
+    /// and extend the selection over the content it revealed. Returns whether
+    /// another step is wanted.
+    fn autoscroll_step(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.gesture.is_empty() || self.text_selection.is_none() {
+            self.selection_scroll = None;
+            return false;
+        }
+        let Some(speed) = self.selection_scroll else {
+            return false;
+        };
+        let before = self.reading.pages_scroll.offset();
+        self.scroll_reading(px(speed), cx);
+        let scrolled = self.reading.pages_scroll.offset().y - before.y;
+        if scrolled == px(0.) {
+            // The document ends here; the next pointer move decides again.
+            self.selection_scroll = None;
+            return false;
+        }
+        // The surfaces moved with the content until the next frame reports them.
+        for bounds in self.page_bounds.values_mut() {
+            bounds.origin.y += scrolled;
+        }
+        if let Some(position) = self.selection_pointer {
+            self.extend_text_selection(position);
+        }
+        cx.notify();
+        true
+    }
+
     /// Recomputes the copied text and the rectangles drawn for a selection.
-    fn refresh_text_selection(&mut self) {
+    pub(super) fn refresh_text_selection(&mut self) {
         let Some(selection) = self.text_selection else {
             self.selected_text.clear();
             self.selection.clear();
@@ -689,11 +826,43 @@ impl Breeze {
         self.text_selection = None;
         self.selected_text.clear();
         self.selection.clear();
+        self.selection_pointer = None;
+        self.selection_scroll = None;
+        self.autoscroll = None;
+    }
+
+    /// Ends a text selection in flight: the release commits it, a page-arrival
+    /// refresh leaves it alone.
+    pub(super) fn end_text_selection(&mut self, cx: &mut Context<Self>) {
+        if self.text_selection.is_none() {
+            self.autoscroll = None;
+            self.selection_scroll = None;
+            return;
+        }
+        self.commit_text_selection(cx);
+    }
+
+    /// Retries the selection's pointer when a page it is waiting on gains its
+    /// text, so a drag held over a page still being prepared catches up without
+    /// another pointer move.
+    pub(super) fn refresh_selection_page(&mut self, page: usize) {
+        let Some(position) = self.selection_pointer else {
+            return;
+        };
+        if self.selection_page_at(position).map(|(found, _)| found) != Some(page) {
+            return;
+        }
+        self.extend_text_selection(position);
     }
 
     /// Reports the selection the release just committed. A press that never
     /// moved selects nothing.
     fn commit_text_selection(&mut self, cx: &mut Context<Self>) {
+        self.selection_scroll = None;
+        self.autoscroll = None;
+        if self.text_selection.is_none() {
+            return;
+        }
         if self.text_selection.is_some_and(|s| s.collapsed_to_page()) {
             self.clear_text_selection();
             self.message.clear();
@@ -755,9 +924,15 @@ impl Breeze {
         let view = cx.entity();
         let bounds_cell = std::rc::Rc::new(std::cell::Cell::new(None));
         let capture_bounds = bounds_cell.clone();
-        let surface_bounds = bounds_cell.clone();
         let page_preview = preview.clone();
-        let move_preview = preview.clone();
+        // Reading is a pointer mode: the pointer icon on the mode tab matches the
+        // hand the page shows, while Annotate keeps the default arrow unless an
+        // annotation's own resize handles claim the cursor.
+        let cursor = if self.books[self.active].state.mode == Mode::Read {
+            CursorStyle::PointingHand
+        } else {
+            CursorStyle::Arrow
+        };
         div()
             .id("page-surface")
             .test_support()
@@ -766,9 +941,11 @@ impl Breeze {
             .h(px(height))
             .flex_shrink_0()
             .overflow_hidden()
+            .cursor(cursor)
             .on_prepaint(move |bounds, _, cx| {
                 capture_bounds.set(Some(bounds));
                 view.update(cx, |this, _| {
+                    this.page_bounds.insert(current, bounds);
                     if current == this.books[this.active].state.navigation.page()
                         && this.gesture.is_empty()
                     {
@@ -794,14 +971,7 @@ impl Breeze {
             )
             .on_mouse_move(
                 cx.listener(move |this, event: &MouseMoveEvent, window, cx| {
-                    if this.select_text_at(
-                        current,
-                        &move_preview,
-                        surface_bounds.get(),
-                        event.position,
-                    ) {
-                        cx.notify();
-                    } else if current == this.books[this.active].state.navigation.page() {
+                    if current == this.books[this.active].state.navigation.page() {
                         this.pointer_move(event, window, cx);
                     }
                 }),
