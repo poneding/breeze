@@ -8,7 +8,7 @@
 //! P2 scope: paragraphs, ATX headings, quotes, list markers, fenced code and
 //! non-nested inline emphasis, code, strike and link labels. Anything else is
 //! shown as literal source.
-use super::{Affinity, MAX_SOURCE_BYTES};
+use super::{Affinity, MAX_SOURCE_BYTES, Semantic};
 use std::ops::Range;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -23,6 +23,17 @@ pub struct RunStyle {
 impl RunStyle {
     pub fn is_plain(self) -> bool {
         self == Self::default()
+    }
+
+    /// Compose nested spans: an emphasized word inside strong text is both.
+    pub fn union(self, other: Self) -> Self {
+        Self {
+            bold: self.bold || other.bold,
+            italic: self.italic || other.italic,
+            code: self.code || other.code,
+            strike: self.strike || other.strike,
+            link: self.link || other.link,
+        }
     }
 }
 
@@ -40,6 +51,7 @@ pub enum BlockKind {
     List { ordered: bool, depth: usize },
     Fence,
     Code,
+    Table,
 }
 
 #[derive(Clone, Debug)]
@@ -170,6 +182,22 @@ impl Projection {
         Self::build_with_literal(source, selection, mode, None)
     }
 
+    /// Build from the parser's semantic layer.
+    ///
+    /// Line kinds and inline spans come from the background parse, so reference
+    /// links, nested emphasis, character entities and setext headings render
+    /// correctly. The projection still decides what to hide: the parser says
+    /// what a construct means, this layer says what the reader sees.
+    pub fn build_semantic(
+        source: &str,
+        selection: Range<usize>,
+        mode: ProjectionMode,
+        literal: Option<Range<usize>>,
+        semantic: &Semantic,
+    ) -> Self {
+        Self::build_inner(source, selection, mode, literal, Some(semantic))
+    }
+
     /// Build the projection while keeping `literal` rendered as source text.
     /// Native composition uses this so a half-typed delimiter never restyles
     /// or hides text under the input method.
@@ -179,12 +207,35 @@ impl Projection {
         mode: ProjectionMode,
         literal: Option<Range<usize>>,
     ) -> Self {
+        Self::build_inner(source, selection, mode, literal, None)
+    }
+
+    fn build_inner(
+        source: &str,
+        selection: Range<usize>,
+        mode: ProjectionMode,
+        literal: Option<Range<usize>>,
+        semantic: Option<&Semantic>,
+    ) -> Self {
         let source = &source[..source.len().min(MAX_SOURCE_BYTES)];
+        // A semantic layer parsed from a different source would index out of
+        // bounds; refuse it rather than render nonsense.
+        let semantic = semantic.filter(|semantic| {
+            semantic
+                .lines
+                .iter()
+                .all(|line| line.source.end <= source.len())
+                && semantic
+                    .spans
+                    .iter()
+                    .all(|span| span.full.end <= source.len() && span.content.end <= source.len())
+        });
         let mut builder = Builder {
             source,
             mode,
             selection,
             literal,
+            semantic,
             text: String::with_capacity(source.len()),
             lines: Vec::new(),
             segments: Vec::new(),
@@ -302,6 +353,7 @@ struct Builder<'a> {
     segments: Vec<Segment>,
     fence: Option<char>,
     literal: Option<Range<usize>>,
+    semantic: Option<&'a Semantic>,
 }
 
 /// Appends source-derived display text while recording the mapping segments.
@@ -310,7 +362,9 @@ struct LineBuilder<'a> {
     base: usize,
     selection: Range<usize>,
     text: String,
-    runs: Vec<DisplayRun>,
+    /// Style applications in paint order; flattened into disjoint runs later so
+    /// nested spans compose instead of producing overlapping text runs.
+    paints: Vec<(Range<usize>, RunStyle)>,
     segments: Vec<Segment>,
 }
 
@@ -321,7 +375,7 @@ impl<'a> LineBuilder<'a> {
             base,
             selection,
             text: String::with_capacity(line.len()),
-            runs: Vec::new(),
+            paints: Vec::new(),
             segments: Vec::new(),
         }
     }
@@ -368,17 +422,49 @@ impl<'a> LineBuilder<'a> {
         if style.is_plain() || display.is_empty() {
             return;
         }
-        if let Some(last) = self.runs.last_mut()
-            && last.style == style
-            && last.range.end == display.start
-        {
-            last.range.end = display.end;
-            return;
+        self.paints.push((display, style));
+    }
+
+    /// Flatten painted styles into sorted, disjoint display runs.
+    fn into_runs(self) -> (String, Vec<DisplayRun>, Vec<Segment>) {
+        let mut boundaries: Vec<usize> = self
+            .paints
+            .iter()
+            .flat_map(|(range, _)| [range.start, range.end])
+            .collect();
+        boundaries.push(0);
+        boundaries.push(self.text.len());
+        boundaries.sort_unstable();
+        boundaries.dedup();
+        let mut runs: Vec<DisplayRun> = Vec::new();
+        for window in boundaries.windows(2) {
+            let range = window[0]..window[1];
+            if range.is_empty() {
+                continue;
+            }
+            let mut style = RunStyle::default();
+            for (paint, painted) in &self.paints {
+                if paint.start <= range.start && paint.end >= range.end {
+                    style = style.union(*painted);
+                }
+            }
+            if style.is_plain() {
+                continue;
+            }
+            if let Some(last) = runs.last_mut()
+                && last.style == style
+                && last.range.end == range.start
+            {
+                last.range.end = range.end;
+                continue;
+            }
+            runs.push(DisplayRun { range, style });
         }
-        self.runs.push(DisplayRun {
-            range: display,
-            style,
+        // A run must never split a UTF-8 character.
+        runs.retain(|run| {
+            self.text.is_char_boundary(run.range.start) && self.text.is_char_boundary(run.range.end)
         });
+        (self.text, runs, self.segments)
     }
 }
 
@@ -399,17 +485,46 @@ struct ListPrefix {
 
 impl Builder<'_> {
     fn run(&mut self) {
-        let mut line_start = 0;
-        while line_start < self.source.len() {
-            let (line_end, next) = line_bounds(self.source, line_start);
+        // The semantic layer already owns line splitting, so its lines are used
+        // verbatim; otherwise the projection falls back to its own scanner.
+        // Each entry keeps the line's terminator end so the bytes between lines
+        // are copied exactly once.
+        let ranges: Vec<(Range<usize>, usize)> = match self.semantic {
+            Some(semantic) => semantic
+                .lines
+                .iter()
+                .enumerate()
+                .map(|(index, line)| {
+                    let next = semantic
+                        .lines
+                        .get(index + 1)
+                        .map(|line| line.source.start)
+                        .unwrap_or(self.source.len());
+                    (line.source.clone(), next)
+                })
+                .collect(),
+            None => {
+                let mut ranges = Vec::new();
+                let mut start = 0;
+                while start < self.source.len() {
+                    let (end, next) = line_bounds(self.source, start);
+                    ranges.push((start..end, next));
+                    start = next;
+                }
+                if ranges.is_empty() {
+                    ranges.push((0..0, 0));
+                }
+                ranges
+            }
+        };
+        for (index, (range, next)) in ranges.into_iter().enumerate() {
+            let line_start = range.start;
+            let line_end = range.end;
             let display_start = self.text.len();
-            let rendered = self.render_line(line_start, line_end);
+            let rendered = self.render_line(index, line_start, line_end);
             self.text.push_str(&rendered.text);
             for segment in rendered.segments {
                 self.segments.push(offset_segment(segment, display_start));
-            }
-            if line_end > line_start && self.text.len() > display_start {
-                // The renderer already covered the whole line.
             }
             self.lines.push(DisplayLine {
                 source: line_start..line_end,
@@ -418,6 +533,9 @@ impl Builder<'_> {
                 runs: rendered.runs,
                 revealed: rendered.revealed,
             });
+            // The terminator runs to the start of the next line. Copy it even
+            // when the next line is hidden, so a setext underline keeps its
+            // bytes reachable from the mapping.
             if next > line_end {
                 self.text.push_str(&self.source[line_end..next]);
                 self.segments.push(Segment::Copy {
@@ -425,11 +543,10 @@ impl Builder<'_> {
                     display: self.text.len() - (next - line_end),
                 });
             }
-            line_start = next;
         }
     }
 
-    fn render_line(&mut self, start: usize, end: usize) -> Rendered {
+    fn render_line(&mut self, index: usize, start: usize, end: usize) -> Rendered {
         let line = &self.source[start..end];
         let mut local = LineBuilder::new(line, start, self.selection.clone());
 
@@ -442,24 +559,59 @@ impl Builder<'_> {
             return finish(local, BlockKind::Paragraph, false);
         }
 
+        // A setext underline belongs to the heading above it and has no row.
+        let semantic_line = self
+            .semantic
+            .and_then(|semantic| semantic.lines.get(index))
+            .cloned();
+        if semantic_line.as_ref().is_some_and(|line| line.hidden) {
+            let kind = semantic_line
+                .map(|line| line.kind)
+                .unwrap_or(BlockKind::Paragraph);
+            return finish(local, kind, true);
+        }
+        // Copy the reference out of `self` so the mutable `self.fence` state
+        // below does not conflict with the borrowed spans.
+        let semantic = self.semantic;
+        let spans = spans_for(semantic, start, end);
+
         let trimmed = line.trim_start();
         let leading = line.len() - trimmed.len();
+        let semantic_kind = semantic_line.as_ref().map(|line| line.kind.clone());
+        let quote_depth = semantic_line
+            .as_ref()
+            .map(|line| line.quote_depth)
+            .unwrap_or(0);
 
-        // Fenced code is a line-level state machine: P2 only needs the fence
-        // boundaries, not a parsed document tree.
-        if let Some(marker) = self.fence {
-            if trimmed.starts_with(&marker.to_string().repeat(3)) {
-                self.fence = None;
+        // With the parser's block kinds, fences and code are known without a
+        // line-level state machine; the fallback keeps its own scanner.
+        let fenced = matches!(semantic_kind, Some(BlockKind::Code | BlockKind::Fence));
+        if !fenced {
+            if let Some(marker) = self.fence {
+                if trimmed.starts_with(&marker.to_string().repeat(3)) {
+                    self.fence = None;
+                    local.copy(0..line.len());
+                    return finish(local, BlockKind::Fence, true);
+                }
+                local.copy(0..line.len());
+                return finish(local, BlockKind::Code, false);
+            }
+            if let Some(marker) = fence_opener(trimmed) {
+                self.fence = Some(marker);
                 local.copy(0..line.len());
                 return finish(local, BlockKind::Fence, true);
             }
+        } else {
+            self.fence = None;
             local.copy(0..line.len());
-            return finish(local, BlockKind::Code, false);
-        }
-        if let Some(marker) = fence_opener(trimmed) {
-            self.fence = Some(marker);
-            local.copy(0..line.len());
-            return finish(local, BlockKind::Fence, true);
+            // The fence lines themselves are the delimiters being shown.
+            let kind = if fence_opener(trimmed).is_some() {
+                BlockKind::Fence
+            } else {
+                BlockKind::Code
+            };
+            let revealed = kind == BlockKind::Fence;
+            return finish(local, kind, revealed);
         }
 
         if let Some((level, prefix_end)) = heading_prefix(line) {
@@ -469,18 +621,33 @@ impl Builder<'_> {
             } else {
                 local.replace(0..prefix_end, "");
             }
-            inline(&mut local, prefix_end..line.len());
+            inline_styled(&mut local, prefix_end..line.len(), spans);
             return finish(local, BlockKind::Heading(level), revealed);
         }
 
-        if let Some((prefix_end, depth)) = quote_prefix(line) {
+        // A setext heading's title sits on its own line with no marker to hide.
+        if let Some(BlockKind::Heading(level)) = semantic_kind
+            && semantic_kind_is_setext(semantic, index)
+        {
+            inline_styled(&mut local, 0..line.len(), spans);
+            return finish(local, BlockKind::Heading(level), false);
+        }
+
+        // Quote markers are hidden one per enclosing block, not by shape.
+        let prefix_end = if quote_depth > 0 {
+            quote_markers(line, quote_depth).unwrap_or(0)
+        } else {
+            quote_prefix(line).map(|(end, _)| end).unwrap_or(0)
+        };
+        if prefix_end > 0 {
             let revealed = local.selection_touches(&(0..prefix_end));
             if revealed {
                 local.copy(0..prefix_end);
             } else {
                 local.replace(0..prefix_end, "");
             }
-            inline(&mut local, prefix_end..line.len());
+            inline_styled(&mut local, prefix_end..line.len(), spans);
+            let depth = quote_depth.max(1);
             return finish(local, BlockKind::Quote { depth }, revealed);
         }
 
@@ -493,12 +660,19 @@ impl Builder<'_> {
                 local.copy(0..prefix.indent);
                 local.replace(prefix.indent..prefix.end, "\u{2022} ");
             }
-            inline(&mut local, prefix.end..line.len());
+            inline_styled(&mut local, prefix.end..line.len(), spans);
+            let depth = semantic_kind
+                .as_ref()
+                .and_then(|kind| match kind {
+                    BlockKind::List { depth, .. } => Some(*depth),
+                    _ => None,
+                })
+                .unwrap_or(prefix.depth);
             return finish(
                 local,
                 BlockKind::List {
                     ordered: prefix.ordered,
-                    depth: prefix.depth,
+                    depth,
                 },
                 false,
             );
@@ -507,16 +681,58 @@ impl Builder<'_> {
         if leading > 0 {
             local.copy(0..leading);
         }
-        inline(&mut local, leading..line.len());
-        finish(local, BlockKind::Paragraph, false)
+        inline_styled(&mut local, leading..line.len(), spans);
+        finish(local, semantic_kind.unwrap_or(BlockKind::Paragraph), false)
     }
 }
 
+/// The semantic spans that start on this line.
+///
+/// A span that opened on an earlier line keeps its delimiters there; this line
+/// renders its own slice literally rather than re-deriving a style.
+fn spans_for(semantic: Option<&Semantic>, start: usize, end: usize) -> Option<&[super::Span]> {
+    let semantic = semantic?;
+    let first = semantic
+        .spans
+        .partition_point(|span| span.full.start < start);
+    let last = semantic.spans.partition_point(|span| span.full.start < end);
+    // `Some(&[])` is meaningful: the parser saw nothing to style on this line,
+    // so the line is literal and the fallback scanner must not second-guess it.
+    Some(&semantic.spans[first..last.max(first)])
+}
+
+/// Whether the heading at `index` was written as `Title` + an underline.
+fn semantic_kind_is_setext(semantic: Option<&Semantic>, index: usize) -> bool {
+    let Some(semantic) = semantic else {
+        return false;
+    };
+    semantic
+        .lines
+        .get(index..index + 2)
+        .is_some_and(|lines| lines[0].kind == lines[1].kind && lines[1].hidden)
+}
+
+/// Hide at most `depth` block-quote markers and the spaces that follow them.
+fn quote_markers(line: &str, depth: usize) -> Option<usize> {
+    let mut index = 0;
+    for _ in 0..depth {
+        if !line[index..].starts_with('>') {
+            break;
+        }
+        index += 1;
+        if line[index..].starts_with(' ') {
+            index += 1;
+        }
+    }
+    Some(index)
+}
+
 fn finish(local: LineBuilder<'_>, kind: BlockKind, revealed: bool) -> Rendered {
+    let (text, runs, segments) = local.into_runs();
     Rendered {
-        text: local.text,
-        runs: local.runs,
-        segments: local.segments,
+        text,
+        runs,
+        segments,
         kind,
         revealed,
     }
@@ -725,12 +941,25 @@ fn inline_span(line: &str, limit: usize, index: usize) -> Option<InlineSpan> {
         if !rest.starts_with(marker) {
             continue;
         }
+        // A marker only opens when its run is exactly that marker: otherwise
+        // `**x` would be read as an empty `*` span and lose its asterisks.
+        let run = rest
+            .chars()
+            .take_while(|c| *c == marker.chars().next().unwrap_or('*'))
+            .count();
+        if run != marker.len() {
+            continue;
+        }
         let search_start = index + marker.len();
         let search = &line[search_start..limit];
         let mut offset = 0;
         while let Some(found) = search[offset..].find(marker) {
             let candidate = search_start + offset + found;
-            if !escaped(line, candidate) {
+            let closing_run = line[candidate..]
+                .chars()
+                .take_while(|c| *c == marker.chars().next().unwrap_or('*'))
+                .count();
+            if closing_run == marker.len() && !escaped(line, candidate) {
                 return Some(InlineSpan {
                     full: index..candidate + marker.len(),
                     content: search_start..candidate,
@@ -782,5 +1011,67 @@ fn offset_segment(segment: Segment, by: usize) -> Segment {
             source,
             display: display.start + by..display.end + by,
         },
+    }
+}
+
+/// Emit a line range using the parser's inline spans.
+///
+/// Each span hides its own delimiters unless the selection touches it, and
+/// nested spans recurse so every level hides what belongs to it. Without a
+/// semantic layer this delegates to the line-local scanner.
+fn inline_styled(local: &mut LineBuilder<'_>, range: Range<usize>, spans: Option<&[super::Span]>) {
+    let Some(spans) = spans else {
+        return inline(local, range);
+    };
+    let mut cursor = 0usize;
+    emit_spans(local, range, spans, &mut cursor);
+}
+
+fn emit_spans(
+    local: &mut LineBuilder<'_>,
+    range: Range<usize>,
+    spans: &[super::Span],
+    cursor: &mut usize,
+) {
+    let base = local.base;
+    let mut position = range.start;
+    while position < range.end {
+        if let Some(span) = spans.get(*cursor) {
+            let full = span.full.start.saturating_sub(base)..span.full.end.saturating_sub(base);
+            let content =
+                span.content.start.saturating_sub(base)..span.content.end.saturating_sub(base);
+            let usable = span.full.start >= base
+                && span.full.end <= base + local.line.len()
+                && full.start == position
+                && full.end <= range.end
+                && full.start <= content.start
+                && content.end <= full.end;
+            if usable {
+                *cursor += 1;
+                if local.selection_touches(&full) {
+                    // Revealing the construct shows its source, delimiters included.
+                    local.copy(full.clone());
+                } else {
+                    local.replace(full.start..content.start, "");
+                    let style = span.style;
+                    let display_start = local.text.len();
+                    if let Some(decoded) = &span.decoded {
+                        local.replace(content.clone(), decoded);
+                    } else {
+                        emit_spans(local, content.clone(), spans, cursor);
+                    }
+                    let display_end = local.text.len();
+                    local.style(style, display_start..display_end);
+                    local.replace(content.end..full.end, "");
+                }
+                position = full.end;
+                continue;
+            }
+        }
+        let Some(character) = local.line[position..].chars().next() else {
+            break;
+        };
+        local.copy(position..position + character.len_utf8());
+        position += character.len_utf8();
     }
 }
