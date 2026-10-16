@@ -62,6 +62,40 @@ tests assert that a megabyte on one line becomes many units with only a fraction
 shaped, and that 2000 paragraphs measure under 200 units. The 16 MiB stress case
 was measured, not natively exercised in the editor.
 
+## October 16 text selection follows the pointer across pages
+
+The reading-order selection above kept its gesture on the page the press landed
+on: moves over a neighbouring page surface were dropped, so a drag that crossed
+into the next page froze, and a release over that page never committed, leaving
+the stale press to poison the next selection. Dragging back was the same defect
+seen the other way round.
+
+A selection is now two carets, each a page and a glyph index in that page's
+reading order, and every page surface maps its own pointer through its own
+bounds. Moving onto a neighbouring page extends the selection there, whether it
+is a separate page of a spread or the next page in continuous scrolling; moving
+back onto the first page takes the selection back with it, and the highlight is
+drawn per page while the copied text joins pages with a newline. A press that
+never moves selects nothing and clears the status line, and a page whose text has
+not arrived keeps the selection where it was rather than snapping it to a
+corner. Text markup still clamps to the page it started on, because annotations
+are page-local.
+
+Dragging past a page's edge still clamps to that page; there is no auto-scroll
+while selecting. Selecting a range that needs a page's text before that page has
+been prepared therefore waits for it, and copying a whole document region still
+means one gesture per page.
+
+Validation: `cargo fmt` on the touched files, the workspace suite (201 app tests,
+39 PDF with three ignored, and the remaining suites) and Clippy with no
+diagnostics in the touched crates pass. Five app tests cover the reading-order
+range, a backwards drag selecting the same text as a forwards one, a drag that
+crosses into the second page and returns, an unloaded page keeping the selection,
+a press that never moves, and markup clamping to its page. They ran in a copy of
+the tree carrying this work, because another session's in-flight Markdown
+refactor left the shared checkout uncompilable at the time; the committed files
+are the ones tested there.
+
 ## October 16 text selection follows reading order
 
 Selecting text used to be rectangular: the gesture's bounding box decided which
