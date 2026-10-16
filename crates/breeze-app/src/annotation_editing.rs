@@ -122,6 +122,8 @@ impl Breeze {
         self.annotation_editing.editor = None;
         self.annotation_editing.clear();
         self.gesture.clear();
+        self.selected_text.clear();
+        self.selection.clear();
         self.message.clear();
         window.focus(&self.focus, cx);
         cx.notify();
@@ -371,6 +373,7 @@ impl Breeze {
         self.tool_settings.dismiss();
         self.gesture.clear();
         self.selected_text.clear();
+        self.selection.clear();
         window.focus(&self.focus, cx);
         cx.notify();
     }

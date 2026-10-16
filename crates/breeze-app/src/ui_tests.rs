@@ -599,7 +599,7 @@ fn annotation_gestures_history_and_close_guard(cx: &mut TestAppContext) {
                 page: page.page,
                 points: page.points,
                 geometry: page.geometry,
-                glyphs: page.glyphs,
+                text: page.text,
                 text_warning: page.text_warning,
                 outline: page.outline,
                 bytes: 0,
@@ -652,7 +652,7 @@ fn text_selection_uses_extracted_geometry(cx: &mut TestAppContext) {
                 page: page.page,
                 points: page.points,
                 geometry: page.geometry,
-                glyphs: page.glyphs,
+                text: page.text,
                 text_warning: page.text_warning,
                 outline: page.outline,
                 bytes: 0,
@@ -668,15 +668,62 @@ fn text_selection_uses_extracted_geometry(cx: &mut TestAppContext) {
             overlay, bounds,
             "Annotation overlay must cover the page, not follow it in normal flow"
         );
-        window.drag(
-            point(bounds.origin.x + px(1.), bounds.origin.y + px(1.)),
+        // Drag from the left margin beside the sample's "Keep the details"
+        // line to partway across "Attention is the beginning": the selection is
+        // that run of reading order, drawn as one rectangle per row. The
+        // sample's own user-space coordinates are y-up, so mirror y here.
+        let surface = |x: f32, y: f32| {
             point(
-                bounds.origin.x + bounds.size.width - px(2.),
-                bounds.origin.y + bounds.size.height - px(2.),
-            ),
-            cx,
+                bounds.origin.x + px(x / page.points.0 * f32::from(bounds.size.width)),
+                bounds.origin.y
+                    + px((page.points.1 - y) / page.points.1 * f32::from(bounds.size.height)),
+            )
+        };
+        window.drag(surface(20., 265.), surface(300., 168.), cx);
+        let snapshot = view.read(cx);
+        assert!(
+            snapshot
+                .selected_text
+                .contains("Keep the details that help you think")
         );
-        assert!(view.read(cx).selected_text.contains("quiet art of focus"));
+        assert!(snapshot.selected_text.contains("Mark a sentence"));
+        assert!(
+            snapshot
+                .selected_text
+                .contains("Attention is the beginning")
+        );
+        assert!(
+            !snapshot.selected_text.contains("Good reading starts"),
+            "a line dragged over entirely above the start must not be selected: {:?}",
+            snapshot.selected_text
+        );
+        assert!(
+            !snapshot
+                .selected_text
+                .contains("A native reading experience"),
+            "the selection must end where the pointer is, not at the page margin: {:?}",
+            snapshot.selected_text
+        );
+        let rects = snapshot.selection.clone();
+        assert_eq!(rects.len(), 3, "one rectangle per selected row: {rects:?}");
+        for pair in rects.windows(2) {
+            assert!(
+                pair[0].y >= pair[1].y + pair[1].height,
+                "highlight rows must not overlap: {pair:?}"
+            );
+        }
+        assert_eq!(
+            rects[0].y,
+            rects[1].y + rects[1].height,
+            "rows of one paragraph meet on a shared edge"
+        );
+        assert!(
+            rects[2].y + rects[2].height < rects[1].y,
+            "the paragraph break stays open: {rects:?}"
+        );
+        // A press starts a new selection instead of keeping the old highlight.
+        window.click_at("page-surface", point(px(4.), px(4.)), cx);
+        assert!(view.read(cx).selection.is_empty());
         view.update(cx, |view, _| {
             view.books[0].annotations.ready = true;
             view.books[0].state.mode = Mode::Annotate;
@@ -748,7 +795,7 @@ fn annotation_tool_matrix_creates_real_geometry(cx: &mut TestAppContext) {
                 page: page.page,
                 points: page.points,
                 geometry: page.geometry,
-                glyphs: page.glyphs,
+                text: page.text,
                 text_warning: page.text_warning,
                 outline: page.outline,
                 bytes: 0,
@@ -901,7 +948,7 @@ fn opening_policy_runs_once_and_does_not_change_zoom(cx: &mut TestAppContext) {
                 page: page.page,
                 points: page.points,
                 geometry: page.geometry,
-                glyphs: page.glyphs,
+                text: page.text,
                 text_warning: page.text_warning,
                 outline: page.outline,
                 bytes: 0,

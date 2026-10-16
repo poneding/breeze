@@ -58,7 +58,7 @@ sidecar annotations remain a separate overlay.
 
 A production page transform must include PDF user space, CropBox origin/intersection, UserUnit, page rotation, the vertical-axis flip, logical zoom, device scale, and viewport offset. Hit testing and annotation placement require the inverse transform.
 
-Do not assume that `page_height - y` is sufficient for rotated/cropped pages. Verify each engine API's coordinate convention. The current implementation maps user-space glyph bounding boxes through CropBox/quarter-turn rotation for rectangular selection and markup. It is not an exact general glyph-outline/complex-script selection engine; rotated text runs are excluded from text selection.
+Do not assume that `page_height - y` is sufficient for rotated/cropped pages. Verify each engine API's coordinate convention. `breeze-pdf`'s `text` module keeps page text in reading order and groups engine lines into rows, recording the user-space axes each row advances and descends along. Selection, copy, and text markup all come from the same caret range and the same per-row rectangles, mapped through CropBox/quarter-turn rotation. It is not an exact general glyph-outline or complex-script selection engine: runs more than a few degrees off the page axes are excluded, and glyph boxes are trimmed only at the shared edges between rows of one paragraph.
 
 ## Target data model
 

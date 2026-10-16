@@ -3,6 +3,7 @@ mod error;
 pub mod export;
 mod integrity;
 mod raster;
+mod text;
 use anyhow::{Context, Result, bail};
 use breeze_core::{
     Rotation,
@@ -11,7 +12,7 @@ use breeze_core::{
 pub use error::PdfError;
 use futures::channel::oneshot;
 use mupdf::{
-    Colorspace, IRect, Matrix, Outline as MuPdfOutline, Pixmap, TextPageFlags,
+    Colorspace, IRect, Matrix, Outline as MuPdfOutline, Pixmap,
     cookie::Cookie,
     device::Device,
     pdf::{PdfDocument, PdfObject, PdfPage},
@@ -26,6 +27,7 @@ use std::{
     thread,
     time::Instant,
 };
+pub use text::{Glyph, PageText};
 
 /// Output budget for one whole-page raster: 16.7 Mpx, 64 MiB as RGBA.
 ///
@@ -68,7 +70,7 @@ pub struct Pixels {
 pub struct Page {
     pub fingerprint: String,
     pub geometry: PageGeometry,
-    pub glyphs: Vec<Glyph>,
+    pub text: PageText,
     pub text_warning: Option<String>,
     pub pixels: Option<Pixels>,
     /// View-space page rectangle covered by `pixels` when this is a clipped raster.
@@ -336,11 +338,6 @@ impl Drop for PdfWorker {
             self.queue.1.notify_one();
         }
     }
-}
-#[derive(Clone, Debug)]
-pub struct Glyph {
-    pub character: char,
-    pub bounds: Rect,
 }
 struct Loaded {
     source: Source,
@@ -620,18 +617,21 @@ fn render(
     } else {
         loaded.outline.clone()
     };
-    let (glyphs, text_warning) = if full_page_request {
-        (Vec::new(), None)
+    let (text, text_warning) = if full_page_request {
+        (PageText::default(), None)
     } else {
         match doc.load_pdf_page(i32::try_from(page)?) {
-            Ok(page_handle) => match extract_glyphs(&page_handle) {
-                Ok(glyphs) => glyphs,
+            Ok(page_handle) => match text::extract(&page_handle) {
+                Ok(text) => text,
                 Err(error) => (
-                    Vec::new(),
+                    PageText::default(),
                     Some(format!("Text extraction failed: {error:#}")),
                 ),
             },
-            Err(error) => (Vec::new(), Some(format!("Text extraction failed: {error}"))),
+            Err(error) => (
+                PageText::default(),
+                Some(format!("Text extraction failed: {error}")),
+            ),
         }
     };
     let result = Page {
@@ -642,7 +642,7 @@ fn render(
         total,
         points,
         geometry,
-        glyphs,
+        text,
         text_warning,
         fingerprint: loaded.fingerprint.clone(),
         outline,
@@ -769,64 +769,6 @@ fn region_dimensions(region: Rect, scale: f32) -> (u32, u32) {
     )
 }
 
-fn extract_glyphs(page: &PdfPage) -> Result<(Vec<Glyph>, Option<String>)> {
-    let text = page.to_text_page(TextPageFlags::empty())?.structured();
-    let inverse = page
-        .ctm()?
-        .invert()
-        .context("Cannot invert PDF page transform")?;
-    let mut glyphs = Vec::new();
-    for block in text.blocks {
-        let mupdf::text_page::TextBlockContent::Text { lines } = block.content else {
-            continue;
-        };
-        for line in lines {
-            for character in line.chars {
-                glyphs.push(Glyph {
-                    character: character.ch,
-                    bounds: quad_bounds(character.quad, &inverse),
-                });
-                if glyphs.len() > 50_000 {
-                    return Ok((
-                        Vec::new(),
-                        Some("Page exceeds the text-selection budget".into()),
-                    ));
-                }
-            }
-        }
-    }
-    glyphs.retain(|glyph| glyph.bounds.valid());
-    Ok((glyphs, None))
-}
-
-fn quad_bounds(quad: mupdf::Quad, transform: &Matrix) -> Rect {
-    let points = [quad.ul, quad.ur, quad.ll, quad.lr].map(|point| {
-        let (x, y) = transform.transform_xy(point.x, point.y);
-        (x, y)
-    });
-    let left = points
-        .iter()
-        .map(|point| point.0)
-        .fold(f32::INFINITY, f32::min);
-    let right = points
-        .iter()
-        .map(|point| point.0)
-        .fold(f32::NEG_INFINITY, f32::max);
-    let bottom = points
-        .iter()
-        .map(|point| point.1)
-        .fold(f32::INFINITY, f32::min);
-    let top = points
-        .iter()
-        .map(|point| point.1)
-        .fold(f32::NEG_INFINITY, f32::max);
-    Rect {
-        x: left,
-        y: bottom,
-        width: right - left,
-        height: top - bottom,
-    }
-}
 /// Bound on outline entries retained for one document. A malformed outline is an
 /// auxiliary structure, so it is truncated instead of failing the whole document.
 const MAX_OUTLINE_ENTRIES: usize = 10_000;
@@ -1034,7 +976,7 @@ fn convert_rgb_to_bgra(width: u32, height: u32, stride: usize, samples: &[u8]) -
 
 fn page_bytes(page: &Page) -> usize {
     page.pixels.as_ref().map_or(0, |p| p.bgra.len())
-        + page.glyphs.len() * std::mem::size_of::<Glyph>()
+        + page.text.bytes()
         + page
             .outline
             .iter()
@@ -1373,8 +1315,8 @@ mod reader_tests {
         let first = futures::executor::block_on(worker.request(Source::Sample, 0).unwrap())
             .unwrap()
             .unwrap();
-        assert!(!first.glyphs.is_empty());
-        assert!(first.glyphs.iter().all(|g| g.bounds.valid()));
+        assert!(!first.text.is_empty());
+        assert!(first.text.glyphs().iter().all(|g| g.bounds.valid()));
         let second = futures::executor::block_on(worker.request(Source::Sample, 0).unwrap())
             .unwrap()
             .unwrap();
@@ -1444,7 +1386,7 @@ mod visible_request_tests {
         .unwrap();
         assert_eq!(thumbnail.page, 7);
         assert!(thumbnail.thumbnail);
-        assert!(thumbnail.glyphs.is_empty());
+        assert!(thumbnail.text.is_empty());
         assert!(thumbnail.outline.is_empty());
         assert!(
             thumbnail.pixels.as_ref().unwrap().width * thumbnail.pixels.as_ref().unwrap().height
@@ -1455,7 +1397,7 @@ mod visible_request_tests {
             .unwrap()
             .unwrap();
         assert!(!full.thumbnail);
-        assert!(!full.glyphs.is_empty());
+        assert!(!full.text.is_empty());
         assert!(full.pixels.as_ref().unwrap().width > thumbnail.pixels.as_ref().unwrap().width);
         assert_eq!(full.fingerprint, thumbnail.fingerprint);
         assert!(Arc::ptr_eq(&full.page_sizes, &thumbnail.page_sizes));

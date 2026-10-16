@@ -222,11 +222,11 @@ impl ReadingView {
 }
 impl Preview {
     pub(super) fn from_page(page: breeze_pdf::Page) -> Result<Arc<Self>> {
-        let bytes = page.glyphs.len() * std::mem::size_of::<breeze_pdf::Glyph>();
+        let bytes = page.text.bytes();
         Ok(Arc::new(Self {
             page: page.page,
             geometry: page.geometry,
-            glyphs: page.glyphs,
+            text: page.text,
             text_warning: page.text_warning,
             points: page.points,
             outline: page.outline,

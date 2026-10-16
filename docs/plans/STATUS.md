@@ -1,3 +1,52 @@
+## October 16 text selection follows reading order
+
+Selecting text used to be rectangular: the gesture's bounding box decided which
+glyph centers were inside it, so a drag across two lines picked up a box of
+characters instead of the run between the two points, and the highlight was
+painted from each glyph's own box. Those boxes do not agree across fonts — a
+Chinese font's boxes are taller than its leading, and two lines of justified CJK
+prose report different heights for the same line pitch — so a translucent
+highlight showed a gap or an overlap between rows, worst on Chinese text.
+
+`breeze-pdf` now owns page text as a structure rather than a glyph list.
+`PageText` keeps the characters in reading order and groups the engine's lines
+into visual rows: lines on one baseline join into one row, and each row records
+the user-space axes it advances and descends along, from the character quads, so
+a `/Rotate`d page reads along its own axis. A selection is the run of that order
+between the carets nearest the two gesture points; a point beyond a row's end
+lands on that row's start or end, which is what makes dragging past a line end
+or into a paragraph gap select whole lines. Copy writes one line per row, with a
+space where the engine continued a row across a wide gap.
+
+`PageText::highlight_rects` returns one rectangle per selected row and settles
+the shared edges: the line gap between two rows is split at its middle, which
+closes loose leading and trims overlapping font boxes alike, while a gap
+noticeably wider than its neighbours is a paragraph break and stays open. A
+truncated row falls back to the leading left open by its neighbours, never
+trimming its own glyph boxes. Underline and strikeout keep hugging the glyph
+boxes (`line_rects`), and annotation markup now uses the same range as the
+selection, so a highlight drawn over two lines is the same shape as the copy.
+
+The reader draws the range live while dragging, between the page raster and the
+annotation overlay, and the pointer release fills the status message. Verified on
+three real Chinese fixtures — CoreText with Songti SC, CoreText with PingFang SC
+on tight leading, and MuPDF's own HTML layout with Source Han Serif — as well as
+the bundled English sample: seven rows, every intra-paragraph pair sharing one
+edge exactly (no gap and no overlap), the paragraph break open by 10 pt, and
+copy returning the paragraphs with one newline per row.
+
+Validation: `cargo fmt --all -- --check`, the workspace suite (194 app tests
+including the reading-order selection test, 39 PDF with three ignored, and the
+remaining suites) and `cargo clippy --workspace --all-targets --locked -- -D
+warnings` pass. Eight new `breeze-pdf` unit tests cover reading-order ranges,
+shared edges on overlapping font boxes, loose leading versus a paragraph break,
+pointer snapping at line ends and in paragraph gaps, column gaps, rotated page
+axes, wide-gap row joining, and steep or invalid runs. Native visual inspection
+was not performed: this session's screen captures contain only the desktop
+wallpaper because screen-recording permission is denied (ScreenCaptureKit
+reports TCC -3801), so the app was only confirmed to launch against an isolated
+data directory. Windows and Linux native checks remain open.
+
 ## October 16 Markdown live editing in the reader content area (P2)
 
 [Work package 25](25-markdown-live-editing.md) phase P2 now runs inside the
@@ -609,7 +658,7 @@ future-incompatibility notice remains. Windows/Linux runtime checks are pending.
 | Preferences | Persistent Follow System / GPUI Kit built-in theme selection, sidebar width, independent file/position restoration, and opening-window policy |
 | State integrity | Background/coalesced JSON, process locking, bounded inputs, atomic replacement, external-revision checks, and normal-close acknowledgement |
 | Reading | Single/Continuous/Spread layouts; per-document view rotation in either direction; immersive fullscreen that keeps the document only; virtualized full outline/thumbnail lists; visible-range scheduling; 32 MiB worker, 64 MiB UI-page, and 8 MiB UI-thumbnail budgets; page navigation and zoom |
-| Text/search | Rectangular horizontal-glyph selection/copy; cancellable background search with up to 300 results and page destinations |
+| Text/search | Reading-order text selection/copy with per-row highlight fills; cancellable background search with up to 300 results and page destinations |
 | Annotations | Text/area highlight, underline, strikeout, ink, ink-only eraser, text note, ellipse, rectangle, line, free wavy line, and arrow |
 | History/sidecars | Bounded undo/redo, per-page removal, source SHA-256, explicit Save/Save As only, and conflict refusal |
 | PDF export | New-file-only standard annotations with vector normal appearances; old content/resources/annotations checked before publication |

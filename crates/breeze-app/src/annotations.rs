@@ -402,6 +402,7 @@ impl Breeze {
             return;
         };
         self.selected_text.clear();
+        self.selection.clear();
         if self.books[self.active].state.mode == Mode::Annotate {
             let data = &self.books[self.active].annotations;
             if !data.ready || data.error.is_some() {
@@ -446,6 +447,9 @@ impl Breeze {
         } else {
             self.gesture[1] = point;
         }
+        if self.books[self.active].state.mode == Mode::Read {
+            self.select_text_range();
+        }
         cx.notify();
     }
     fn draft(&self) -> Option<Annotation> {
@@ -470,20 +474,14 @@ impl Breeze {
                 _ => return None,
             }
         };
-        let region = Rect::between(first, last);
         let quads = if kind.text_markup() {
-            self.preview
-                .as_ref()?
-                .glyphs
-                .iter()
-                .filter(|g| {
-                    region.contains(DocPoint::new(
-                        g.bounds.x + g.bounds.width / 2.,
-                        g.bounds.y + g.bounds.height / 2.,
-                    ))
-                })
-                .map(|g| g.bounds)
-                .collect()
+            let text = &self.preview.as_ref()?.text;
+            let range = text.select(first, last);
+            if kind == Kind::Highlight {
+                text.highlight_rects(range)
+            } else {
+                text.line_rects(range)
+            }
         } else {
             Vec::new()
         };
@@ -518,28 +516,8 @@ impl Breeze {
             self.begin_text_annotation(point, window, cx);
             return;
         }
-        let region = Rect::between(
-            self.gesture[0],
-            *self.gesture.last().unwrap_or(&self.gesture[0]),
-        );
         if self.books[self.active].state.mode == Mode::Read {
-            if let Some(preview) = &self.preview {
-                self.selected_text = preview
-                    .glyphs
-                    .iter()
-                    .filter(|g| {
-                        region.contains(DocPoint::new(
-                            g.bounds.x + g.bounds.width / 2.,
-                            g.bounds.y + g.bounds.height / 2.,
-                        ))
-                    })
-                    .map(|g| g.character)
-                    .collect();
-            }
-            self.message = tf!(
-                "{} characters selected · ⌘/Ctrl+C to copy",
-                self.selected_text.chars().count()
-            );
+            self.commit_text_selection(cx);
         } else if let Some(annotation) = self.draft() {
             match annotation.validate() {
                 Ok(()) => {
@@ -568,6 +546,44 @@ impl Breeze {
         self.gesture.clear();
         cx.notify();
     }
+    /// Draws the range between the gesture's carets. A drag updates it live; the
+    /// status message and the copied text wait for the release.
+    fn select_text_range(&mut self) {
+        let (Some(first), Some(last)) =
+            (self.gesture.first().copied(), self.gesture.last().copied())
+        else {
+            return;
+        };
+        let Some(preview) = &self.preview else {
+            return;
+        };
+        let text = &preview.text;
+        let range = text.select(first, last);
+        self.selection_page = preview.page;
+        self.selection = text.highlight_rects(range.clone());
+        self.selected_text = text.text(range);
+    }
+
+    /// Reports the selection that the release just committed.
+    fn commit_text_selection(&mut self, cx: &mut Context<Self>) {
+        self.select_text_range();
+        self.message = tf!(
+            "{} characters selected · ⌘/Ctrl+C to copy",
+            self.selected_text.chars().count()
+        );
+        cx.notify();
+    }
+
+    /// The selection rectangles to paint on the page being drawn, if any.
+    fn selection_layer(
+        &self,
+        current: usize,
+        geometry: ViewGeometry,
+    ) -> Option<(Vec<Rect>, ViewGeometry)> {
+        (self.selection_page == current && !self.selection.is_empty())
+            .then(|| (self.selection.clone(), geometry))
+    }
+
     pub(super) fn page_surface(
         &self,
         current: usize,
@@ -665,6 +681,33 @@ impl Breeze {
                 }),
             )
             .child(self.raster_surface(current, geometry, cx))
+            .children(
+                self.selection_layer(current, geometry)
+                    .map(|(rects, geometry)| {
+                        canvas(
+                            move |_, _, _| rects,
+                            move |bounds, rects, window, _| {
+                                for rect in &rects {
+                                    paint_doc_rect(
+                                        *rect,
+                                        geometry,
+                                        bounds,
+                                        Rgba {
+                                            a: 0.28,
+                                            ..rgb(annotation_editing::SELECTION_COLOR)
+                                        },
+                                        window,
+                                    );
+                                }
+                            },
+                        )
+                        .absolute()
+                        .top_0()
+                        .left_0()
+                        .size_full()
+                        .into_any_element()
+                    }),
+            )
             .child(
                 div()
                     .id("annotation-overlay")
@@ -785,6 +828,36 @@ fn annotation_polyline(
     Ok(combined.unwrap_or_else(|| gpui_kit::Path::new(Point::default())))
 }
 
+/// Fills one user-space rectangle where the page surface shows it, following the
+/// page's own rotation and the reader's view rotation.
+fn paint_doc_rect(
+    rect: Rect,
+    geometry: ViewGeometry,
+    bounds: Bounds<gpui_kit::Pixels>,
+    color: Rgba,
+    window: &mut Window,
+) {
+    let (w, h) = geometry.size();
+    let sx = f32::from(bounds.size.width) / w;
+    let sy = f32::from(bounds.size.height) / h;
+    let start = geometry.display(DocPoint::new(rect.x, rect.y));
+    let end = geometry.display(DocPoint::new(rect.x + rect.width, rect.y + rect.height));
+    let origin = point(
+        bounds.origin.x + px(start.x.min(end.x) * sx),
+        bounds.origin.y + px(start.y.min(end.y) * sy),
+    );
+    window.paint_quad(fill(
+        Bounds {
+            origin,
+            size: size(
+                px((start.x - end.x).abs() * sx),
+                px((start.y - end.y).abs() * sy),
+            ),
+        },
+        color,
+    ));
+}
+
 fn paint_annotation(
     a: &Annotation,
     geometry: ViewGeometry,
@@ -839,16 +912,7 @@ fn paint_annotation(
         }
     };
     let fill_rect = |r: Rect, window: &mut Window| {
-        let start = map(DocPoint::new(r.x, r.y));
-        let end = map(DocPoint::new(r.x + r.width, r.y + r.height));
-        let origin = point(start.x.min(end.x), start.y.min(end.y));
-        window.paint_quad(fill(
-            Bounds {
-                origin,
-                size: size((start.x - end.x).abs(), (start.y - end.y).abs()),
-            },
-            color,
-        ));
+        paint_doc_rect(r, geometry, bounds, color, window);
     };
     let Some(first) = a.points.first().copied() else {
         return;

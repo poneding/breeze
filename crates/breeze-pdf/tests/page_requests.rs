@@ -107,11 +107,11 @@ fn metadata_has_no_raster_and_a_page_request_has_no_glyphs() {
         .unwrap();
     assert!(metadata.pixels.is_none());
     assert!(metadata.rendered_dpi.is_none());
-    assert!(!metadata.glyphs.is_empty());
+    assert!(!metadata.text.is_empty());
 
     let page = request(&worker, 0, Rotation::None, 2.);
     assert!(page.pixels.is_some());
-    assert!(page.glyphs.is_empty());
+    assert!(page.text.is_empty());
     assert_eq!(page.fingerprint, metadata.fingerprint);
 }
 

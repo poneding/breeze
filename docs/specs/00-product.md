@@ -40,7 +40,7 @@ Single/two-page arrangement and continuous scrolling are independent reading set
 
 ## Prototype baseline
 
-The compact UI direction is accepted. The source PDF remains read-only. The local reader now persists library/settings and reading state, supports search and glyph-bounds selection, and draws/saves independent sidecar annotations. Restricted annotation export is implemented. PDF page content is never edited; see [delivery status](../plans/STATUS.md).
+The compact UI direction is accepted. The source PDF remains read-only. The local reader now persists library/settings and reading state, supports search and reading-order text selection, and draws/saves independent sidecar annotations. Restricted annotation export is implemented. PDF page content is never edited; see [delivery status](../plans/STATUS.md).
 
 A document may belong to multiple user-created categories. Removing a category removes only that membership; a document is Unassigned when it has no category memberships.
 

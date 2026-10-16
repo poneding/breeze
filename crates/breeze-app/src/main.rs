@@ -166,7 +166,7 @@ fn document_format(source: &Source) -> Option<DocumentFormat> {
 struct Preview {
     page: usize,
     geometry: breeze_core::annotations::PageGeometry,
-    glyphs: Vec<breeze_pdf::Glyph>,
+    text: breeze_pdf::PageText,
     text_warning: Option<String>,
     points: (f32, f32),
     outline: Arc<Vec<breeze_pdf::Outline>>,
@@ -198,6 +198,9 @@ struct Breeze {
     category_action_bounds: HashMap<usize, Bounds<gpui_kit::Pixels>>,
     gesture: Vec<breeze_core::annotations::Point>,
     selected_text: String,
+    /// Page the current selection belongs to, and its highlight rectangles.
+    selection_page: usize,
+    selection: Vec<breeze_core::annotations::Rect>,
     search_input: Entity<InputState>,
     search_open: bool,
     search_restore_document_panel_open: Option<bool>,
@@ -374,6 +377,8 @@ impl Breeze {
             category_action_bounds: HashMap::new(),
             gesture: Vec::new(),
             selected_text: String::new(),
+            selection_page: 0,
+            selection: Vec::new(),
             search_input,
             search_open: false,
             search_restore_document_panel_open: None,
@@ -514,6 +519,7 @@ impl Breeze {
         self.pending_fit = None;
         self.gesture.clear();
         self.selected_text.clear();
+        self.selection.clear();
         self.surface_bounds = None;
         self.generation += 1;
         if !self.books[self.active].is_pdf() {
