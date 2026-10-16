@@ -802,8 +802,10 @@ dependencies = [
  "pulldown-cmark",
  "quick-xml 0.42.0",
  "rbook",
+ "ropey",
  "sha2 0.11.0",
  "tempfile",
+ "unicode-segmentation",
  "url",
  "zip",
 ]

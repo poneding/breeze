@@ -7,15 +7,15 @@ record; [design 14](../specs/14-markdown-editor-design.md) defines contracts D1�
 and acceptance gates G1–G6. This plan executes that design rather than reopening
 the candidate selection at every phase.
 
-Research and design documentation are complete. **No editor implementation,
-prototype validation or editor benchmark has been performed.** All code phases
-below are unstarted. Markdown currently remains read-only in the application.
+Research, design and P1 are complete. **P1 source-model tests pass; no editor
+surface, prototype validation or editor benchmark has been performed.** P2–P7
+are unstarted and Markdown remains read-only in the application.
 
 ## Delivery order and readiness
 
 | Phase | Depends on | Concrete deliverable | Exit evidence | Status |
 |---|---|---|---|---|
-| P1 Source model | Design baseline | Source-preserving buffer, transactions, history and source positions | G1 model tests and dependency checks | Not started |
+| P1 Source model | Design baseline | Source-preserving buffer, transactions, history and source positions | G1 model tests and dependency checks | Complete (October 16) |
 | P2 Native feasibility | P1 | One native surface with live/source projection and Chinese composition | G2 prototype evidence; explicit feasibility decision | Not started |
 | P3 Semantic/layout pipeline | P2 passes | Bounded parsing, projection invalidation, viewport and giant-block virtualization | G3 tests and first Release report | Not started |
 | P4 Save and session lifetime | P1; P2 for composition behavior | Conflict-checked saves/recovery and per-tab lifecycle guards | G4 storage and component tests | Not started |

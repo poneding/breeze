@@ -1,4 +1,40 @@
-# Delivery Status
+## October 16 Markdown editor source model (P1)
+
+[Work package 25](25-markdown-live-editing.md) phase P1 is complete; the editor
+surface, semantic pipeline, save workflow and application integration are still
+unstarted. The new `breeze-reflow` Markdown model keeps one valid-UTF-8 source
+buffer with exact bytes, a monotonic revision, a content checkpoint distinct
+from that revision, source-based selection with affinity and a desired visual x,
+atomic multi-range replacement, inverse-delta history and explicit source/
+history/entry budgets.
+
+Ropey `2.0.0-beta.1` (already transitive) is now an explicit pinned dependency
+with the UTF-16 and LF/CR line metrics enabled, and `unicode-segmentation
+1.13.3` is pinned for grapheme movement. `Cargo.lock` changed only by adding
+those two edges to `breeze-reflow`; no GPUI or other dependency moved.
+
+New public API in `breeze-reflow::markdown`: `SourceBuffer`, `EditSession`,
+`EditLimits`, `EditKind`, `Replacement`, `Snapshot`, `Position`, `Selection`,
+`Affinity`. The existing read-only `Document::open/parse` path is unchanged.
+
+Validation in this working tree: `cargo test --workspace --offline` (187 app,
+19 core, 31 PDF with three ignored, 6 reflow unit, 7 EPUB, 13 new Markdown
+editing, 7 storage; exit 0), `cargo clippy --workspace --all-targets --offline
+-- -D warnings` (exit 0), and `rustfmt --edition 2024 --check` on every new or
+changed Markdown file. `cargo fmt --all -- --check` still reports unrelated
+in-progress formatting differences in `crates/breeze-pdf/src/lib.rs` and
+`crates/breeze-pdf/src/text.rs`, which this phase does not touch.
+
+The 13 Markdown tests cover byte preservation for BOM, CRLF/LF/mixed endings,
+front matter, hard-break spaces, final-newline and unknown syntax; invalid UTF-8
+and interior-character offsets; ordering, overlap and stale-revision refusal;
+undo/redo byte and selection restoration; typing coalescing within 500 ms and
+its break conditions; undo-to-saved-checkpoint dirtiness, stale acknowledgements
+and worker-proven equality; refusal before mutation at the undo and source
+budgets; entry-limit eviction; UTF-16 and grapheme round trips for surrogate
+pairs, combining marks and ZWJ sequences; surrounding-line-endings selection;
+and a 120-edit generated sequence that undoes and redoes back to the original
+bytes.
 
 ## October 16 grid cover fallback icon size
 

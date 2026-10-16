@@ -1,4 +1,13 @@
 //! One pull-parse per source revision; complete semantic blocks can be laid out lazily.
+mod buffer;
+mod edit;
+mod history;
+mod positions;
+
+pub use buffer::SourceBuffer;
+pub use edit::{EditKind, EditLimits, EditSession, Replacement, Snapshot};
+pub use positions::{Affinity, Position, Selection};
+
 use crate::{fingerprint, read_bounded};
 use anyhow::{Context, Result, ensure};
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd, html};
