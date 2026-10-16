@@ -1,5 +1,41 @@
 # Delivery Status
 
+## October 16 annotation selection, shape resizing, and eraser removal
+
+The Select annotation button uses Kit's filled primary variant while active and
+exposes its pressed state to accessibility. Selected page annotations use a blue
+outline with a white outer edge instead of the application theme's primary
+color, which could disappear against a white PDF page. Selected text notes also
+use the document-independent blue border.
+
+Ellipses, rectangles, and area highlights expose eight handles with 16-logical-
+pixel hit targets and 8-pixel visible squares. Side handles change one dimension;
+corners change both. Resizing follows the displayed axes through page and reader
+rotation, preserves the opposite edge, clamps to the page and a 0.5-point minimum,
+and commits one undoable history change on release. The preview remains subject
+to the existing source/history identity guards. A pointer that returns to its
+starting position restores the original preview for both moving and resizing.
+
+The eraser button, explanation, settings branch, and ink-erasure event handler
+are removed. The session-only tool indices have been compacted; note, shape,
+line, wave, and arrow dispatch and their settings follow the new indices.
+Selection/Delete and the annotation list still remove annotations explicitly.
+The persisted annotation kinds and sidecar format have not changed.
+
+Validation used an isolated copy of the committed baseline plus these changes,
+excluding unrelated in-progress PDF text-layer and Markdown work. Formatting,
+`cargo test --workspace --locked` (186 app tests and all remaining workspace
+suites), and `cargo clippy --workspace --all-targets --locked -- -D warnings`
+pass. Components exercise all three resizable shapes, a one-step undo/redo,
+constant handle hit size, and the tool palette after eraser removal. Geometry
+tests cover all eight handles, sixteen page/view rotation combinations, minimum
+sizes, and page-edge constraints. `cargo run --locked -p breeze-app` started with
+isolated data under `target/`. Native macOS inspection confirmed the filled
+Select button, clear selection frame and handles on white pages, and an ellipse
+side-handle drag that changes width while keeping height and the opposite edge.
+The inspected window also showed resized rectangle and area-highlight bounds.
+Windows/Linux native interaction remains unverified.
+
 ## October 16 smooth annotation strokes
 
 Native annotation outlines now use round caps and joins with tessellation

@@ -40,7 +40,7 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Reading pointer / search | `mouse-pointer-2` / `search` | `MousePointer2` / `Search` |
 | Text highlight / area highlight | `highlighter` / `scan` | `Highlighter` / `Scan` |
 | Underline / strikeout | `underline` / `strikethrough` | `Underline` / `Strikethrough` |
-| Pen / eraser | `pencil` / `eraser` | `Pencil` / `Eraser` |
+| Pen | `pencil` | `Pencil` |
 | Text annotation | `type` | `Type` |
 | Select annotations | `mouse-pointer-2` | `MousePointer2` |
 | Delete selected annotation | `trash` | `Trash` |

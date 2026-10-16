@@ -27,14 +27,14 @@ These are requirements, not a list of completed prototype features.
 | Home | Recent documents, favorites, and categories using references to local files |
 | Reading | Document tabs, opening PDFs, page navigation, page-number entry, and zoom/fit modes |
 | Navigation | Collapsible embedded outline and thumbnail panel, loaded on demand |
-| Annotations | Text highlight, area highlight, underline, strikeout, pen, eraser, text note, circle, rectangle, line, wavy line, and arrow |
+| Annotations | Text highlight, area highlight, underline, strikeout, pen, text note, circle, rectangle, line, wavy line, and arrow |
 | Settings | Default-file association, language, theme, update policy, opening-window behavior, session restoration, and reading-position restoration |
 
 Single/two-page arrangement and continuous scrolling are independent reading settings, with continuous single-page as the default. Layout and zoom choices are remembered. Text selection is a prerequisite for semantic text markup; consult delivery status for the implemented selection and search subset.
 
 ## Scope boundaries
 
-- The eraser operates on editable annotation ink, not original page content. Whole-stroke erasure is the initial proposal; partial-stroke erasure needs a separate cost/experience decision.
+- Annotation removal uses selection and Delete or the annotation list. The eraser tool was removed at the user's request on October 16, 2026.
 - Text markup follows glyph quadrilaterals. A freehand wavy line is a path, not a text range.
 - Do not add cloud sync, telemetry, AI features, a plugin system, mobile clients, or a browser version without a new requirement.
 

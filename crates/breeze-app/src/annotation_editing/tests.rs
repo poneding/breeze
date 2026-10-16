@@ -1,5 +1,6 @@
 use super::*;
 use breeze_core::Rotation;
+use breeze_core::annotations::PageGeometry;
 use gpui_kit::test::TestAppContextExt;
 use gpui_kit::test::TestWindowExt;
 
@@ -13,6 +14,146 @@ fn squiggle_selection_follows_the_rendered_crest() {
     // former fixed eight-point zigzag's crest near the start.
     assert!(geometry::hit(&a, DocPoint::new(32.5, 58.), 0.1));
     assert!(!geometry::hit(&a, DocPoint::new(32.5, 42.), 0.1));
+}
+
+#[test]
+fn shape_handles_resize_display_axes_across_page_and_reader_rotations() {
+    for kind in [Kind::Ellipse, Kind::Rectangle, Kind::Area] {
+        for rotation in [0, 90, 180, 270] {
+            for reader_rotation in [
+                Rotation::None,
+                Rotation::Right,
+                Rotation::Half,
+                Rotation::Left,
+            ] {
+                let page = PageGeometry {
+                    crop: breeze_core::annotations::Rect {
+                        x: 10.,
+                        y: 20.,
+                        width: 300.,
+                        height: 400.,
+                    },
+                    rotation,
+                };
+                let view = page.view(reader_rotation);
+                let mut original = line();
+                original.kind = kind;
+                original.points = vec![DocPoint::new(60., 80.), DocPoint::new(180., 200.)];
+                let before = geometry::shape_bounds(&original, view).unwrap();
+                for handle in geometry::ResizeHandle::ALL {
+                    let (x, y) = handle.position();
+                    let pointer = view.document(DocPoint::new(
+                        before.x + before.width * x + 17.,
+                        before.y + before.height * y + 23.,
+                    ));
+                    let resized = geometry::resized(&original, handle, pointer, view);
+                    assert!(resized.validate().is_ok());
+                    assert_eq!(resized.color, original.color);
+                    assert_eq!(resized.opacity, original.opacity);
+                    let after = geometry::shape_bounds(&resized, view).unwrap();
+                    assert!((after.x - before.x - if x == 0. { 17. } else { 0. }).abs() < 0.001);
+                    assert!((after.y - before.y - if y == 0. { 23. } else { 0. }).abs() < 0.001);
+                    assert!(
+                        (after.x + after.width
+                            - before.x
+                            - before.width
+                            - if x == 1. { 17. } else { 0. })
+                        .abs()
+                            < 0.001
+                    );
+                    assert!(
+                        (after.y + after.height
+                            - before.y
+                            - before.height
+                            - if y == 1. { 23. } else { 0. })
+                        .abs()
+                            < 0.001
+                    );
+                }
+                for (handle, pointer) in [
+                    (
+                        geometry::ResizeHandle::TopLeft,
+                        DocPoint::new(10_000., 10_000.),
+                    ),
+                    (
+                        geometry::ResizeHandle::BottomRight,
+                        DocPoint::new(-10_000., -10_000.),
+                    ),
+                ] {
+                    let resized =
+                        geometry::resized(&original, handle, view.document(pointer), view);
+                    let bounds = geometry::shape_bounds(&resized, view).unwrap();
+                    assert_eq!(bounds.width, 0.5);
+                    assert_eq!(bounds.height, 0.5);
+                    assert!(resized.validate().is_ok());
+                }
+                let expanded = geometry::resized(
+                    &original,
+                    geometry::ResizeHandle::BottomRight,
+                    view.document(DocPoint::new(10_000., 10_000.)),
+                    view,
+                );
+                let bounds = geometry::shape_bounds(&expanded, view).unwrap();
+                assert_eq!(
+                    (bounds.x + bounds.width, bounds.y + bounds.height),
+                    view.size()
+                );
+            }
+        }
+    }
+}
+
+#[gpui_kit::test]
+fn shape_resize_handles_commit_once_and_undo(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx);
+    cx.update_window(handle, |_, window, cx| {
+        for kind in [Kind::Ellipse, Kind::Rectangle, Kind::Area] {
+            let mut original = line();
+            original.kind = kind;
+            original.points = vec![DocPoint::new(80., 400.), DocPoint::new(220., 600.)];
+            view.update(cx, |view, cx| {
+                view.books[0].annotations.history.items = vec![original.clone()];
+                view.select_annotation(0, window, cx);
+                view.tool = SELECT_TOOL;
+            });
+            window.render_frame(cx);
+            assert!(window.find("annotation-selection-outline").visible());
+            for index in 0..8usize {
+                assert!(window.find(("annotation-resize", index)).visible());
+                assert_eq!(
+                    window.find(("annotation-resize", index)).bounds().size,
+                    size(px(16.), px(16.))
+                );
+            }
+            let revision = view.read(cx).books[0].annotations.history.revision();
+            let start = window.find(("annotation-resize", 3usize)).bounds().center();
+            window.drag(start, start + point(px(35.), px(0.)), cx);
+            let resized = view.read(cx).books[0].annotations.history.items[0].clone();
+            let page = view
+                .read(cx)
+                .view_geometry(view.read(cx).preview.as_ref().unwrap().geometry);
+            let before = geometry::shape_bounds(&original, page).unwrap();
+            let after = geometry::shape_bounds(&resized, page).unwrap();
+            assert!(after.width > before.width);
+            assert_eq!(after.height, before.height);
+            assert_eq!(after.x, before.x);
+            assert_eq!(
+                view.read(cx).books[0].annotations.history.revision(),
+                revision + 1
+            );
+            window.press("secondary-z", cx);
+            assert_eq!(
+                view.read(cx).books[0].annotations.history.items,
+                vec![original]
+            );
+            window.press("secondary-shift-z", cx);
+            assert_eq!(
+                view.read(cx).books[0].annotations.history.items,
+                vec![resized]
+            );
+        }
+    })
+    .unwrap();
 }
 
 fn setup(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
@@ -32,7 +173,7 @@ fn setup(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
         view.books[0].annotations.ready = true;
         view.books[0].state.layout = ReadingLayout::Single;
         view.books[0].state.mode = Mode::Annotate;
-        view.tool = 6;
+        view.tool = 5;
     });
     (handle, view)
 }

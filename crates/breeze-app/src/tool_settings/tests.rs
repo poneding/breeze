@@ -1,6 +1,33 @@
 use super::*;
 use gpui_kit::test::TestWindowExt;
 
+#[gpui_kit::test]
+fn annotation_toolbar_has_no_eraser_and_keeps_note_and_shape_tools(cx: &mut TestAppContext) {
+    let (handle, view) = crate::ui_tests::app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| view.books[0].state.mode = Mode::Annotate);
+        window.render_frame(cx);
+        let tools = annotation_tools();
+        assert_eq!(tools.len(), 11);
+        assert!(!tools.iter().any(|(icon, _)| *icon == IconName::Eraser));
+        for index in 0..11usize {
+            assert!(window.find(("tool", index)).visible());
+        }
+        window.click(("tool", annotation_editing::SELECT_TOOL), cx);
+        window.render_frame(cx);
+        assert_eq!(
+            window
+                .find(("tool", annotation_editing::SELECT_TOOL))
+                .checked(),
+            Some(true)
+        );
+        assert_eq!(tools[5].0, IconName::Type);
+        assert_eq!(tools[6].0, IconName::Circle);
+        assert_eq!(tools[7].0, IconName::Square);
+    })
+    .unwrap();
+}
+
 fn advance(cx: &mut TestAppContext, handle: AnyWindowHandle, milliseconds: u64) {
     cx.executor()
         .advance_clock(Duration::from_millis(milliseconds));
@@ -156,7 +183,7 @@ fn note_settings_are_reachable_without_a_sidebar(cx: &mut TestAppContext) {
     cx.update_window(handle, |_, window, cx| {
         view.update(cx, |view, _| view.books[0].state.mode = Mode::Annotate);
         window.render_frame(cx);
-        window.hover(("tool", 6usize), cx);
+        window.hover(("tool", 5usize), cx);
     })
     .unwrap();
     advance(cx, handle, 400);
@@ -192,13 +219,13 @@ fn numeric_controls_reject_invalid_values_and_discard_old_tool_events(cx: &mut T
     }
     cx.update_window(handle, |_, window, cx| {
         view.update(cx, |view, cx| {
-            view.prepare_tool_controls(ToolKey { index: 9 }, window, cx)
+            view.prepare_tool_controls(ToolKey { index: 8 }, window, cx)
         });
         width.update(cx, |input, cx| input.set_value("7", window, cx));
     })
     .unwrap();
     view.read_with(cx, |view, _| {
         assert_eq!(view.tool_settings.annotation[4].width, 2.);
-        assert_eq!(view.tool_settings.annotation[9].width, 2.);
+        assert_eq!(view.tool_settings.annotation[8].width, 2.);
     });
 }

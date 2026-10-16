@@ -1,6 +1,6 @@
 use crate::*;
 use breeze_core::annotations::ViewGeometry;
-use breeze_core::annotations::{Annotation, Kind, PageGeometry, Point as DocPoint};
+use breeze_core::annotations::{Annotation, Kind, Point as DocPoint};
 use gpui_kit::component::{
     Theme,
     input::NumberInput,
@@ -11,7 +11,9 @@ mod geometry;
 #[cfg(test)]
 mod tests;
 
-pub(super) const SELECT_TOOL: usize = 12;
+pub(super) const SELECT_TOOL: usize = 11;
+// A document can be white even when the application theme's accent is white.
+pub(super) const SELECTION_COLOR: u32 = 0x2563eb;
 
 #[derive(Clone)]
 struct Target {
@@ -57,7 +59,8 @@ struct TextEditor {
 struct MoveDraft {
     start: DocPoint,
     original: Annotation,
-    geometry: PageGeometry,
+    geometry: ViewGeometry,
+    resize: Option<geometry::ResizeHandle>,
 }
 
 #[derive(Default)]
@@ -134,7 +137,7 @@ impl Breeze {
             self.focus_annotation_editor(window, cx);
             return;
         }
-        let style = self.tool_settings.annotation[6];
+        let style = self.tool_settings.annotation[5];
         let annotation = Annotation {
             page: self.books[self.active].state.navigation.page(),
             kind: Kind::Note,
@@ -461,9 +464,39 @@ impl Breeze {
             self.annotation_editing.moving = Some(MoveDraft {
                 start: point,
                 original: selected.preview.clone(),
-                geometry: preview.geometry,
+                geometry: self.view_geometry(preview.geometry),
+                resize: None,
             });
         }
+    }
+
+    fn begin_annotation_resize(
+        &mut self,
+        serial: u64,
+        page: usize,
+        handle: geometry::ResizeHandle,
+        pointer: Point<gpui_kit::Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.commit_selected_annotation(cx);
+        let Some(selected) = self.annotation_editing.selection.as_ref().filter(|s| {
+            s.serial == serial && s.preview.page == page && geometry::resizable(s.preview.kind)
+        }) else {
+            return;
+        };
+        let Some(start) = self.document_pointer(pointer) else {
+            return;
+        };
+        let Some(preview) = &self.preview else { return };
+        self.annotation_editing.moving = Some(MoveDraft {
+            start,
+            original: selected.preview.clone(),
+            geometry: self.view_geometry(preview.geometry),
+            resize: Some(handle),
+        });
+        window.focus(&self.focus, cx);
+        cx.notify();
     }
 
     pub(super) fn move_annotation_pointer(
@@ -476,10 +509,27 @@ impl Breeze {
         };
         if let Some(selected) = &mut self.annotation_editing.selection {
             let delta = DocPoint::new(point.x - moving.start.x, point.y - moving.start.y);
-            if delta.x.hypot(delta.y) > 0.5 {
-                selected.preview = geometry::translated(&moving.original, delta, moving.geometry);
-                cx.notify();
-            }
+            selected.preview = if delta.x.hypot(delta.y) <= 0.5 {
+                moving.original.clone()
+            } else if let Some(handle) = moving.resize {
+                let Some(bounds) = geometry::shape_bounds(&moving.original, moving.geometry) else {
+                    return true;
+                };
+                let (x, y) = handle.position();
+                let anchor = moving.geometry.document(DocPoint::new(
+                    bounds.x + x * bounds.width,
+                    bounds.y + y * bounds.height,
+                ));
+                geometry::resized(
+                    &moving.original,
+                    handle,
+                    DocPoint::new(anchor.x + delta.x, anchor.y + delta.y),
+                    moving.geometry,
+                )
+            } else {
+                geometry::translated(&moving.original, delta, moving.geometry.page)
+            };
+            cx.notify();
         }
         true
     }
@@ -578,7 +628,13 @@ impl Breeze {
             && selected.target.matches(&self.books[self.active])
             && selected.preview.page == page
         {
-            let bounds = geometry::display_bounds(&selected.preview, geometry);
+            let resizable = geometry::resizable(selected.preview.kind);
+            let bounds = if resizable {
+                geometry::shape_bounds(&selected.preview, geometry)
+                    .unwrap_or_else(|| geometry::display_bounds(&selected.preview, geometry))
+            } else {
+                geometry::display_bounds(&selected.preview, geometry)
+            };
             let x = bounds.x / w * width;
             let y = bounds.y / h * height;
             let sw = if selected.preview.kind == Kind::Note {
@@ -594,13 +650,25 @@ impl Breeze {
             if selected.preview.kind != Kind::Note {
                 layers.push(
                     div()
+                        .id("annotation-selection-outline")
+                        .test_support()
                         .absolute()
-                        .left(px(x))
-                        .top(px(y))
-                        .w(px(sw))
-                        .h(px(sh))
+                        .left(px(x - 3.))
+                        .top(px(y - 3.))
+                        .w(px(sw + 6.))
+                        .h(px(sh + 6.))
                         .border_1()
-                        .border_color(Theme::global(cx).primary)
+                        .border_color(rgb(0xffffff))
+                        .child(
+                            div()
+                                .absolute()
+                                .left(px(1.))
+                                .top(px(1.))
+                                .w(px(sw + 4.))
+                                .h(px(sh + 4.))
+                                .border_2()
+                                .border_color(rgb(SELECTION_COLOR)),
+                        )
                         .into_any_element(),
                 );
             }
@@ -621,6 +689,60 @@ impl Breeze {
                         .child(self.selected_annotation_controls(selected, cx))
                         .into_any_element(),
                 );
+            }
+            if resizable {
+                let serial = selected.serial;
+                for (index, handle) in geometry::ResizeHandle::ALL.into_iter().enumerate() {
+                    let (hx, hy) = handle.position();
+                    let cursor = match handle {
+                        geometry::ResizeHandle::Top | geometry::ResizeHandle::Bottom => {
+                            CursorStyle::ResizeUpDown
+                        }
+                        geometry::ResizeHandle::Left | geometry::ResizeHandle::Right => {
+                            CursorStyle::ResizeLeftRight
+                        }
+                        geometry::ResizeHandle::TopLeft | geometry::ResizeHandle::BottomRight => {
+                            CursorStyle::ResizeUpLeftDownRight
+                        }
+                        _ => CursorStyle::ResizeUpRightDownLeft,
+                    };
+                    layers.push(
+                        div()
+                            .id(("annotation-resize", index))
+                            .test_support()
+                            .absolute()
+                            .left(px(x + sw * hx - 8.))
+                            .top(px(y + sh * hy - 8.))
+                            .size(px(16.))
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .occlude()
+                            .cursor(cursor)
+                            .child(
+                                div()
+                                    .size(px(8.))
+                                    .bg(rgb(0xffffff))
+                                    .border_2()
+                                    .border_color(rgb(SELECTION_COLOR)),
+                            )
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                                    cx.stop_propagation();
+                                    this.begin_annotation_resize(
+                                        serial,
+                                        page,
+                                        handle,
+                                        event.position,
+                                        window,
+                                        cx,
+                                    );
+                                }),
+                            )
+                            .into_any_element(),
+                    );
+                }
             }
         }
         layers

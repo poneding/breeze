@@ -11,14 +11,13 @@ use std::time::Duration;
 
 actions!(breeze_tool_settings, [CloseToolSettings]);
 
-pub(super) fn annotation_tools() -> [(IconName, &'static str); 12] {
+pub(super) fn annotation_tools() -> [(IconName, &'static str); 11] {
     [
         (IconName::Highlighter, tr!("Text highlight")),
         (IconName::Scan, tr!("Area highlight")),
         (IconName::Underline, tr!("Underline")),
         (IconName::Strikethrough, tr!("Strikethrough")),
         (IconName::Pencil, tr!("Pen")),
-        (IconName::Eraser, tr!("Eraser")),
         (IconName::Type, tr!("Text note")),
         (IconName::Circle, tr!("Ellipse")),
         (IconName::Square, tr!("Rectangle")),
@@ -50,7 +49,7 @@ impl Default for AnnotationStyle {
 }
 
 pub(super) struct ToolSettings {
-    pub annotation: [AnnotationStyle; 12],
+    pub annotation: [AnnotationStyle; 11],
     keyboard_open: Option<ToolKey>,
     epoch: usize,
     controls: Option<ToolControls>,
@@ -65,7 +64,7 @@ struct ToolControls {
 
 impl Default for ToolSettings {
     fn default() -> Self {
-        let mut annotation = [AnnotationStyle::default(); 12];
+        let mut annotation = [AnnotationStyle::default(); 11];
         for index in [0, 1] {
             annotation[index].color = CategoryColor::Amber;
             annotation[index].opacity = 40;
@@ -114,8 +113,12 @@ impl Breeze {
                         .small()
                         .icon(IconName::MousePointer2)
                         .selected(self.tool == annotation_editing::SELECT_TOOL)
+                        .toggled(self.tool == annotation_editing::SELECT_TOOL)
+                        .when(self.tool == annotation_editing::SELECT_TOOL, |button| {
+                            button.primary()
+                        })
                         .accessibility_label(tr!("Select annotation"))
-                        .tooltip(tr!("Select an annotation to edit, move or delete"))
+                        .tooltip(tr!("Select an annotation to edit, move, resize or delete"))
                         .on_click(cx.listener(|this, _, _, cx| {
                             if !this.annotation_navigation_allowed(cx) {
                                 return;
@@ -219,16 +222,10 @@ impl Breeze {
 
     fn annotation_tool_settings(&self, key: ToolKey, cx: &mut Context<Self>) -> Div {
         let muted = Theme::global(cx).muted_foreground;
-        if key.index == 5 {
-            return div()
-                .text_size(px(12.))
-                .text_color(muted)
-                .child(tr!("Click ink to erase its entire stroke. Original content and other annotations are preserved."));
-        }
         column()
             .gap_3()
             .child(self.tool_color_choices(key, cx))
-            .when(!matches!(key.index, 0 | 1 | 6), |content| {
+            .when(!matches!(key.index, 0 | 1 | 5), |content| {
                 content.child(
                     column()
                         .gap_1()
@@ -245,7 +242,7 @@ impl Breeze {
                 )
             })
             .child(self.tool_opacity_choices(key, cx))
-            .when(key.index == 6, |content| {
+            .when(key.index == 5, |content| {
                 content.child(div().text_size(px(11.)).text_color(muted).child(tr!("Click the page to enter text. Enter finishes; Esc cancels. Exports as a note icon with popup text."
                 )))
             })

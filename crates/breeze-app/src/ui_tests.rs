@@ -632,10 +632,10 @@ fn annotation_gestures_history_and_close_guard(cx: &mut TestAppContext) {
         assert!(view.read(cx).books[0].annotations.history.items.is_empty());
         window.press("secondary-shift-z", cx);
         assert_eq!(view.read(cx).books[0].annotations.history.items.len(), 1);
-        view.update(cx, |view, _| view.tool = 5);
+        view.update(cx, |view, _| view.tool = annotation_editing::SELECT_TOOL);
         window.render_frame(cx);
-        // The eraser hits the stroke's first segment, not the page background.
         window.click_at("page-surface", point(px(40.), px(100.)), cx);
+        window.press("delete", cx);
         assert!(view.read(cx).books[0].annotations.history.items.is_empty());
     })
     .unwrap();
@@ -760,11 +760,11 @@ fn annotation_tool_matrix_creates_real_geometry(cx: &mut TestAppContext) {
             (2, Kind::Underline),
             (3, Kind::Strikeout),
             (4, Kind::Ink),
-            (7, Kind::Ellipse),
-            (8, Kind::Rectangle),
-            (9, Kind::Line),
-            (10, Kind::Squiggle),
-            (11, Kind::Arrow),
+            (6, Kind::Ellipse),
+            (7, Kind::Rectangle),
+            (8, Kind::Line),
+            (9, Kind::Squiggle),
+            (10, Kind::Arrow),
         ] {
             view.update(cx, |view, _| {
                 view.tool = tool;

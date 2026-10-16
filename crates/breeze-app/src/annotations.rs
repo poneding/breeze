@@ -372,7 +372,10 @@ impl Breeze {
         }
         true
     }
-    fn document_pointer(&self, position: gpui_kit::Point<gpui_kit::Pixels>) -> Option<DocPoint> {
+    pub(super) fn document_pointer(
+        &self,
+        position: gpui_kit::Point<gpui_kit::Pixels>,
+    ) -> Option<DocPoint> {
         let bounds = self.surface_bounds?;
         let preview = self.preview.as_ref()?;
         let geometry = self.view_geometry(preview.geometry);
@@ -404,24 +407,6 @@ impl Breeze {
             if !data.ready || data.error.is_some() {
                 self.message =
                     tr!("Annotation file is not ready; check storage or conflict messages").into();
-                cx.notify();
-                return;
-            }
-            if self.tool == 5 {
-                let current = self.books[self.active].state.navigation.page();
-                let data = &mut self.books[self.active].annotations;
-                let target = data.history.items.iter().rposition(|a| {
-                    a.page == current
-                        && a.kind == Kind::Ink
-                        && a.points
-                            .windows(2)
-                            .any(|s| distance_to_segment(point, s[0], s[1]) < 8.)
-                });
-                if let Some(index) = target {
-                    let mut items = data.history.items.clone();
-                    items.remove(index);
-                    data.history.replace(items);
-                }
                 cx.notify();
                 return;
             }
@@ -476,12 +461,12 @@ impl Breeze {
                 2 => Kind::Underline,
                 3 => Kind::Strikeout,
                 4 => Kind::Ink,
-                6 => Kind::Note,
-                7 => Kind::Ellipse,
-                8 => Kind::Rectangle,
-                9 => Kind::Line,
-                10 => Kind::Squiggle,
-                11 => Kind::Arrow,
+                5 => Kind::Note,
+                6 => Kind::Ellipse,
+                7 => Kind::Rectangle,
+                8 => Kind::Line,
+                9 => Kind::Squiggle,
+                10 => Kind::Arrow,
                 _ => return None,
             }
         };
@@ -528,7 +513,7 @@ impl Breeze {
         if self.gesture.is_empty() {
             return;
         }
-        if self.books[self.active].state.mode == Mode::Annotate && self.tool == 6 {
+        if self.books[self.active].state.mode == Mode::Annotate && self.tool == 5 {
             let point = self.gesture[0];
             self.begin_text_annotation(point, window, cx);
             return;
@@ -723,7 +708,7 @@ impl Breeze {
                         .text_size(px(13. * width / w))
                         .border_1()
                         .border_color(if self.is_selected_annotation(index) {
-                            Theme::global(cx).primary
+                            rgb(annotation_editing::SELECTION_COLOR).into()
                         } else {
                             transparent_black()
                         })
@@ -752,12 +737,6 @@ impl Breeze {
             .children(self.annotation_edit_layers(current, geometry, width, height, cx))
             .into_any_element()
     }
-}
-fn distance_to_segment(p: DocPoint, a: DocPoint, b: DocPoint) -> f32 {
-    let dx = b.x - a.x;
-    let dy = b.y - a.y;
-    let t = (((p.x - a.x) * dx + (p.y - a.y) * dy) / (dx * dx + dy * dy).max(0.001)).clamp(0., 1.);
-    ((p.x - a.x - t * dx).powi(2) + (p.y - a.y - t * dy).powi(2)).sqrt()
 }
 fn annotation_stroke(width: f32, device_scale: f32) -> PathBuilder {
     PathBuilder::stroke(px(width)).with_style(PathStyle::Stroke(

@@ -1,5 +1,94 @@
 use breeze_core::annotations::{Annotation, Kind, PageGeometry, Point, Rect, ViewGeometry, curves};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ResizeHandle {
+    TopLeft,
+    Top,
+    TopRight,
+    Right,
+    BottomRight,
+    Bottom,
+    BottomLeft,
+    Left,
+}
+
+impl ResizeHandle {
+    pub const ALL: [Self; 8] = [
+        Self::TopLeft,
+        Self::Top,
+        Self::TopRight,
+        Self::Right,
+        Self::BottomRight,
+        Self::Bottom,
+        Self::BottomLeft,
+        Self::Left,
+    ];
+
+    pub fn position(self) -> (f32, f32) {
+        match self {
+            Self::TopLeft => (0., 0.),
+            Self::Top => (0.5, 0.),
+            Self::TopRight => (1., 0.),
+            Self::Right => (1., 0.5),
+            Self::BottomRight => (1., 1.),
+            Self::Bottom => (0.5, 1.),
+            Self::BottomLeft => (0., 1.),
+            Self::Left => (0., 0.5),
+        }
+    }
+}
+
+pub(super) fn resizable(kind: Kind) -> bool {
+    matches!(kind, Kind::Area | Kind::Rectangle | Kind::Ellipse)
+}
+
+pub(super) fn shape_bounds(annotation: &Annotation, geometry: ViewGeometry) -> Option<Rect> {
+    Some(Rect::between(
+        geometry.display(*annotation.points.first()?),
+        geometry.display(*annotation.points.last()?),
+    ))
+}
+
+/// Resize in displayed page axes, then map back to unrotated document points.
+/// The opposite edge remains fixed; crossing it stops at the minimum size.
+pub(super) fn resized(
+    annotation: &Annotation,
+    handle: ResizeHandle,
+    pointer: Point,
+    geometry: ViewGeometry,
+) -> Annotation {
+    let Some(bounds) = shape_bounds(annotation, geometry).filter(|_| resizable(annotation.kind))
+    else {
+        return annotation.clone();
+    };
+    let pointer = geometry.display(pointer);
+    if !pointer.x.is_finite() || !pointer.y.is_finite() {
+        return annotation.clone();
+    }
+    let (width, height) = geometry.size();
+    let (x, y) = handle.position();
+    let mut left = bounds.x;
+    let mut right = bounds.x + bounds.width;
+    let mut top = bounds.y;
+    let mut bottom = bounds.y + bounds.height;
+    if x == 0. {
+        left = pointer.x.max(0.).min(right - 0.5);
+    } else if x == 1. {
+        right = pointer.x.min(width).max(left + 0.5);
+    }
+    if y == 0. {
+        top = pointer.y.max(0.).min(bottom - 0.5);
+    } else if y == 1. {
+        bottom = pointer.y.min(height).max(top + 0.5);
+    }
+    let mut resized = annotation.clone();
+    resized.points = vec![
+        geometry.document(Point::new(left, top)),
+        geometry.document(Point::new(right, bottom)),
+    ];
+    resized
+}
+
 pub(super) fn segment_distance(p: Point, a: Point, b: Point) -> f32 {
     let dx = b.x - a.x;
     let dy = b.y - a.y;
