@@ -1,3 +1,22 @@
+## October 16 page-turn buttons removed
+
+The PDF and EPUB status bars no longer show Previous Page or Next Page arrow
+buttons. Their layouts now start with the reading position, and the PDF page
+field, jump button, rotation, layout, zoom, and fullscreen controls are
+unchanged. Page turning stays on the keyboard through Page Up/Page Down and the
+horizontal arrow keys, and the EPUB rapid-turn queue is still covered by a test
+that now drives five `pagedown` presses.
+
+Retired with the buttons: the PDF `visible` page-range computation that only fed
+their disabled state, and the EPUB `reflow_page_bounds` endpoint helper.
+
+Validation in a clean worktree at `71b4c24`: formatting, the full workspace
+suite (201 app tests, plus the other crates), and Clippy with warnings denied
+pass. A native macOS check confirmed the PDF status bar shows `1 / 8` with the
+page field and jump button but no arrows, Right Arrow still advances to page 2,
+and the EPUB status bar shows `2 / 12` with Page Down still turning the page.
+Windows and Linux native checks remain open.
+
 ## October 16 Markdown semantic pipeline and virtualized layout (P3)
 
 [Work package 25](25-markdown-live-editing.md) phase P3 is complete for the

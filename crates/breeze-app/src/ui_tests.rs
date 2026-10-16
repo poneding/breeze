@@ -1032,6 +1032,14 @@ fn chrome_heights_and_left_navigation_are_preserved(cx: &mut TestAppContext) {
         assert_eq!(window.find("reader-toolbar").bounds().size.height, px(34.));
         assert_eq!(window.find("status-scroll").bounds().size.height, px(32.));
         assert_eq!(window.find("home-tab").bounds().size.height, px(22.5));
+        assert!(
+            window.try_find("previous").is_none(),
+            "the PDF status bar still shows a previous-page button"
+        );
+        assert!(
+            window.try_find("next").is_none(),
+            "the PDF status bar still shows a next-page button"
+        );
         view.update(cx, |view, cx| view.show_home(cx));
         window.render_frame(cx);
         let button = window.find(("library-nav", 0usize)).bounds();
@@ -2955,7 +2963,7 @@ fn reflow_outline_matches_the_pdf_outline_style(cx: &mut TestAppContext) {
     .unwrap();
 }
 
-/// Markdown scrolls, so it has no page-turn control, and the status bar carries
+/// Markdown scrolls, so it has no page-turn buttons, and the status bar carries
 /// a stateful width toggle between the readable measure and the full window.
 #[gpui_kit::test]
 fn markdown_has_no_paging_and_toggles_its_reading_width(cx: &mut TestAppContext) {
@@ -3213,12 +3221,11 @@ fn epub_fixture(paragraphs: usize) -> Vec<u8> {
     archive.finish().unwrap().into_inner()
 }
 
-/// EPUB paging lives in the status bar only: the toolbar keeps the global
-/// commands, the page buttons next to the reading position carry the Page Up and
-/// Page Down bindings into their tooltips, and the position reads as
-/// `page / pages` rather than naming the chapter.
+/// EPUB paging is keyboard-only: the toolbar keeps the global commands, the
+/// status bar shows the reading position without page-turn buttons, and the
+/// Page Up and Page Down commands remain bound.
 #[gpui_kit::test]
-fn epub_page_controls_live_in_the_status_bar(cx: &mut TestAppContext) {
+fn epub_paging_has_no_status_bar_buttons(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("pages.epub");
     std::fs::write(&path, epub_multi_chapter_fixture(6, 40)).unwrap();
@@ -3245,28 +3252,13 @@ fn epub_page_controls_live_in_the_status_bar(cx: &mut TestAppContext) {
             assert!(window.try_find(id).is_some(), "{id} left the toolbar");
         }
 
-        // Both page buttons belong to the status bar.
-        let status = window.find("reflow-status").bounds();
-        for id in ["reflow-previous", "reflow-next"] {
-            let button = window.find(id).bounds();
-            assert!(
-                button.top() >= status.top() && button.bottom() <= status.bottom(),
-                "{id} {button:?} is not inside the status bar {status:?}"
-            );
-        }
-        // Their labels are the actions' labels, which is what the tooltip shows
-        // beside the shortcut.
-        assert_eq!(
-            window.find("reflow-previous").label(),
-            Some(i18n::text("Previous page"))
-        );
-        assert_eq!(
-            window.find("reflow-next").label(),
-            Some(i18n::text("Next page"))
-        );
-        for (id, action) in [
-            ("reflow-previous", &PreviousPage as &dyn Action),
-            ("reflow-next", &NextPage),
+        // Page turns remain available from the keyboard, but the status bar
+        // no longer shows arrow buttons.
+        assert!(window.try_find("reflow-previous").is_none());
+        assert!(window.try_find("reflow-next").is_none());
+        for (label, action) in [
+            ("Previous page", &PreviousPage as &dyn Action),
+            ("Next page", &NextPage),
         ] {
             assert!(
                 window
@@ -3275,7 +3267,7 @@ fn epub_page_controls_live_in_the_status_bar(cx: &mut TestAppContext) {
                         gpui_kit::KeyContext::parse("Breeze").unwrap(),
                     )
                     .is_some(),
-                "{id} has no shortcut to show in its tooltip"
+                "{label} has no keyboard binding"
             );
         }
 
@@ -3292,22 +3284,17 @@ fn epub_page_controls_live_in_the_status_bar(cx: &mut TestAppContext) {
         let page: usize = page.parse().unwrap();
         let pages: usize = pages.parse().unwrap();
         assert!(pages >= 1 && (1..=pages).contains(&page), "{position}");
-
-        // The first page of the book is the start of the book: asking to go
-        // back leaves the reader where it is.
         assert_eq!(page, 1);
-        window.click("reflow-previous", cx);
-        window.render_frame(cx);
     })
     .unwrap();
 }
 
-/// Clicking the page buttons faster than a page renders must not drop clicks.
-/// A turn is resolved against a landed frame, so a click that arrived while the
-/// previous page was still rendering used to rebuild the same request and be
-/// discarded: five clicks advanced one page.
+/// Page turns requested faster than a page renders must not be dropped.
+/// A turn is resolved against a landed frame, so a request that arrived while
+/// the previous page was still rendering used to rebuild the same request and
+/// be discarded: five presses advanced one page.
 #[gpui_kit::test]
-fn rapid_page_clicks_all_land(cx: &mut TestAppContext) {
+fn rapid_page_turns_all_land(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("chapters.epub");
     // Two short paragraphs per chapter: each chapter is exactly one page, so
@@ -3327,16 +3314,16 @@ fn rapid_page_clicks_all_land(cx: &mut TestAppContext) {
         "the EPUB never produced its first chapter"
     );
 
-    // Five clicks on the real status-bar button, with no waiting in between.
+    // Five Page Down presses with no waiting in between.
     cx.update_window(handle, |_, window, cx| {
         for _ in 0..5 {
-            window.click("reflow-next", cx);
+            window.press("pagedown", cx);
         }
     })
     .unwrap();
     assert!(
         wait_for_epub(cx, handle, &view, |frame| frame.chapter == 5),
-        "five rapid clicks landed on chapter {:?}, not 5",
+        "five rapid page turns landed on chapter {:?}, not 5",
         cx.update_window(handle, |_, _, cx| {
             view.read(cx).reflow.frame.as_ref().map(|f| f.chapter)
         })
@@ -3445,7 +3432,7 @@ fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
         );
 
         // Turning once advances a whole spread.
-        window.click("reflow-next", cx);
+        window.press("pagedown", cx);
     })
     .unwrap();
     assert!(

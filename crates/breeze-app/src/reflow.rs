@@ -891,23 +891,8 @@ impl Breeze {
                     .border_t_1()
                     .border_color(p.line)
                     .bg(p.bg)
-                    // Paging belongs to fixed pages only; Markdown scrolls, so
-                    // the status bar starts with the reading position there.
-                    // These are the reader's only page controls: the labels carry
-                    // the Page Up and Page Down bindings into their tooltips.
-                    .when(epub, |bar| {
-                        let (first, _) = self.reflow_page_bounds();
-                        bar.child(
-                            self.command(
-                                "reflow-previous",
-                                IconName::ChevronLeft,
-                                tr!("Previous page"),
-                                &PreviousPage,
-                                cx,
-                            )
-                            .disabled(first),
-                        )
-                    })
+                    // Page turns stay on the keyboard; the status bar starts
+                    // with the reading position.
                     .when(
                         self.books[self.active].markdown_editing
                             && self.books[self.active].markdown_edit.is_some(),
@@ -937,19 +922,6 @@ impl Breeze {
                             // assistive technology and for the tests that pin it.
                             .aria_label(position.clone())
                             .child(position)
-                    })
-                    .when(epub, |bar| {
-                        let (_, last) = self.reflow_page_bounds();
-                        bar.child(
-                            self.command(
-                                "reflow-next",
-                                IconName::ChevronRight,
-                                tr!("Next page"),
-                                &NextPage,
-                                cx,
-                            )
-                            .disabled(last),
-                        )
                     })
                     .child(
                         div()
@@ -1094,9 +1066,8 @@ impl Breeze {
     ///
     /// EPUB is paginated one chapter at a time — laying out the whole book to
     /// number its pages would cost what the chapter-local design exists to avoid
-    /// — so the count is the page within the open chapter, which is exactly what
-    /// the page-turn controls beside it move between. Markdown has no pages and
-    /// keeps reporting its reading progress.
+    /// — so the count is the page within the open chapter. Markdown has no pages
+    /// and keeps reporting its reading progress.
     fn reflow_position_text(&self) -> String {
         if let Some(frame) = &self.reflow.frame {
             let left = frame.chapter_page + 1;
@@ -1108,18 +1079,6 @@ impl Breeze {
             };
         }
         format!("{:.0}%", self.books[self.active].reflow.progress * 100.)
-    }
-
-    /// Whether the page controls have somewhere to go, so the ends of the book
-    /// read as the ends of the book.
-    fn reflow_page_bounds(&self) -> (bool, bool) {
-        let Some(frame) = &self.reflow.frame else {
-            return (true, true);
-        };
-        let first = frame.chapter == 0 && frame.chapter_page == 0;
-        let last_chapter = frame.chapter + 1 == frame.metadata.chapters.len();
-        let last = last_chapter && frame.chapter_page + frame.columns >= frame.chapter_pages;
-        (first, last)
     }
 
     /// The one status notice the reflow reader shows, or `None` when there is

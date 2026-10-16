@@ -396,7 +396,6 @@ impl Breeze {
     fn status(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let p = self.p(cx);
         let s = &self.books[self.active].state;
-        let visible = s.layout.pages(s.navigation.page(), s.navigation.total());
         row()
             .id("status-scroll")
             .test_support()
@@ -408,31 +407,11 @@ impl Breeze {
             .border_t_1()
             .border_color(p.line)
             .bg(p.bg)
-            .child(
-                self.command(
-                    "previous",
-                    IconName::ChevronLeft,
-                    tr!("Previous page"),
-                    &PreviousPage,
-                    cx,
-                )
-                .disabled(visible.start == 0),
-            )
             .child(div().text_size(px(12.)).child(format!(
                 "{} / {}",
                 s.navigation.page() + 1,
                 s.navigation.total()
             )))
-            .child(
-                self.command(
-                    "next",
-                    IconName::ChevronRight,
-                    tr!("Next page"),
-                    &NextPage,
-                    cx,
-                )
-                .disabled(visible.end == s.navigation.total()),
-            )
             .child(div().w(px(42.)).child(Input::new(&self.page_input).small()))
             .child(
                 Button::new("jump")
