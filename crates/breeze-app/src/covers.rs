@@ -265,6 +265,8 @@ mod tests {
                     opened: false,
                     last_opened: 0,
                     annotations: DocumentAnnotations::default(),
+                    markdown_edit: None,
+                    markdown_editing: false,
                 });
                 view.show_home(cx);
                 view.library_grid = false;

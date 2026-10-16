@@ -37,6 +37,8 @@ pub(super) fn app(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) 
                         opened: false,
                         last_opened: 0,
                         annotations: DocumentAnnotations::default(),
+                        markdown_edit: None,
+                        markdown_editing: false,
                     });
                     view.screen = Screen::Reader;
                     view.books[0].opened = true;
@@ -1376,6 +1378,8 @@ fn tab_close_is_hover_only_and_does_not_activate_its_document(cx: &mut TestAppCo
                 opened: true,
                 last_opened: 0,
                 annotations: DocumentAnnotations::default(),
+                markdown_edit: None,
+                markdown_editing: false,
             });
         });
         window.render_frame(cx);
@@ -1427,6 +1431,8 @@ fn document_tabs_compress_without_covering_titlebar_controls(cx: &mut TestAppCon
                     opened: true,
                     last_opened: 0,
                     annotations: DocumentAnnotations::default(),
+                    markdown_edit: None,
+                    markdown_editing: false,
                 }));
             });
         })
@@ -1534,6 +1540,8 @@ fn short_document_titles_use_content_width_and_leave_room_for_shadow(cx: &mut Te
                     opened: true,
                     last_opened: 0,
                     annotations: DocumentAnnotations::default(),
+                    markdown_edit: None,
+                    markdown_editing: false,
                 });
             }
             view.active = 2;
@@ -3507,4 +3515,79 @@ fn epub_multi_chapter_fixture(chapters: usize, paragraphs: usize) -> Vec<u8> {
         );
     }
     archive.finish().unwrap().into_inner()
+}
+
+/// Markdown editing happens inside the reader's content area.
+///
+/// The content region swaps between the read-only text and the editable
+/// surface; the title bar, tabs, navigation panel, toolbar and status bar are
+/// the reader's own and must stay in place. Entering edit mode creates the
+/// draft session once and leaving it keeps that session.
+#[gpui_kit::test]
+fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("notes.md");
+    std::fs::write(&path, "# Title\n\nBody **bold** text\n").unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "notes.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            view.read(cx).books[0].format(),
+            Some(DocumentFormat::Markdown)
+        );
+        // Reading mode: the read-only text owns the content area.
+        assert!(!view.read(cx).books[0].markdown_editing);
+        assert!(window.try_find("markdown-measure").is_some());
+        assert!(window.try_find("markdown-editor").is_none());
+
+        // Entering edit mode keeps the reader chrome and mounts the surface in
+        // the same content region.
+        window.click("markdown-edit-toggle", cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).books[0].markdown_editing);
+        assert!(
+            window.try_find("reader-toolbar").is_some(),
+            "the reader toolbar must stay in edit mode"
+        );
+        assert!(
+            window.try_find("reflow-status").is_some(),
+            "the shared status bar must stay in edit mode"
+        );
+        assert!(window.try_find("markdown-editor").is_some());
+        assert!(window.try_find("markdown-measure").is_some());
+        let session = view.read(cx).books[0]
+            .markdown_edit
+            .clone()
+            .expect("entering edit mode creates the session");
+        assert!(!session.read(cx).dirty());
+
+        // The live/source toggle lives in the reader toolbar and does not edit.
+        window.click("markdown-source-view", cx);
+        window.render_frame(cx);
+        assert_eq!(session.read(cx).view(), markdown_editor::EditView::Source);
+        assert!(!session.read(cx).dirty(), "switching views must not edit");
+        window.click("markdown-live-view", cx);
+        window.render_frame(cx);
+        assert_eq!(session.read(cx).view(), markdown_editor::EditView::Live);
+
+        // Leaving edit mode returns to reading but keeps the draft session.
+        window.click("markdown-edit-toggle", cx);
+        window.render_frame(cx);
+        assert!(!view.read(cx).books[0].markdown_editing);
+        assert!(window.try_find("markdown-editor").is_none());
+        assert!(
+            view.read(cx).books[0].markdown_edit.is_some(),
+            "the draft session must survive leaving edit mode"
+        );
+    })
+    .unwrap();
 }

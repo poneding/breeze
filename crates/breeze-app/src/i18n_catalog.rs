@@ -1,6 +1,19 @@
 // Application-owned messages. English is the source language and the key;
 // every translation keeps the same ordered `{}` slots.
 catalog! {
+    "Edit document" => ("编辑文档", "編輯文件"),
+    "Reading view" => ("阅读视图", "閱讀檢視"),
+    "Live formatting" => ("即时排版", "即時排版"),
+    "Markdown source" => ("Markdown 源码", "Markdown 原始碼"),
+    "Live view" => ("即时视图", "即時檢視"),
+    "Source view" => ("源码视图", "原始碼檢視"),
+    "modified" => ("已修改", "已修改"),
+    "composing" => ("输入中", "輸入中"),
+    "{} undo" => ("{} 步撤销", "{} 步復原"),
+    "Editing needs a Markdown file on disk" => ("编辑需要磁盘上的 Markdown 文件", "編輯需要磁碟上的 Markdown 檔案"),
+    "Cannot edit {}: {}" => ("无法编辑 {}：{}", "無法編輯 {}：{}"),
+    "This edit exceeds the document limit" => ("此编辑超出文档限制", "此編輯超出文件限制"),
+    "This Markdown draft has unsaved changes. Closing again discards them; saving arrives in a later phase." => ("这份 Markdown 草稿有未保存的修改。再次关闭将丢弃修改；保存功能将在后续阶段实现。", "這份 Markdown 草稿有未儲存的修改。再次關閉將捨棄修改；儲存功能將在後續階段實作。"),
     "Page rendering failed; some content could not be displayed" => ("页面渲染失败，部分内容无法显示", "頁面渲染失敗，部分內容無法顯示"),
     "Only PDF documents are supported" => ("当前仅支持 PDF；其他格式尚未接入", "目前僅支援 PDF；其他格式尚未接入"),
     "Cannot open {}" => ("无法打开 {}", "無法開啟 {}"),

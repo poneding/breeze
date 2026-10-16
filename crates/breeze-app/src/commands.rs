@@ -294,6 +294,22 @@ impl Breeze {
             cx.notify();
             return;
         }
+        if self.books[index]
+            .markdown_edit
+            .as_ref()
+            .is_some_and(|editor| editor.read(cx).dirty())
+        {
+            if self.pending_markdown_discard != Some(index) {
+                self.pending_markdown_discard = Some(index);
+                self.message = tr!(
+                    "This Markdown draft has unsaved changes. Closing again discards them; saving arrives in a later phase."
+                )
+                .into();
+                cx.notify();
+                return;
+            }
+            self.pending_markdown_discard = None;
+        }
         self.books[index].opened = false;
         if self.active == index {
             if let Some(next) = self.books.iter().position(|b| b.opened) {

@@ -1,3 +1,54 @@
+## October 16 Markdown live editing in the reader content area (P2)
+
+[Work package 25](25-markdown-live-editing.md) phase P2 now runs inside the
+reader: a Markdown tab shows a pencil button in its existing 34 px toolbar, and
+pressing it swaps the read-only text in the same content region for the native
+editing surface. The title bar and document tabs, navigation panel, toolbar and
+32 px status bar stay the reader's own. A second, separate editor window was an
+earlier development harness and has been removed.
+
+The draft session is created on first entry and kept in the tab while it stays
+open, so leaving edit mode, reading, or switching tabs does not discard it.
+Closing a tab with unsaved Markdown requires a second confirmation and states
+that saving arrives in a later phase. Live and source projections share one
+source buffer, selection and undo history; switching between them changes no
+bytes. The status bar reports the projection, undo depth, modified state and
+whether a native composition is in progress.
+
+`breeze-reflow` gained the pure projection layer used by the surface:
+`Projection::{source,live,build_with_literal}`, `ProjectionMode`, `BlockKind`,
+`DisplayLine`, `DisplayRun` and `RunStyle`. It hides and reveals ATX heading,
+quote, list, fence and non-nested inline markers by mapping source byte ranges
+onto display ranges, and keeps every unsupported construct editable as literal
+source. `EditSession` gained `empty`, `begin_composition`, `apply_composition`,
+`commit_composition`, `cancel_composition` and `composition_range`, so repeated
+IME marked-text updates preview without entering history and commit as one
+undoable entry; a cancelled composition restores the original bytes and
+selection. `SourceBuffer` gained `Default`.
+
+`breeze-app::markdown_editor` is the native surface: a GPUI `Element` that shapes
+and wraps the projection, paints selection and caret, hit-tests pointers,
+scrolls, and implements `EntityInputHandler` for text, marked text, range
+replacement, caret bounds and UTF-16 conversion. `MarkdownEditor` keys its layout
+cache by revision, projection and width; the initial cursor sits at offset zero,
+so the heading marker is revealed until the caret leaves it.
+
+Validation in an isolated checkout of this change, excluding unrelated
+in-progress `breeze-pdf` work: `cargo test --workspace --offline` (193 app, 19
+core, 31 PDF with three ignored, 6 reflow unit, 7 EPUB, 16 Markdown editing, 8
+Markdown projection, 7 storage; exit 0) and `cargo clippy --workspace
+--all-targets --offline -- -D warnings` (exit 0). Four new app component tests
+cover live/source switching, composition commit/cancel, grapheme and CJK caret
+movement with bounds/hit-test inversion, and typing plus undo. Two more cover
+click clamping outside the text and the reader-content-area integration. Native
+macOS inspection of an isolated `BREEZE_DATA_DIR` confirmed the rendered surface
+inside the reader chrome with an outline panel and the shared status bar.
+
+Recorded limits for this phase: the projection is rebuilt on the UI thread and
+materializes the source, the whole document is laid out without virtualization,
+there is no background parse, no save, and no table or image editing. Those are
+P3–P6 work. Windows and Linux native input checks remain open.
+
 ## October 16 Markdown editor source model (P1)
 
 [Work package 25](25-markdown-live-editing.md) phase P1 is complete; the editor

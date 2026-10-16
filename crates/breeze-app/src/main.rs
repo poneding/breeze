@@ -23,6 +23,7 @@ mod document_icons;
 mod document_panel;
 mod errors;
 mod home;
+mod markdown_editor;
 mod open_events;
 mod raster;
 mod reader;
@@ -124,6 +125,11 @@ struct Book {
     opened: bool,
     last_opened: u64,
     annotations: DocumentAnnotations,
+    /// Markdown draft session for this tab; created on first edit and kept
+    /// while the tab is open so switching tabs or reading does not lose it.
+    markdown_edit: Option<Entity<markdown_editor::MarkdownEditor>>,
+    /// Whether the tab is showing the editable surface in its content area.
+    markdown_editing: bool,
 }
 impl Book {
     fn format(&self) -> Option<DocumentFormat> {
@@ -131,6 +137,9 @@ impl Book {
     }
     fn is_pdf(&self) -> bool {
         self.format() == Some(DocumentFormat::Pdf)
+    }
+    fn is_markdown(&self) -> bool {
+        self.format() == Some(DocumentFormat::Markdown)
     }
     fn format_label(&self) -> &'static str {
         self.format()
@@ -211,6 +220,8 @@ struct Breeze {
     /// loading. Restore replaces the whole library, so they wait for it.
     pending_opens: Vec<PathBuf>,
     screen: Screen,
+    /// Tab index whose unsaved Markdown draft the next close may discard.
+    pending_markdown_discard: Option<usize>,
     home_page: HomePage,
     brand_logo: Option<Arc<RenderImage>>,
     system_appearance: WindowAppearance,
@@ -390,6 +401,7 @@ impl Breeze {
             active: 0,
             pending_opens: Vec::new(),
             screen: Screen::Home,
+            pending_markdown_discard: None,
             home_page: HomePage::Library,
             brand_logo: about::brand_logo(),
             system_appearance: window.appearance(),
@@ -754,6 +766,8 @@ impl Breeze {
             opened: false,
             last_opened: 0,
             annotations: DocumentAnnotations::default(),
+            markdown_edit: None,
+            markdown_editing: false,
             reflow: ReflowState::default(),
         });
         self.open_book(self.books.len() - 1, cx);
@@ -1092,6 +1106,7 @@ impl Render for Breeze {
             }))
             .children(chrome)
             .child(body)
+            .into_any_element()
     }
 }
 fn texture(p: Pixels) -> Result<Arc<RenderImage>> {

@@ -408,6 +408,8 @@ impl Breeze {
                         path: b.annotation_path,
                         ..Default::default()
                     },
+                    markdown_edit: None,
+                    markdown_editing: false,
                 }
             })
             .collect();

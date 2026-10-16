@@ -7,16 +7,18 @@ record; [design 14](../specs/14-markdown-editor-design.md) defines contracts D1�
 and acceptance gates G1–G6. This plan executes that design rather than reopening
 the candidate selection at every phase.
 
-Research, design and P1 are complete. **P1 source-model tests pass; no editor
-surface, prototype validation or editor benchmark has been performed.** P2–P7
-are unstarted and Markdown remains read-only in the application.
+Research, design, P1 and P2 are complete. **The editing surface runs inside the
+reader content area and passes component plus native macOS checks.** P3–P7 are
+unstarted: there is no background parse, virtualized layout, save workflow,
+table/image editing or editor benchmark yet, and Markdown drafts cannot be saved
+from the application.
 
 ## Delivery order and readiness
 
 | Phase | Depends on | Concrete deliverable | Exit evidence | Status |
 |---|---|---|---|---|
 | P1 Source model | Design baseline | Source-preserving buffer, transactions, history and source positions | G1 model tests and dependency checks | Complete (October 16) |
-| P2 Native feasibility | P1 | One native surface with live/source projection and Chinese composition | G2 prototype evidence; explicit feasibility decision | Not started |
+| P2 Native feasibility | P1 | One native surface with live/source projection and Chinese composition | G2 prototype evidence; explicit feasibility decision | Complete (October 16, native macOS; Windows/Linux open) |
 | P3 Semantic/layout pipeline | P2 passes | Bounded parsing, projection invalidation, viewport and giant-block virtualization | G3 tests and first Release report | Not started |
 | P4 Save and session lifetime | P1; P2 for composition behavior | Conflict-checked saves/recovery and per-tab lifecycle guards | G4 storage and component tests | Not started |
 | P5 Core authoring integration | P2, P3, P4 | Usable core live editing in the application | G1–G5 core authoring evidence | Not started |

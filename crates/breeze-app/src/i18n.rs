@@ -327,6 +327,7 @@ mod tests {
             include_str!("search.rs"),
             include_str!("reading.rs"),
             include_str!("reflow.rs"),
+            include_str!("markdown_editor.rs"),
             include_str!("reflow_images.rs"),
             include_str!("raster.rs"),
             include_str!("covers.rs"),

@@ -778,6 +778,74 @@ impl Breeze {
                             cx,
                         ))
                     })
+                    // Markdown authors in the same content area the reader uses;
+                    // these controls stay inside the existing toolbar.
+                    .when(self.books[self.active].is_markdown(), |bar| {
+                        let editing = self.books[self.active].markdown_editing;
+                        bar.child(
+                            Button::new("markdown-edit-toggle")
+                                .ghost()
+                                .small()
+                                .icon(if editing {
+                                    IconName::BookOpenText
+                                } else {
+                                    IconName::Pencil
+                                })
+                                .selected(editing)
+                                .accessibility_label(if editing {
+                                    tr!("Reading view")
+                                } else {
+                                    tr!("Edit document")
+                                })
+                                .tooltip(if editing {
+                                    tr!("Reading view")
+                                } else {
+                                    tr!("Edit document")
+                                })
+                                .on_click(cx.listener(|this, _, window, cx| {
+                                    this.toggle_markdown_editing(window, cx)
+                                })),
+                        )
+                    })
+                    .when(
+                        self.books[self.active].is_markdown()
+                            && self.books[self.active].markdown_editing,
+                        |bar| {
+                            let view = self.books[self.active]
+                                .markdown_edit
+                                .as_ref()
+                                .map(|editor| editor.read(cx).view());
+                            let live = view == Some(markdown_editor::EditView::Live);
+                            let source = view == Some(markdown_editor::EditView::Source);
+                            bar.child(
+                                Button::new("markdown-live-view")
+                                    .ghost()
+                                    .small()
+                                    .selected(live)
+                                    .accessibility_label(tr!("Live formatting"))
+                                    .tooltip(tr!("Live formatting"))
+                                    .child(IconName::Type)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.set_markdown_view(markdown_editor::EditView::Live, cx)
+                                    })),
+                            )
+                            .child(
+                                Button::new("markdown-source-view")
+                                    .ghost()
+                                    .small()
+                                    .selected(source)
+                                    .accessibility_label(tr!("Markdown source"))
+                                    .tooltip(tr!("Markdown source"))
+                                    .child(IconName::TextCursorInput)
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.set_markdown_view(
+                                            markdown_editor::EditView::Source,
+                                            cx,
+                                        )
+                                    })),
+                            )
+                        },
+                    )
                     .child(div().flex_1())
                     .child(
                         self.command(
@@ -840,6 +908,24 @@ impl Breeze {
                             .disabled(first),
                         )
                     })
+                    .when(
+                        self.books[self.active].markdown_editing
+                            && self.books[self.active].markdown_edit.is_some(),
+                        |bar| {
+                            let status = self.books[self.active]
+                                .markdown_edit
+                                .as_ref()
+                                .map(|editor| editor.read(cx).status());
+                            bar.child(
+                                div()
+                                    .id("markdown-editor-status")
+                                    .test_support()
+                                    .text_size(px(11.))
+                                    .text_color(p.muted)
+                                    .when_some(status, |item, status| item.child(status)),
+                            )
+                        },
+                    )
                     .child({
                         let position = self.reflow_position_text();
                         div()
@@ -1413,6 +1499,46 @@ impl Breeze {
             .into_any_element()
     }
 
+    /// Reading and editing are two views of the same tab. The draft session is
+    /// created on first entry and kept while the tab stays open, so switching
+    /// tabs or returning to reading never discards it.
+    pub(super) fn toggle_markdown_editing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.books[self.active].is_markdown() {
+            return;
+        }
+        if self.books[self.active].markdown_editing {
+            self.books[self.active].markdown_editing = false;
+            cx.notify();
+            return;
+        }
+        if self.books[self.active].markdown_edit.is_none() {
+            let Source::File(path) = self.books[self.active].source.clone() else {
+                self.message = tr!("Editing needs a Markdown file on disk").into();
+                cx.notify();
+                return;
+            };
+            let editor = cx.new(|cx| markdown_editor::MarkdownEditor::open(path, cx));
+            self.books[self.active].markdown_edit = Some(editor);
+        }
+        self.books[self.active].markdown_editing = true;
+        if let Some(editor) = self.books[self.active].markdown_edit.clone() {
+            let focus = editor.read(cx).focus_handle();
+            window.focus(&focus, cx);
+        }
+        cx.notify();
+    }
+
+    pub(super) fn set_markdown_view(
+        &mut self,
+        view: markdown_editor::EditView,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(editor) = self.books[self.active].markdown_edit.clone() {
+            editor.update(cx, |editor, cx| editor.set_view(view, cx));
+            cx.notify();
+        }
+    }
+
     fn reflow_content(&mut self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let p = self.p(cx);
         let epub = self.books[self.active].format() == Some(DocumentFormat::Epub);
@@ -1510,6 +1636,33 @@ impl Breeze {
                 }
                 content = content.child(pages);
             }
+        } else if let Some(editor) = self.books[self.active]
+            .markdown_editing
+            .then(|| self.books[self.active].markdown_edit.clone())
+            .flatten()
+        {
+            // Editing replaces the read-only text inside the same centred
+            // measure; the reader's chrome and navigation stay untouched.
+            let full_width = self.books[self.active].reflow.full_width;
+            content = content.child(
+                div()
+                    .id("markdown-column")
+                    .test_support()
+                    .flex()
+                    .size_full()
+                    .min_h_0()
+                    .justify_center()
+                    .child(
+                        div()
+                            .id("markdown-measure")
+                            .test_support()
+                            .h_full()
+                            .min_h_0()
+                            .w_full()
+                            .when(!full_width, |column| column.max_w(px(MARKDOWN_MAX_WIDTH)))
+                            .child(editor),
+                    ),
+            );
         } else if self.reflow.markdown.is_some() {
             // Markdown reads at a comfortable measure by default. The status bar
             // toggles the full window width; the text column stays centred when

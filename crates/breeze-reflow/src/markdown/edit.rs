@@ -105,6 +105,15 @@ impl EditSession {
         Self::with_limits(source, EditLimits::default())
     }
 
+    /// An empty in-memory session for a new document.
+    pub fn empty() -> Self {
+        match Self::with_limits(SourceBuffer::default(), EditLimits::default()) {
+            Ok(session) => session,
+            // The empty source satisfies every constructor precondition.
+            Err(_) => unreachable!("an empty Markdown source is always a valid session"),
+        }
+    }
+
     pub fn with_limits(source: SourceBuffer, limits: EditLimits) -> Result<Self> {
         ensure!(
             limits.source_bytes <= MAX_SOURCE_BYTES && limits.source_bytes >= source.len(),

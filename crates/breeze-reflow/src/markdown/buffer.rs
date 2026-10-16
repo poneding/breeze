@@ -10,6 +10,16 @@ pub struct SourceBuffer {
     preferred_newline: &'static str,
 }
 
+impl Default for SourceBuffer {
+    /// The empty document. Editing sessions for new files start here.
+    fn default() -> Self {
+        Self {
+            rope: Rope::new(),
+            preferred_newline: "\n",
+        }
+    }
+}
+
 impl SourceBuffer {
     /// Construct while loading on a worker, preserving every valid input byte.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
