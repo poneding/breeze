@@ -133,6 +133,16 @@ jobs:
         run: cargo build --release --locked -p breeze-app --target '${{ matrix.target }}'
       - name: Build installers
         run: |
+          # hdiutil copies the image to a temporary location and then renames it
+          # into place, and it takes that space from $TMPDIR. The runner's temp
+          # volume is far smaller than the workspace volume, so a disk image
+          # build failed with "No space left on device" while df reported 39 GB
+          # free beside the artifacts. Keep the scratch beside them instead.
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            export TMPDIR="$PWD/target/tmp"
+            mkdir -p "$TMPDIR"
+            df -h . "$TMPDIR"
+          fi
           python scripts/release.py package \
             --version "$RELEASE_VERSION" \
             --target "$TARGET" \
