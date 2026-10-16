@@ -254,4 +254,51 @@ mod tests {
             "the canvas keeps the tile centred"
         );
     }
+
+    /// A renderer that approximates the tile's rounded corners with straight
+    /// segments cannot be told apart from a good one by any single pixel, but its
+    /// corners look cut off instead of curved. Follow the tile edge's 50% alpha
+    /// contour across the top-left corner and measure how much its slope jumps from
+    /// row to row: a curve stays around a third of a pixel, while a polygonal
+    /// approximation steps by nearly four at each vertex.
+    #[test]
+    fn bundled_logo_draws_the_tile_corner_as_a_curve() {
+        let master = image::load_from_memory(LOGO_BYTES)
+            .expect("bundled brand logo decodes")
+            .to_rgba8();
+        assert_eq!(master.dimensions(), (1024, 1024));
+
+        let coverage = |x: u32, y: u32| f32::from(master.get_pixel(x, y).0[3]);
+
+        // The tile spans 824 px from (100, 100). These rows walk its top-left
+        // corner arc from just below the top edge to the left edge; the first few
+        // rows are skipped, because there the arc runs nearly parallel to the top
+        // edge and even a true curve's slope changes quickly.
+        let mut crossings = Vec::new();
+        for y in 108..340 {
+            let mut previous = coverage(100, y);
+            for x in 101..360 {
+                let current = coverage(x, y);
+                if previous < 128. && current >= 128. {
+                    crossings.push((x - 1) as f32 + (128. - previous) / (current - previous));
+                    break;
+                }
+                previous = current;
+            }
+        }
+        assert!(
+            crossings.len() > 180,
+            "the corner arc has to cross every row: {} rows crossed it",
+            crossings.len()
+        );
+
+        let steepest = crossings
+            .windows(3)
+            .map(|rows| ((rows[2] - rows[1]) - (rows[1] - rows[0])).abs())
+            .fold(0., f32::max);
+        assert!(
+            steepest < 1.5,
+            "the tile corner is a curve, not a polygon: steepest slope jump {steepest:.2} px"
+        );
+    }
 }

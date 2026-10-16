@@ -44,7 +44,7 @@ another size; none of them is re-framed per platform.
 ## Regenerating the rasters
 
 `scripts/brand-icons.sh` reproduces every raster above from the master SVG. It
-needs macOS for `iconutil` and ImageMagick 7 for `magick`, and is not part of the
+needs macOS (QuickLook and `iconutil`) and ImageMagick 7, and is not part of the
 application build:
 
 ```sh
@@ -52,14 +52,20 @@ scripts/brand-icons.sh
 ```
 
 Each raster is the master at one render size, so the composition stays exactly as
-authored and this script never crops, pads, or re-centres it. To keep the curved
-page corners smooth, every size is rasterized at four times its final width — never
-below 1024 px — and filtered back down with Lanczos; ImageMagick's own SVG renderer
-antialiases curves coarsely, which shows at 16 px. The master's plain paths need no
-gradients, filters, or shadows, so the renderer draws the flat tile and page colors
-exactly and no alpha recovery step is required. ImageMagick writes the ICO
-container and `iconutil` assembles the ICNS container. These are asset-authoring
-tools, not application dependencies. Intermediates stay beneath `target/`.
+authored and this script never crops, pads, or re-centres it. The system SVG
+renderer draws the artwork; ImageMagick never does. ImageMagick's own SVG renderer
+flattens each rounded corner into straight segments — up to 3.8 px of deviation on
+a 1024 px arc — which makes the corner look cut off instead of curved, so it is
+kept to the channel arithmetic and the ICO container only.
+
+QuickLook composites onto an opaque background, so the transparent margin survives
+only as the difference between two renders of the same size, one over white and one
+over black: `alpha = 255 - (white - black)`, and dividing the black render by that
+alpha un-premultiplies it, which recovers charcoal and ivory exactly and leaves
+every transparent pixel at zero. That needs a graphical session, so this script
+runs on a logged-in Mac rather than over plain SSH. `iconutil` assembles the ICNS
+container. These are asset-authoring tools, not application dependencies.
+Intermediates stay beneath `target/`.
 
 Do not stretch, outline, add text to, or rearrange the mark. Leave generous clear
 space around the standalone symbol. Keep the application icon's canvas margin: the
@@ -71,12 +77,16 @@ rounded tile, shadow, or inner margin belongs around it.
 The script prints the canvas and the measured artwork span of every raster and
 fails when the artwork no longer covers the master's share of the canvas, which is
 what keeps the icon from quietly shrinking again. `crates/breeze-app` repeats that
-check for the raster it embeds, so a re-export reaches a failing test instead of a
-release. On macOS, IconServices caches an application icon against the bundle's own
+check for the raster it embeds and follows the tile edge's 50% alpha contour across
+a corner as well: it fails when the artwork leaves the grid, or when the contour's
+slope jumps by more than a pixel and a half between rows, which is what a renderer
+that flattens the corner into straight segments does. A re-export therefore reaches
+a failing test instead of a release. On macOS, IconServices caches an application icon against the bundle's own
 modification date, so a review bundle rebuilt in place can keep showing the
 previous artwork in the Dock; `scripts/bundle-macos.sh` touches the bundle for
-that reason. Rasterization is otherwise checked by reading back pixel values: the
-canvas corner stays transparent and the page interiors stay opaque at 16, 32, 48,
-64, 128, 256, 512, and 1024 px, and the ICNS and ICO containers are re-extracted
-and sampled. This is not native Dock, Windows taskbar, or Linux desktop
-acceptance, and no in-reader branding area is added.
+that reason. Rasterization is otherwise checked by reading back pixel values: the canvas corner
+stays transparent, the page interiors stay opaque, and the tile and page colors
+stay at their authored values on antialiased edges, at 16, 32, 48, 64, 128, 256,
+512, and 1024 px. The ICNS and ICO containers are re-extracted and sampled. This is
+not native Dock, Windows taskbar, or Linux desktop acceptance, and no in-reader
+branding area is added.
