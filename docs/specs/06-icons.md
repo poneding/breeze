@@ -37,12 +37,12 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Annotation type filter | `list-filter` | `ListFilter` |
 | Outline title search / more | `search` / `ellipsis-vertical` | `Search` / `EllipsisVertical` |
 | Expand / collapse all outline branches | `list-chevrons-up-down` / `list-chevrons-down-up` | `ListChevronsUpDown` / `ListChevronsDownUp` |
-| Reading pointer / search | `mouse-pointer-2` / `search` | `MousePointer2` / `Search` |
+| Read mode tab / search | `pointer` / `search` | `Pointer` / `Search` |
 | Text highlight / area highlight | `highlighter` / `scan` | `Highlighter` / `Scan` |
 | Underline / strikeout | `underline` / `strikethrough` | `Underline` / `Strikethrough` |
 | Pen | `pencil` | `Pencil` |
 | Text annotation | `type` | `Type` |
-| Select annotations | `mouse-pointer-2` | `MousePointer2` |
+| Annotate mode tab | `feather` | `Feather` |
 | Delete selected annotation | `trash` | `Trash` |
 | Circle / rectangle | `circle` / `square` | `Circle` / `Square` |
 | Line / wavy line / arrow | `minus` / `zodiac-aquarius` derivative / `arrow-up-right` | `Minus` / `AnnotationIcon::WavyLine` / `ArrowUpRight` |

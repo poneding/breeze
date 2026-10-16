@@ -118,18 +118,27 @@ impl Breeze {
                                 this.tool = 0;
                                 cx.notify();
                             }))
-                            .child(Tab::new().label(tr!("Read")).tooltip(|window, cx| {
-                                Tooltip::new(tr!("Read mode"))
-                                    .action(&ReadMode, Some("Breeze"))
-                                    .build(window, cx)
-                            }))
-                            .child(Tab::new().label(tr!("Annotations")).tooltip(|window, cx| {
-                                Tooltip::new(tr!("Annotate mode"))
-                                    .action(&AnnotateMode, Some("Breeze"))
-                                    .build(window, cx)
-                            })),
+                            .child(
+                                Tab::new()
+                                    .icon(IconName::Pointer)
+                                    .aria_label(tr!("Read"))
+                                    .tooltip(|window, cx| {
+                                        Tooltip::new(tr!("Read mode"))
+                                            .action(&ReadMode, Some("Breeze"))
+                                            .build(window, cx)
+                                    }),
+                            )
+                            .child(
+                                Tab::new()
+                                    .icon(IconName::Feather)
+                                    .aria_label(tr!("Annotations"))
+                                    .tooltip(|window, cx| {
+                                        Tooltip::new(tr!("Annotate mode"))
+                                            .action(&AnnotateMode, Some("Breeze"))
+                                            .build(window, cx)
+                                    }),
+                            ),
                     )
-                    .child(div().h(px(18.)).w(px(1.)).bg(p.line))
                     .child(self.tools(mode, cx))
                     .child(
                         self.command(

@@ -5,6 +5,11 @@ use gpui_kit::test::TestWindowExt;
 fn annotation_toolbar_has_no_eraser_and_keeps_note_and_shape_tools(cx: &mut TestAppContext) {
     let (handle, view) = crate::ui_tests::app(cx);
     cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| view.books[0].state.mode = Mode::Read);
+        window.render_frame(cx);
+        // Reading carries the pointer on its mode tab, so it owns no tool.
+        assert!(window.within("tools").try_find(("tool", 0usize)).is_none());
+
         view.update(cx, |view, _| view.books[0].state.mode = Mode::Annotate);
         window.render_frame(cx);
         let tools = annotation_tools();
@@ -17,18 +22,39 @@ fn annotation_toolbar_has_no_eraser_and_keeps_note_and_shape_tools(cx: &mut Test
         for index in 0..11usize {
             assert!(window.find(("tool", index)).visible());
         }
-        window.click(("tool", annotation_editing::SELECT_TOOL), cx);
-        window.render_frame(cx);
-        assert_eq!(
+        // The selection pointer moved to the mode tabs, so the group ends at 11.
+        assert!(
             window
-                .find(("tool", annotation_editing::SELECT_TOOL))
-                .checked(),
-            Some(true)
+                .within("tools")
+                .try_find(("tool", annotation_editing::SELECT_TOOL))
+                .is_none()
         );
+        window.click(("tool", 4usize), cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).tool, 4);
         assert_eq!(tools[5].0, IconName::Type.into());
         assert_eq!(tools[6].0, IconName::Circle.into());
         assert_eq!(tools[7].0, IconName::Square.into());
         assert_eq!(tools[9].0, AnnotationIcon::WavyLine);
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn annotation_tool_group_is_centered_in_its_row(cx: &mut TestAppContext) {
+    let (handle, view) = crate::ui_tests::app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| view.books[0].state.mode = Mode::Annotate);
+        window.render_frame(cx);
+        let row = window.find("tools").bounds();
+        let first = window.find(("tool", 0usize)).bounds();
+        let last = window.find(("tool", 10usize)).bounds();
+        let leading = first.left() - row.left();
+        let trailing = row.right() - last.right();
+        assert!(
+            (leading - trailing).abs() <= px(1.),
+            "the tool group is off center: {leading:?} before, {trailing:?} after"
+        );
     })
     .unwrap();
 }

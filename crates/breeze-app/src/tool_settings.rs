@@ -96,103 +96,93 @@ pub(super) fn bind(cx: &mut App) {
 }
 
 impl Breeze {
-    pub(super) fn tools(&self, mode: Mode, cx: &mut Context<Self>) -> Stateful<Div> {
+    pub(super) fn tools(&self, mode: Mode, cx: &mut Context<Self>) -> AnyElement {
+        // Reading owns no tool of its own: the mode tab is its pointer, so the
+        // group stays empty until Annotate is selected.
         let tools = match mode {
-            Mode::Read => vec![(IconName::MousePointer2.into(), tr!("Browse"))],
+            Mode::Read => Vec::new(),
             Mode::Annotate => annotation_tools().to_vec(),
         };
         row()
             .id("tools")
+            .test_support()
             .flex_1()
             .min_w_0()
             .overflow_x_scroll()
-            .gap_1()
-            .when(mode == Mode::Annotate, |tools| {
-                tools.child(
-                    Button::new(("tool", annotation_editing::SELECT_TOOL))
-                        .ghost()
-                        .small()
-                        .icon(IconName::MousePointer2)
-                        .selected(self.tool == annotation_editing::SELECT_TOOL)
-                        .toggled(self.tool == annotation_editing::SELECT_TOOL)
-                        .when(self.tool == annotation_editing::SELECT_TOOL, |button| {
-                            button.primary()
-                        })
-                        .accessibility_label(tr!("Select annotation"))
-                        .tooltip(tr!("Select an annotation to edit, move, resize or delete"))
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            if !this.annotation_navigation_allowed(cx) {
-                                return;
-                            }
-                            this.tool = annotation_editing::SELECT_TOOL;
-                            this.gesture.clear();
-                            cx.notify();
-                        })),
-                )
-            })
-            .children(tools.into_iter().enumerate().map(|(index, (icon, label))| {
-                let key = ToolKey { index };
-                let button = Button::new(("tool", index))
-                    .ghost()
-                    .small()
-                    .icon(icon)
-                    .accessibility_label(label)
-                    .selected(self.tool == index)
-                    .on_click(cx.listener(move |this, event, _, cx| {
-                        if !this.annotation_navigation_allowed(cx) {
-                            return;
-                        }
-                        this.gesture.clear();
-                        this.tool = index;
-                        if mode != Mode::Read && matches!(event, ClickEvent::Keyboard(_)) {
-                            this.tool_settings.keyboard_open = Some(key);
-                        }
-                        cx.notify();
-                    }));
-                if mode == Mode::Read {
-                    return button.tooltip(label).into_any_element();
-                }
-                let id = SharedString::from(format!(
-                    "tool-settings-{}-{}-{index}-{}",
-                    self.tool_settings.epoch,
-                    mode.index(),
-                    if self.tool_settings.keyboard_open == Some(key) {
-                        "keyboard"
-                    } else {
-                        "hover"
-                    }
-                ));
-                let view = cx.entity().downgrade();
-                // Keyboard activation pins a native popover with Escape and focus restoration.
-                // Mouse users keep a hover card that stays open while its controls are hovered.
-                if self.tool_settings.keyboard_open == Some(key) {
-                    return Popover::new(id)
-                        .anchor(Anchor::TopLeft)
-                        .open(true)
-                        .trigger(button)
-                        .on_open_change(cx.listener(|this, open, _, cx| {
-                            if !open {
-                                this.tool_settings.dismiss();
+            // Equal zero-basis slots center the group and collapse to nothing
+            // when a narrow window has to scroll the row instead.
+            .child(div().flex_1().min_w_0())
+            .child(
+                row()
+                    .flex_shrink_0()
+                    .gap_1()
+                    .children(tools.into_iter().enumerate().map(|(index, (icon, label))| {
+                        let key = ToolKey { index };
+                        let button = Button::new(("tool", index))
+                            .ghost()
+                            .small()
+                            .icon(icon)
+                            .accessibility_label(label)
+                            .selected(self.tool == index)
+                            .on_click(cx.listener(move |this, event, _, cx| {
+                                if !this.annotation_navigation_allowed(cx) {
+                                    return;
+                                }
+                                this.gesture.clear();
+                                this.tool = index;
+                                if matches!(event, ClickEvent::Keyboard(_)) {
+                                    this.tool_settings.keyboard_open = Some(key);
+                                }
                                 cx.notify();
+                            }));
+                        let id = SharedString::from(format!(
+                            "tool-settings-{}-{}-{index}-{}",
+                            self.tool_settings.epoch,
+                            mode.index(),
+                            if self.tool_settings.keyboard_open == Some(key) {
+                                "keyboard"
+                            } else {
+                                "hover"
                             }
-                        }))
-                        .content(move |_, window, cx| {
-                            view.update(cx, |this, cx| this.tool_settings_content(key, window, cx))
+                        ));
+                        let view = cx.entity().downgrade();
+                        // Keyboard activation pins a native popover with Escape and focus restoration.
+                        // Mouse users keep a hover card that stays open while its controls are hovered.
+                        if self.tool_settings.keyboard_open == Some(key) {
+                            return Popover::new(id)
+                                .anchor(Anchor::TopLeft)
+                                .open(true)
+                                .trigger(button)
+                                .on_open_change(cx.listener(|this, open, _, cx| {
+                                    if !open {
+                                        this.tool_settings.dismiss();
+                                        cx.notify();
+                                    }
+                                }))
+                                .content(move |_, window, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.tool_settings_content(key, window, cx)
+                                    })
+                                    .unwrap_or_else(|_| div().into_any_element())
+                                })
+                                .into_any_element();
+                        }
+                        HoverCard::new(id)
+                            .anchor(Anchor::TopLeft)
+                            .open_delay(Duration::from_millis(350))
+                            .close_delay(Duration::from_millis(300))
+                            .trigger(button)
+                            .content(move |_, window, cx| {
+                                view.update(cx, |this, cx| {
+                                    this.tool_settings_content(key, window, cx)
+                                })
                                 .unwrap_or_else(|_| div().into_any_element())
-                        })
-                        .into_any_element();
-                }
-                HoverCard::new(id)
-                    .anchor(Anchor::TopLeft)
-                    .open_delay(Duration::from_millis(350))
-                    .close_delay(Duration::from_millis(300))
-                    .trigger(button)
-                    .content(move |_, window, cx| {
-                        view.update(cx, |this, cx| this.tool_settings_content(key, window, cx))
-                            .unwrap_or_else(|_| div().into_any_element())
-                    })
-                    .into_any_element()
-            }))
+                            })
+                            .into_any_element()
+                    })),
+            )
+            .child(div().flex_1().min_w_0())
+            .into_any_element()
     }
 
     fn tool_settings_content(
