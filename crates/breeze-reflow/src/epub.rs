@@ -265,6 +265,61 @@ pub struct SearchHit {
     pub snippet: String,
 }
 
+const SEARCH_SNIPPET_CHARS: usize = 160;
+const SEARCH_SNIPPET_LEAD_CHARS: usize = 48;
+
+/// Builds a single-line result preview around the first match.
+///
+/// Chapter markup often leaves layout newlines and indentation at the start of
+/// extracted text. Keeping them made a result button paint its first empty line,
+/// so the panel showed a row with no visible text.
+fn search_snippet(text: &str, query: &str) -> String {
+    let normalized = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.is_empty() {
+        return normalized;
+    }
+    let lowercase = normalized.to_lowercase();
+    let needle = query.to_lowercase();
+    let Some(byte_offset) = lowercase.find(&needle) else {
+        return normalized.chars().take(SEARCH_SNIPPET_CHARS).collect();
+    };
+    let match_start = source_char_index(&normalized, byte_offset);
+    let match_len = needle.chars().count().max(1);
+    let characters = normalized.chars().collect::<Vec<_>>();
+    let limit = SEARCH_SNIPPET_CHARS.max(match_len);
+    let mut start = match_start.saturating_sub(SEARCH_SNIPPET_LEAD_CHARS);
+    let mut end = (start + limit).min(characters.len());
+    if end < match_start + match_len {
+        end = (match_start + match_len).min(characters.len());
+        start = end.saturating_sub(limit);
+    }
+    let mut snippet = String::new();
+    if start > 0 {
+        snippet.push('…');
+    }
+    snippet.extend(characters[start..end].iter());
+    if end < characters.len() {
+        snippet.push('…');
+    }
+    snippet
+}
+
+/// Maps a byte offset in a lowercase copy back to the source character index.
+///
+/// Lowercasing can expand one character into several (`İ`), so byte offsets are
+/// accumulated rather than assuming a one-to-one mapping.
+fn source_char_index(text: &str, lowercase_byte_offset: usize) -> usize {
+    let mut lowercase_bytes = 0;
+    for (index, character) in text.chars().enumerate() {
+        let next = lowercase_bytes + character.to_lowercase().map(char::len_utf8).sum::<usize>();
+        if next > lowercase_byte_offset {
+            return index;
+        }
+        lowercase_bytes = next;
+    }
+    text.chars().count()
+}
+
 pub fn search(path: &Path, query: &str, cancel: &AtomicBool) -> Result<(String, Vec<SearchHit>)> {
     ensure!(
         !query.trim().is_empty() && query.len() <= 256,
@@ -285,7 +340,7 @@ pub fn search(path: &Path, query: &str, cancel: &AtomicBool) -> Result<(String, 
             hits.push(SearchHit {
                 href: metadata.chapters[index].href.clone(),
                 title: metadata.chapters[index].title.clone(),
-                snippet: text.chars().take(160).collect(),
+                snippet: search_snippet(&text, &needle),
             });
             if hits.len() == 300 {
                 break;
@@ -328,4 +383,24 @@ pub(crate) fn xhtml_text(source: &str) -> Result<String> {
         );
     }
     Ok(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{search_snippet, source_char_index};
+
+    #[test]
+    fn search_snippet_removes_leading_layout_whitespace() {
+        let snippet = search_snippet(
+            "\n\n  \n  \n简要内容\n1 ■ 了解大型语言模型\n4.2 使用层归一化归一化激活函数",
+            "层归一化",
+        );
+        assert!(!snippet.starts_with(char::is_whitespace), "{snippet:?}");
+        assert!(snippet.contains("层归一化"), "{snippet:?}");
+    }
+
+    #[test]
+    fn lowercase_offsets_map_back_across_expanding_characters() {
+        assert_eq!(source_char_index("İx", "i̇".len()), 1);
+    }
 }
