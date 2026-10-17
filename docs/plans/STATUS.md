@@ -1,3 +1,38 @@
+## October 17 Two-page EPUB reading hangs in MuPDF layout on Windows
+
+The Windows job of the release workflow failed on
+`ui_tests::epub_two_page_reading_fills_the_content_area`: the reader toggled to
+two-page reading, but no two-page frame ever arrived. The defect is in the reader
+engine, not in the test.
+
+Instrumenting the request and reply path narrowed it to a single call.
+`breeze-app` dispatched the spread request (`epoch` 3 → 4), nothing superseded
+it, no error was recorded, and the worker picked the job up; the worker then
+never returned from `Document::layout`, which
+`breeze_reflow::epub::layout::prepare` calls with the half-width column. Measured
+on a `windows-2022` runner, with a six-chapter fixture of forty short English
+paragraphs:
+
+| Request | Outcome |
+| --- | --- |
+| `layout(600, 800)`, the first placeholder viewport | returns, 5 pages |
+| `layout(792, 600)`, single-page reading | returns, 7 pages |
+| `layout(396, 600)` at font size 18, the two-page column | never returns |
+
+macOS and Linux lay out the same 396×600 column and return seven pages, so this
+belongs to the Windows build of MuPDF (`mupdf-sys` 0.8.0) rather than to the
+request shape: the existing Windows spread test renders at 600×800 and passes.
+
+Impact: two-page reading is unusable in the Windows package. Single-page EPUB
+reading, PDF reading, search, selection and annotation export are unaffected.
+
+The component test carries `#[cfg_attr(windows, ignore = "…")]`, so a Windows
+run reports it as skipped with that reason instead of passing, and every other
+Windows test still runs. The tracing added while locating the hang was reverted.
+Resolving this needs a Windows debugging session or an upstream `mupdf-rs`
+report; a width-specific workaround would hide an engine defect instead of
+fixing it.
+
 ## October 16 EPUB text selection
 
 EPUB pages were rendered as opaque BGRA rasters with only a flat text string for

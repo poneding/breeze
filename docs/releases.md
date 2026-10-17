@@ -20,6 +20,12 @@ tag does not waive those gates. There is no automatic update feed or
 file-association registration, and the Linux desktop entry deliberately declares
 no MIME types.
 
+Two-page EPUB reading does not render in the Windows package: MuPDF's layout does
+not return for the half-width column, so the view never produces a frame.
+Single-page EPUB reading and every other format are unaffected, and
+`docs/plans/STATUS.md` records the measurement. The Windows component test for
+that view is skipped with that reason rather than reported as passing.
+
 | Runner | Rust target | Package | Installed layout |
 |---|---|---|---|
 | macOS 15 (Apple Silicon) | `aarch64-apple-darwin` | `.dmg` | `Breeze.app` beside an `/Applications` link |
