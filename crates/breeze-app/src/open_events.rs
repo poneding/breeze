@@ -51,9 +51,28 @@ fn file_url_path(url: &str) -> Option<PathBuf> {
     }
     let path = rest.split(['?', '#']).next().unwrap_or(rest);
     let decoded = percent_decode(path.as_bytes());
-    Some(PathBuf::from(
-        String::from_utf8_lossy(&decoded).into_owned(),
-    ))
+    let text = String::from_utf8_lossy(&decoded);
+    Some(PathBuf::from(drive_path(&text, cfg!(windows))))
+}
+
+/// Drop a `file:` URL's leading slash when it introduces a Windows drive.
+///
+/// A `file:` URL spells `C:\Users\…` as `file:///C:/Users/…`, so the text after
+/// the scheme starts with a slash that is not part of the path. Keeping it turns
+/// the drive letter into a component beside the current drive. Unix keeps the
+/// slash, where it is the root and part of the path.
+fn drive_path(text: &str, windows: bool) -> &str {
+    let bytes = text.as_bytes();
+    let names_drive = bytes.len() > 3
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_alphabetic()
+        && bytes[2] == b':'
+        && matches!(bytes[3], b'/' | b'\\');
+    if windows && names_drive {
+        &text[1..]
+    } else {
+        text
+    }
 }
 
 fn percent_decode(bytes: &[u8]) -> Vec<u8> {
@@ -207,7 +226,7 @@ impl OpenRequests {
 
 #[cfg(test)]
 mod tests {
-    use super::{argument_paths, paths_from_urls};
+    use super::{argument_paths, drive_path, paths_from_urls};
     use std::{ffi::OsString, path::PathBuf};
 
     #[test]
@@ -234,6 +253,22 @@ mod tests {
                 PathBuf::from("/tmp/second.pdf"),
                 PathBuf::from("/tmp/中文.pdf"),
             ]
+        );
+    }
+
+    #[test]
+    fn a_windows_drive_survives_the_url_slash() {
+        assert_eq!(
+            drive_path("/C:/Users/runner/report.pdf", true),
+            "C:/Users/runner/report.pdf"
+        );
+        assert_eq!(
+            drive_path("/Users/dp/report.pdf", true),
+            "/Users/dp/report.pdf"
+        );
+        assert_eq!(
+            drive_path("/C:/Users/runner/report.pdf", false),
+            "/C:/Users/runner/report.pdf"
         );
     }
 
