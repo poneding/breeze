@@ -115,15 +115,6 @@ impl EpubWorker {
                     };
                     drop(pending);
                     let prefetch = job.prefetch;
-                    #[cfg(debug_assertions)]
-                    eprintln!(
-                        "[diag] take prefetch={prefetch} spread={} turn={} {}x{} scale={}",
-                        job.request.spread,
-                        job.request.turn,
-                        job.request.width,
-                        job.request.height,
-                        job.request.scale
-                    );
                     let result = (|| {
                         let info = std::fs::metadata(&job.request.path)?;
                         let current_revision = (info.len(), info.modified()?);
@@ -133,8 +124,6 @@ impl EpubWorker {
                             revision = Some(current_revision);
                         }
                         if let Some(frame) = cache.get(&job.request) {
-                            #[cfg(debug_assertions)]
-                            eprintln!("[diag] cache hit spread={}", job.request.spread);
                             return Ok(frame);
                         }
                         if loaded
@@ -151,11 +140,6 @@ impl EpubWorker {
                             .ok_or_else(|| anyhow!("EPUB worker lost its document"))?
                             .1;
                         let frame = book.render(&job.request)?;
-                        #[cfg(debug_assertions)]
-                        eprintln!(
-                            "[diag] rendered spread={} columns={} pages={}",
-                            job.request.spread, frame.columns, frame.chapter_pages
-                        );
                         cache.insert(job.request.clone(), frame.clone());
                         Ok(frame)
                     })();
@@ -164,12 +148,6 @@ impl EpubWorker {
                         // keep only what the cache learned.
                         continue;
                     }
-                    #[cfg(debug_assertions)]
-                    eprintln!(
-                        "[diag] reply spread={} ok={}",
-                        job.request.spread,
-                        result.is_ok()
-                    );
                     let _ = job.reply.send(result);
                 }
             })?;
