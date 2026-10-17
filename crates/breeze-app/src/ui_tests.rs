@@ -3480,9 +3480,12 @@ fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
     })
     .unwrap();
 
+    // Record what the click produced. If a later request supersedes it, the two
+    // reports differ and the failure message says where the spread went.
+    let after_toggle = settled_report(cx, handle, &view);
     assert!(
         wait_for_settled_epub(cx, handle, &view, |frame| frame.columns == 2),
-        "the EPUB never produced a settled two-page frame: {}",
+        "the EPUB never produced a settled two-page frame: after the toggle {after_toggle}; after waiting {}",
         settled_report(cx, handle, &view)
     );
     cx.update_window(handle, |_, window, cx| {
@@ -3546,7 +3549,7 @@ fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
 /// changes; every assertion stays as it was.
 const WAIT_ATTEMPTS: usize = 400;
 
-/// The frame and viewport a settled wait compares, for a failure message.
+/// The frame and queue state a settled wait compares, for a failure message.
 fn settled_report(
     cx: &mut TestAppContext,
     handle: AnyWindowHandle,
@@ -3564,7 +3567,10 @@ fn settled_report(
             None => "no frame".to_string(),
         };
         format!(
-            "{frame}; viewport={content} x scale {scale} = {}; message={:?}",
+            "{frame}; images={}; spread={}; epoch={}; viewport={content} x scale {scale} = {}; message={:?}",
+            reader.reflow.page_images.len(),
+            reader.books[reader.active].reflow.spread,
+            reader.reflow.epoch,
             content * scale,
             reader.message
         )
