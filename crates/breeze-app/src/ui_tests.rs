@@ -3449,6 +3449,9 @@ fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
         .unwrap()
         .unwrap();
 
+    // Record what the click produced. If a later request supersedes it, the two
+    // reports differ and the failure message says where the spread went.
+    let before_toggle = settled_report(cx, handle, &view);
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
         // The toggle belongs to the status bar and starts in single-page mode.
@@ -3485,7 +3488,7 @@ fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
     let after_toggle = settled_report(cx, handle, &view);
     assert!(
         wait_for_settled_epub(cx, handle, &view, |frame| frame.columns == 2),
-        "the EPUB never produced a settled two-page frame: after the toggle {after_toggle}; after waiting {}",
+        "the EPUB never produced a settled two-page frame: before the toggle {before_toggle}; after the toggle {after_toggle}; after waiting {}",
         settled_report(cx, handle, &view)
     );
     cx.update_window(handle, |_, window, cx| {
