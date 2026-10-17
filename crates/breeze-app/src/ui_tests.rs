@@ -3435,7 +3435,8 @@ fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
     // settles on so both readings are measured at one content size.
     assert!(
         wait_for_settled_epub(cx, handle, &view, |frame| frame.columns == 1),
-        "the EPUB never produced a settled single-page frame"
+        "the EPUB never produced a settled single-page frame: {}",
+        settled_report(cx, handle, &view)
     );
     let single_text = cx
         .update_window(handle, |_, _, cx| {
@@ -3481,7 +3482,8 @@ fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
 
     assert!(
         wait_for_settled_epub(cx, handle, &view, |frame| frame.columns == 2),
-        "the EPUB never produced a settled two-page frame"
+        "the EPUB never produced a settled two-page frame: {}",
+        settled_report(cx, handle, &view)
     );
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
@@ -3543,6 +3545,32 @@ fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
 /// than a passing run uses. Only the patience before reporting a missing frame
 /// changes; every assertion stays as it was.
 const WAIT_ATTEMPTS: usize = 400;
+
+/// The frame and viewport a settled wait compares, for a failure message.
+fn settled_report(
+    cx: &mut TestAppContext,
+    handle: AnyWindowHandle,
+    view: &Entity<Breeze>,
+) -> String {
+    cx.update_window(handle, |_, window, cx| {
+        let content = f32::from(window.find("reflow-viewport").bounds().size.width);
+        let scale = window.scale_factor();
+        let reader = view.read(cx);
+        let frame = match reader.reflow.frame.as_ref() {
+            Some(frame) => format!(
+                "frame columns={} width={} page={} of {}",
+                frame.columns, frame.width, frame.chapter_page, frame.chapter_pages
+            ),
+            None => "no frame".to_string(),
+        };
+        format!(
+            "{frame}; viewport={content} x scale {scale} = {}; message={:?}",
+            content * scale,
+            reader.message
+        )
+    })
+    .unwrap_or_else(|_| "the window is gone".to_string())
+}
 
 fn wait_for_settled_epub(
     cx: &mut TestAppContext,
