@@ -30,7 +30,7 @@ While Breeze has a PDF open, Windows refuses another program's attempt to replac
 that file by rename, because the reader keeps the source open through MuPDF.
 Closing the document releases it. macOS and Linux are unaffected. Windows also
 lays out EPUB text considerably slower: a CJK page that renders in under 500 ms
-on the other platforms needs 4.01 s there.
+on the other platforms needs 4–5 s there.
 
 | Runner | Rust target | Package | Installed layout |
 |---|---|---|---|
