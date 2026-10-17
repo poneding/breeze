@@ -166,8 +166,15 @@ impl Document {
     pub fn resolve_image(document: &Path, uri: &str) -> Result<std::path::PathBuf> {
         let target = uri.split(['?', '#']).next().unwrap_or(uri).trim();
         ensure!(!target.is_empty(), "The image reference is empty");
+        // Windows calls `/notes/x.png` rooted rather than absolute, because it
+        // carries no drive prefix, so the root check has to sit beside
+        // `is_absolute` for a rooted reference to be refused there too.
+        let reference = Path::new(target);
         ensure!(
-            !target.contains(':') && !target.starts_with("//") && !Path::new(target).is_absolute(),
+            !target.contains(':')
+                && !target.starts_with("//")
+                && !reference.is_absolute()
+                && !reference.has_root(),
             "Only relative local images are supported: {uri}"
         );
         let decoded = percent_encoding::percent_decode_str(target).decode_utf8()?;
