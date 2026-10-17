@@ -28,7 +28,9 @@ that view is skipped with that reason rather than reported as passing.
 
 While Breeze has a PDF open, Windows refuses another program's attempt to replace
 that file by rename, because the reader keeps the source open through MuPDF.
-Closing the document releases it. macOS and Linux are unaffected.
+Closing the document releases it. macOS and Linux are unaffected. Windows also
+lays out EPUB text considerably slower: a CJK page that renders in under 500 ms
+on the other platforms needs 4.01 s there.
 
 | Runner | Rust target | Package | Installed layout |
 |---|---|---|---|
