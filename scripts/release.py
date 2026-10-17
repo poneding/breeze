@@ -562,20 +562,47 @@ def _build_dmg(version: str, target: str, payload: Path, output: Path) -> Path:
     shutil.copytree(payload, volume / payload.name, ignore=METADATA)
     # The usual drag-to-install layout: the bundle beside an Applications link.
     (volume / "Applications").symlink_to("/Applications")
-    _run(
-        [
-            _address_tool("hdiutil"),
-            "create",
-            "-volname",
-            f"{DISPLAY_NAME} {version}",
-            "-srcfolder",
-            str(volume),
-            "-ov",
-            "-format",
-            "UDZO",
-            str(artifact),
-        ]
-    )
+    # hdiutil is not left to estimate the image size. That estimate is what fails,
+    # and it fails as `hdiutil: create failed - No space left on device` on a
+    # volume that has plenty of free space, because the estimate does not follow
+    # the Applications link correctly. `du` does not follow it either, so the
+    # staged payload is measured directly and the headroom covers the filesystem
+    # overhead of a fresh volume.
+    payload_mb = int(_output([_address_tool("du"), "-sm", str(volume)]).split()[0])
+    image_mb = payload_mb + 200
+    try:
+        _run(
+            [
+                _address_tool("hdiutil"),
+                "create",
+                "-volname",
+                f"{DISPLAY_NAME} {version}",
+                "-srcfolder",
+                str(volume),
+                "-size",
+                f"{image_mb}m",
+                "-ov",
+                "-format",
+                "UDZO",
+                str(artifact),
+            ]
+        )
+    except ValueError:
+        # The tool's message points at disk space, which misleads, so print the
+        # sizes it was working from and the free space before it propagates.
+        print(
+            f"release: payload {payload_mb} MB, image request {image_mb} MB",
+            file=sys.stderr,
+        )
+        for command in (
+            [_address_tool("du"), "-sh", str(volume), str(output)],
+            [_address_tool("df"), "-h", "."],
+        ):
+            try:
+                print(_output(command), file=sys.stderr)
+            except ValueError:
+                pass
+        raise
     shutil.rmtree(volume)
     return artifact
 
@@ -673,6 +700,15 @@ def _run(command: list[str], environment: dict[str, str] | None = None) -> None:
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "").strip()
         raise ValueError(f"{command[0]} failed ({result.returncode}): {detail}")
+
+
+def _output(command: list[str]) -> str:
+    """Run a tool and return its standard output, raising when it fails."""
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        raise ValueError(f"{command[0]} failed ({result.returncode}): {detail}")
+    return result.stdout
 
 
 def package(version: str, target: str, binary: Path, output: Path) -> tuple[Path, ...]:
