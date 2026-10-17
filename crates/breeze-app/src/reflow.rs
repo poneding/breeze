@@ -586,9 +586,27 @@ impl Breeze {
         self.reflow.request = Some(request);
         self.reflow.epoch += 1;
         let epoch = self.reflow.epoch;
+        #[cfg(test)]
+        eprintln!(
+            "[diag] dispatch epoch={epoch} spread={}",
+            self.reflow
+                .request
+                .as_ref()
+                .is_some_and(|request| request.spread)
+        );
         self.reflow.task = Some(cx.spawn(async move |this, cx| {
+            #[cfg(test)]
+            eprintln!("[diag] task polled epoch={epoch}");
             let result = receiver.await;
+            #[cfg(test)]
+            eprintln!("[diag] reply epoch={epoch} ok={}", result.is_ok());
             let _ = this.update(cx, |this, cx| {
+                #[cfg(test)]
+                eprintln!(
+                    "[diag] apply epoch={epoch} current={} reader={}",
+                    this.reflow.epoch,
+                    this.screen == Screen::Reader
+                );
                 if this.reflow.epoch != epoch || this.screen != Screen::Reader {
                     return;
                 }
