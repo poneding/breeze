@@ -26,6 +26,10 @@ Single-page EPUB reading and every other format are unaffected, and
 `docs/plans/STATUS.md` records the measurement. The Windows component test for
 that view is skipped with that reason rather than reported as passing.
 
+While Breeze has a PDF open, Windows refuses another program's attempt to replace
+that file by rename, because the reader keeps the source open through MuPDF.
+Closing the document releases it. macOS and Linux are unaffected.
+
 | Runner | Rust target | Package | Installed layout |
 |---|---|---|---|
 | macOS 15 (Apple Silicon) | `aarch64-apple-darwin` | `.dmg` | `Breeze.app` beside an `/Applications` link |

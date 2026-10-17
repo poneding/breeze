@@ -1,3 +1,30 @@
+## October 17 A Windows source stays open, so it cannot be replaced by rename
+
+`crates/breeze-pdf/tests/source_identity.rs` replaces a source PDF by renaming a
+new file over it, the way an editor or installer does, and expects the worker to
+reload it. On Windows the rename fails with `PermissionDenied`: the PDF worker
+keeps the source open through `PdfDocument::open`, and MuPDF's Windows handle
+does not permit the delete sharing that a replacing rename needs. The same test
+passes on macOS and Linux, where renaming over an open file is allowed.
+
+Impact: while Breeze has a PDF open, another program cannot replace that file by
+rename on Windows; it reports "access is denied" until the document is closed.
+That matches how most Windows PDF readers behave, but it is a change from the
+previous engine, which read the file into memory.
+
+The test carries `#[cfg_attr(windows, ignore = "…")]` with that reason. Two
+options would change the behaviour: open the source from the bytes `read_source`
+already reads under the 256 MiB budget, which also drops the duplicate read and
+keeps no handle, or close and reopen the MuPDF document per render. Both move
+the memory profile, so neither belongs in a release fix.
+
+A related consequence of the same Windows constraint: `SourceIdentity` cannot
+read the volume serial number or file index, because they sit behind the
+unstable `windows_by_handle` feature and the workspace forbids first-party FFI.
+It uses the creation time as the stable stand-in, which detects replacement by
+rename but not an in-place rewrite that preserves size, creation and
+modification times. The content fingerprint remains the authoritative check.
+
 ## October 17 Two-page EPUB reading hangs in MuPDF layout on Windows
 
 The Windows job of the release workflow failed on
