@@ -371,8 +371,12 @@ fn prepare(book: &mut Book, request: &Request, chapter: usize) -> Result<()> {
         "Encrypted or non-reflowable EPUB is not supported"
     );
     let mut document = document;
+    #[cfg(debug_assertions)]
+    eprintln!("[diag] layout start {width}x{}", request.height);
     document.layout(width, request.height, request.font_size)?;
     let pages = usize::try_from(document.page_count()?)?;
+    #[cfg(debug_assertions)]
+    eprintln!("[diag] layout done pages={pages}");
     ensure!(
         (1..=20_000).contains(&pages),
         "EPUB layout exceeds the page limit"
@@ -616,10 +620,18 @@ pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
             break;
         }
         let native = document.load_page(i32::try_from(index)?)?;
+        #[cfg(debug_assertions)]
+        eprintln!("[diag] column {offset} page {index} loaded");
         if offset > 0 {
             text.push('\n');
         }
         let (text_layer, page_text) = text_layer(&native)?;
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[diag] column {offset} text len={} glyphs={}",
+            page_text.len(),
+            text_layer.glyphs.len()
+        );
         text.push_str(&page_text);
         text_pages.push(text_layer);
         for link in native.links()?.take(4096) {
@@ -634,7 +646,14 @@ pub(super) fn render(book: &mut Book, request: &Request) -> Result<Frame> {
             });
         }
         left_points += native.bounds()?.width();
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[diag] column {offset} raster start scale={}",
+            request.scale
+        );
         rasters.push(raster(&native, request.scale)?);
+        #[cfg(debug_assertions)]
+        eprintln!("[diag] column {offset} raster done");
     }
     let width = rasters.iter().map(|page| page.width).sum();
     let height = rasters
