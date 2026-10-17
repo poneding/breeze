@@ -197,29 +197,34 @@ pub fn export_annotations(request: ExportRequest) -> Result<ExportReceipt> {
             }
         }
     }
-    // Independently parse page/annotation structure with the reader engine, not just the writer.
-    let reader = MuPdfDocument::open(crate::mupdf_path(staged.path())?)?;
-    ensure!(
-        usize::try_from(reader.page_count()?)? == pages.len(),
-        "Independent parser rejected page count"
-    );
-    for (&number, ids) in &additions {
-        let page = reader.load_pdf_page(number as i32 - 1)?;
-        let annots = page.object().get_dict("Annots")?;
-        let annotation_count = if let Some(annots) = annots {
-            let annots = annots.resolve()?.unwrap_or(annots);
-            ensure!(
-                annots.is_array()?,
-                "Independent parser found invalid Annots"
-            );
-            annots.len()?
-        } else {
-            0
-        };
+    // Independently parse page/annotation structure with the reader engine, not
+    // just the writer. The reader closes before the export is published: publishing
+    // renames the staged file, and Windows refuses to rename a file that another
+    // open handle still refers to, so the engine's handle must be gone by then.
+    {
+        let reader = MuPdfDocument::open(crate::mupdf_path(staged.path())?)?;
         ensure!(
-            annotation_count == original_annots[&number].len() + ids.len(),
-            "Independent parser did not read exported annotations"
+            usize::try_from(reader.page_count()?)? == pages.len(),
+            "Independent parser rejected page count"
         );
+        for (&number, ids) in &additions {
+            let page = reader.load_pdf_page(number as i32 - 1)?;
+            let annots = page.object().get_dict("Annots")?;
+            let annotation_count = if let Some(annots) = annots {
+                let annots = annots.resolve()?.unwrap_or(annots);
+                ensure!(
+                    annots.is_array()?,
+                    "Independent parser found invalid Annots"
+                );
+                annots.len()?
+            } else {
+                0
+            };
+            ensure!(
+                annotation_count == original_annots[&number].len() + ids.len(),
+                "Independent parser did not read exported annotations"
+            );
+        }
     }
     if let Source::File(source) = &request.source {
         ensure!(
