@@ -234,6 +234,39 @@ fn two_page_reading_returns_a_facing_pair() {
 /// is a failed lookup: the page keeps only its Latin words and digits, and each
 /// lookup costs about a millisecond, which is what made an EPUB look sparse and
 /// turn pages slowly.
+/// A spread request must be answered on its own terms: the worker caches whole
+/// frames, and a cached single-page frame may never stand in for a two-page one.
+#[test]
+fn a_spread_request_is_answered_after_a_single_page_frame() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("spread.epub");
+    std::fs::write(&path, common::publication(1, 40)).unwrap();
+    let worker = breeze_reflow::EpubWorker::new().unwrap();
+    let single_page = Request {
+        path: path.clone(),
+        location: EpubLocation::default(),
+        width: 600.,
+        height: 800.,
+        scale: 2.,
+        font_size: 18.,
+        turn: 0,
+        scroll: 0.,
+        find: None,
+        spread: false,
+    };
+    let first = futures::executor::block_on(worker.request(single_page.clone()).unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.columns, 1);
+    let mut two_page = single_page;
+    two_page.spread = true;
+    let second = futures::executor::block_on(worker.request(two_page).unwrap())
+        .unwrap()
+        .unwrap();
+    assert_eq!(second.columns, 2);
+    assert_eq!(second.pages.len(), 2);
+}
+
 #[test]
 fn chinese_prose_is_drawn_with_its_own_stylesheet() {
     let root = tempfile::tempdir().unwrap();
