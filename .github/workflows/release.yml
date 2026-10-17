@@ -119,30 +119,10 @@ jobs:
           cargo test --workspace --locked --target '${{ matrix.target }}'
           cargo clippy --workspace --all-targets --locked --target '${{ matrix.target }}' -- -D warnings
           python -B -m unittest discover -s scripts -p 'test_*.py' -v
-      - name: Reclaim the verification build tree
-        # The hosted runners have a small disk, and packaging runs after the
-        # release build. The debug tree the checks just produced is the largest
-        # disposable directory under target/ and the release profile never reads
-        # it, so a run that keeps it can exhaust the filesystem before hdiutil
-        # packages the disk image.
-        run: |
-          du -sh 'target/${{ matrix.target }}/debug' 2>/dev/null || true
-          rm -rf 'target/${{ matrix.target }}/debug'
-          df -h . || true
       - name: Build release binary
         run: cargo build --release --locked -p breeze-app --target '${{ matrix.target }}'
       - name: Build installers
         run: |
-          # hdiutil copies the image to a temporary location and then renames it
-          # into place, and it takes that space from $TMPDIR. The runner's temp
-          # volume is far smaller than the workspace volume, so a disk image
-          # build failed with "No space left on device" while df reported 39 GB
-          # free beside the artifacts. Keep the scratch beside them instead.
-          if [ "$RUNNER_OS" = "macOS" ]; then
-            export TMPDIR="$PWD/target/tmp"
-            mkdir -p "$TMPDIR"
-            df -h . "$TMPDIR"
-          fi
           python scripts/release.py package \
             --version "$RELEASE_VERSION" \
             --target "$TARGET" \
