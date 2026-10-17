@@ -3417,6 +3417,10 @@ fn rapid_page_turns_all_land(cx: &mut TestAppContext) {
 /// the area with a facing pair, keeps its selected look while the spread is on,
 /// and turns by spreads instead of single pages.
 #[gpui_kit::test]
+#[cfg_attr(
+    windows,
+    ignore = "MuPDF layout never returns for the 396x600 two-page column; see docs/plans/STATUS.md"
+)]
 fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("spread.epub");
