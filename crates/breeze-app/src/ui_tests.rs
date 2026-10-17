@@ -2630,14 +2630,32 @@ fn requested_documents_wait_for_restore_and_then_open(cx: &mut TestAppContext) {
 /// A `file:` URL for a local path, as an open-url event spells it.
 ///
 /// A `file:` URL separates the volume from the path with slashes, so a Windows
-/// path is `file:///C:/Users/…` rather than `file://C:\Users\…`.
+/// path is `file:///C:/Users/…` rather than `file://C:\Users\…`. `canonicalize`
+/// also returns a verbatim `\\?\C:\…` path on Windows, which no URL carries, so
+/// that prefix is dropped here.
 fn file_url(path: &std::path::Path) -> String {
-    let text = path.display().to_string().replace('\\', "/");
+    let text = path.display().to_string();
+    let text = text
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&text)
+        .replace('\\', "/");
     if text.starts_with('/') {
         format!("file://{text}")
     } else {
         format!("file:///{text}")
     }
+}
+
+#[test]
+fn file_urls_name_a_windows_drive_after_the_slashes() {
+    assert_eq!(
+        file_url(std::path::Path::new(r"\\?\D:\a\breeze\field notes.pdf")),
+        "file:///D:/a/breeze/field notes.pdf"
+    );
+    assert_eq!(
+        file_url(std::path::Path::new("/Users/dp/field notes.pdf")),
+        "file:///Users/dp/field notes.pdf"
+    );
 }
 
 /// A document the OS opens while Breeze is already running must land in the
