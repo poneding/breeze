@@ -116,7 +116,9 @@ jobs:
       - name: Verify
         run: |
           cargo fmt --all -- --check
-          cargo test --workspace --locked --target '${{ matrix.target }}'
+          # Report every failing target in one run: stopping at the first failure
+          # hid the platform-specific failures behind it.
+          cargo test --workspace --locked --no-fail-fast --target '${{ matrix.target }}'
           cargo clippy --workspace --all-targets --locked --target '${{ matrix.target }}' -- -D warnings
           python -B -m unittest discover -s scripts -p 'test_*.py' -v
       - name: Build release binary
