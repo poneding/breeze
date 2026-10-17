@@ -35,6 +35,10 @@ fn fingerprint(worker: &PdfWorker, path: &std::path::Path) -> String {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "the worker keeps the source open, so Windows refuses the replacing rename; see docs/plans/STATUS.md"
+)]
 fn a_replaced_source_is_reloaded_despite_identical_size_and_mtime() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("document.pdf");
