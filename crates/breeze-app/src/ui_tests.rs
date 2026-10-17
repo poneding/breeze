@@ -918,7 +918,12 @@ async fn export_uses_snapshot_and_never_acknowledges_sidecar_save(cx: &mut TestA
     .await;
     cx.update_window(handle, |_, _, cx| {
         let view = view.read(cx);
-        assert_eq!(view.last_export.as_ref(), Some(&destination));
+        assert_eq!(
+            view.last_export.as_ref(),
+            Some(&destination),
+            "export ended without publishing: {:?}",
+            view.export_notice
+        );
         assert!(view.books[0].annotations.dirty());
         assert!(view.books[0].annotations.saved.is_empty());
         assert_eq!(view.books[0].annotations.history.items.len(), 2);
@@ -2622,6 +2627,19 @@ fn requested_documents_wait_for_restore_and_then_open(cx: &mut TestAppContext) {
     .unwrap();
 }
 
+/// A `file:` URL for a local path, as an open-url event spells it.
+///
+/// A `file:` URL separates the volume from the path with slashes, so a Windows
+/// path is `file:///C:/Users/…` rather than `file://C:\Users\…`.
+fn file_url(path: &std::path::Path) -> String {
+    let text = path.display().to_string().replace('\\', "/");
+    if text.starts_with('/') {
+        format!("file://{text}")
+    } else {
+        format!("file:///{text}")
+    }
+}
+
 /// A document the OS opens while Breeze is already running must land in the
 /// window, not just in the queue. This exercises the delivery path the macOS
 /// `application:openURLs:` event uses.
@@ -2643,7 +2661,7 @@ fn a_running_window_opens_delivered_documents(cx: &mut TestAppContext) {
         });
     })
     .unwrap();
-    requests.receive_urls(&[format!("file://{}", sample.display())]);
+    requests.receive_urls(&[file_url(&sample)]);
     cx.run_until_parked();
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
@@ -3144,7 +3162,7 @@ fn epub_wheel_turns_pages_without_a_render_per_event(cx: &mut TestAppContext) {
     // The EPUB page arrives from a dedicated worker thread, so pump the frame
     // loop until it lands rather than assuming one parked pass is enough.
     let mut rendered = false;
-    for _ in 0..60 {
+    for _ in 0..WAIT_ATTEMPTS {
         cx.run_until_parked();
         cx.update_window(handle, |_, window, cx| window.render_frame(cx))
             .unwrap();
@@ -3196,7 +3214,7 @@ fn epub_wheel_turns_pages_without_a_render_per_event(cx: &mut TestAppContext) {
         }
     })
     .unwrap();
-    for _ in 0..60 {
+    for _ in 0..WAIT_ATTEMPTS {
         cx.run_until_parked();
         cx.update_window(handle, |_, window, cx| window.render_frame(cx))
             .unwrap();
@@ -3502,13 +3520,19 @@ fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
 /// Pump frames until the reader holds a frame rasterized at the content area the
 /// window currently shows. The first EPUB frame is laid out at a placeholder
 /// viewport, so a plain wait can observe a page the reader has already replaced.
+/// Frames arrive from worker threads, and a cold CI runner needs seconds where a
+/// warm developer machine needs milliseconds, so these waits allow far more time
+/// than a passing run uses. Only the patience before reporting a missing frame
+/// changes; every assertion stays as it was.
+const WAIT_ATTEMPTS: usize = 400;
+
 fn wait_for_settled_epub(
     cx: &mut TestAppContext,
     handle: AnyWindowHandle,
     view: &Entity<Breeze>,
     done: impl Fn(&breeze_reflow::epub::Frame) -> bool,
 ) -> bool {
-    for _ in 0..80 {
+    for _ in 0..WAIT_ATTEMPTS {
         cx.run_until_parked();
         cx.update_window(handle, |_, window, cx| window.render_frame(cx))
             .unwrap();
@@ -3537,7 +3561,7 @@ fn wait_for_epub(
     view: &Entity<Breeze>,
     done: impl Fn(&breeze_reflow::epub::Frame) -> bool,
 ) -> bool {
-    for _ in 0..80 {
+    for _ in 0..WAIT_ATTEMPTS {
         cx.run_until_parked();
         cx.update_window(handle, |_, window, cx| window.render_frame(cx))
             .unwrap();
