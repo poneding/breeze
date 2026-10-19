@@ -1564,7 +1564,7 @@ mod tests {
 
     #[gpui_kit::test]
     async fn thumbnails_without_outline_load_every_visible_grid_column(cx: &mut TestAppContext) {
-        use gpui_kit::test::TestWindowExt;
+        use gpui_kit::test::{TestAppContextExt, TestWindowExt};
         let worker = PdfWorker::new().unwrap();
         let mut page =
             futures::executor::block_on(worker.request_metadata(Source::Sample, 0).unwrap())
@@ -1591,8 +1591,8 @@ mod tests {
             window.render_frame(cx);
         })
         .unwrap();
-        cx.condition(&view, |view, _| {
-            (0..total).all(|page| view.reading.thumbnails.get(page).is_some())
+        cx.wait_for(handle, std::time::Duration::from_secs(30), |_, cx| {
+            (0..total).all(|page| view.read(cx).reading.thumbnails.get(page).is_some())
         })
         .await;
         view.update(cx, |view, _| {

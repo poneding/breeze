@@ -3550,11 +3550,14 @@ fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
 /// Pump frames until the reader holds a frame rasterized at the content area the
 /// window currently shows. The first EPUB frame is laid out at a placeholder
 /// viewport, so a plain wait can observe a page the reader has already replaced.
+/// How long a wait for worker frames or measured layout may take.
+///
 /// Frames arrive from worker threads, and a cold CI runner needs seconds where a
-/// warm developer machine needs milliseconds, so these waits allow far more time
-/// than a passing run uses. Only the patience before reporting a missing frame
-/// changes; every assertion stays as it was.
-const WAIT_ATTEMPTS: usize = 400;
+/// warm developer machine needs milliseconds. The hosted `windows-latest` image
+/// (Windows Server 2025) needs more than ten seconds for the first EPUB frame, so
+/// the budget is thirty: only the patience before reporting a missing frame
+/// changes, never an assertion.
+const WAIT_ATTEMPTS: usize = 1_200;
 
 /// The frame and queue state a settled wait compares, for a failure message.
 fn settled_report(
