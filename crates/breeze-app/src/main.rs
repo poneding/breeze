@@ -1,3 +1,9 @@
+// A release build is a GUI program. Without this attribute the binary is a
+// console program, so Windows opens a terminal beside it and closing that
+// terminal ends Breeze. Debug builds keep the console, which is where
+// development runs and `cargo test` write.
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
+
 #[macro_use]
 mod i18n;
 mod localization;
@@ -1204,7 +1210,35 @@ fn texture(p: Pixels) -> Result<Arc<RenderImage>> {
         .ok_or_else(|| anyhow::anyhow!(tr!("Page pixel size mismatch")))?;
     Ok(Arc::new(RenderImage::new(vec![image::Frame::new(image)])))
 }
-fn main() -> Result<()> {
+/// Report a failure that stops Breeze before its window opens.
+///
+/// A release build on Windows has no console to print to, so the message is also
+/// appended to `startup-error.log` in the application data directory, where a
+/// user can still read it.
+fn report_startup_failure(message: &str) {
+    use std::io::Write;
+    eprintln!("{message}");
+    let Ok(directory) = breeze_storage::data_directory() else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&directory).and_then(|()| {
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(directory.join("startup-error.log"))
+            .and_then(|mut file| writeln!(file, "{message}"))
+    });
+}
+
+fn main() {
+    if let Err(error) = run() {
+        report_startup_failure(&tf!("Cannot start Breeze: {}", format!("{:#}", error)));
+        std::process::exit(1);
+    }
+}
+
+/// Run the application, returning the failure that stopped it from starting.
+fn run() -> Result<()> {
     let worker = PdfWorker::new()?;
     let requests = open_events::OpenRequests::new();
     let requested = requests.clone();
@@ -1215,13 +1249,10 @@ fn main() -> Result<()> {
     application.run(move |cx| {
         gpui_kit::init(cx);
         if let Err(error) = appearance::init(cx) {
-            eprintln!(
-                "{}",
-                tf!(
-                    "Cannot initialize bundled themes: {}",
-                    format!("{:#}", error)
-                )
-            );
+            report_startup_failure(&tf!(
+                "Cannot initialize bundled themes: {}",
+                format!("{:#}", error)
+            ));
             cx.quit();
             return;
         }
@@ -1279,7 +1310,7 @@ fn main() -> Result<()> {
             },
         );
         if let Err(error) = result {
-            eprintln!("{}", tf!("Cannot start Breeze: {}", format!("{:#}", error)));
+            report_startup_failure(&tf!("Cannot start Breeze: {}", format!("{:#}", error)));
             cx.quit();
         }
         cx.activate(true);
