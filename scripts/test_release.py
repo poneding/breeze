@@ -28,6 +28,17 @@ DOCUMENTS = (
 )
 
 
+def pe_image(subsystem: int) -> bytes:
+    """A minimal PE image whose optional header records ``subsystem``."""
+    data = bytearray(512)
+    data[0:2] = b"MZ"
+    data[0x3C:0x40] = (0x80).to_bytes(4, "little")
+    data[0x80:0x84] = b"PE\0\0"
+    offset = 0x80 + 24 + 68
+    data[offset : offset + 2] = subsystem.to_bytes(2, "little")
+    return bytes(data)
+
+
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
         scratch = release.ROOT / "target/release-tests"
@@ -341,6 +352,24 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(version=version, target=target), self.assertRaises(ValueError):
                 release.package(version, target, binary, output)
         self.assertFalse(output.exists())
+
+    def test_windows_packages_must_be_gui_programs(self):
+        output = self.root / "dist"
+        binary = self.root / "breeze-app.exe"
+        # A console subsystem binary opens a terminal; closing it used to end the
+        # application, so packaging refuses it.
+        binary.write_bytes(pe_image(3))
+        with self.assertRaisesRegex(ValueError, "console binary opens a terminal"):
+            release.package("1.2.3", WINDOWS, binary, output)
+        self.assertFalse(output.exists())
+        binary.write_bytes(pe_image(release.WINDOWS_GUI_SUBSYSTEM))
+        self.assertEqual(
+            release._windows_subsystem(binary), release.WINDOWS_GUI_SUBSYSTEM
+        )
+        not_executable = self.root / "notes.txt"
+        not_executable.write_text("not a PE", encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "not a Windows executable"):
+            release._windows_subsystem(not_executable)
 
     # Real containers, where this platform can build them --------------------
 

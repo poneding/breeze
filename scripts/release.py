@@ -65,6 +65,10 @@ PDF_CONTENT_TYPE = "com.adobe.pdf"
 PDF_PROGID = "Breeze.Document"
 WINDOWS_PDF_EXTENSION = ".pdf"
 WINDOWS_EXECUTABLE = "breeze-app.exe"
+# PE optional-header subsystem of a Windows GUI program. A console program (3)
+# makes Windows open a terminal beside the application, and closing that terminal
+# ends it, so the shipped executable must be the GUI subsystem.
+WINDOWS_GUI_SUBSYSTEM = 2
 # Linux names the same format through the shared MIME database.
 PDF_MIME_TYPE = "application/pdf"
 LINUX_PACKAGE = "breeze"
@@ -711,6 +715,34 @@ def _output(command: list[str]) -> str:
     return result.stdout
 
 
+def _windows_subsystem(binary: Path) -> int:
+    """Read the subsystem field of a Windows executable's PE optional header."""
+    with binary.open("rb") as handle:
+        head = handle.read(4096)
+    if head[:2] != b"MZ":
+        raise ValueError(f"not a Windows executable: {binary.name}")
+    pe = int.from_bytes(head[0x3C:0x40], "little")
+    if head[pe : pe + 4] != b"PE\0\0":
+        raise ValueError(f"missing PE signature in {binary.name}")
+    # The PE signature and file header take 24 bytes; the subsystem sits 68 bytes
+    # into the optional header for both PE32 and PE32+.
+    offset = pe + 24 + 68
+    if offset + 2 > len(head):
+        raise ValueError(f"truncated PE header in {binary.name}")
+    return int.from_bytes(head[offset : offset + 2], "little")
+
+
+def _require_windows_gui(binary: Path) -> None:
+    """Refuse a console-subsystem executable, which Windows runs in a terminal."""
+    subsystem = _windows_subsystem(binary)
+    if subsystem != WINDOWS_GUI_SUBSYSTEM:
+        raise ValueError(
+            f"{binary.name} is PE subsystem {subsystem}, not "
+            f"{WINDOWS_GUI_SUBSYSTEM} (Windows GUI): a console binary opens a "
+            "terminal and closing the terminal ends the application"
+        )
+
+
 def package(version: str, target: str, binary: Path, output: Path) -> tuple[Path, ...]:
     """Build every installer format for one target and write its checksums."""
     _version_parts(version)
@@ -718,6 +750,8 @@ def package(version: str, target: str, binary: Path, output: Path) -> tuple[Path
         raise ValueError(f"unsupported target: {target!r}")
     if not binary.is_file():
         raise ValueError(f"release binary not found: {binary}")
+    if target.endswith("windows-msvc"):
+        _require_windows_gui(binary)
     output.mkdir(parents=True, exist_ok=True)
     artifacts: list[Path] = []
     with tempfile.TemporaryDirectory(prefix=".payload-", dir=output) as scratch:
