@@ -30,6 +30,7 @@ mod document_panel;
 mod errors;
 mod home;
 mod markdown_editor;
+mod markdown_style;
 mod open_events;
 mod raster;
 mod reader;

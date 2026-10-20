@@ -2068,6 +2068,7 @@ impl Breeze {
         let view = cx.entity().downgrade();
         let source = self.books[self.active].source.clone();
         let images = cx.entity().downgrade();
+        let body = f32::from(self.books[self.active].reflow.font_size);
         div()
             .id(("markdown-block", index))
             .test_support()
@@ -2075,9 +2076,10 @@ impl Breeze {
             .px_4()
             .py_1()
             .min_h(px(20.))
-            .text_size(px(self.books[self.active].reflow.font_size as f32))
+            .text_size(px(body))
             .child(
                 TextView::new(&state)
+                    .style(markdown_style::text_style(cx, body))
                     .selectable(true)
                     .image_source(move |uri| {
                         reflow_images::source(images.clone(), source.clone(), uri.to_string())
