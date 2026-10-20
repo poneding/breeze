@@ -958,7 +958,7 @@ impl Breeze {
                     .border_color(p.line)
                     .bg(p.bg)
                     // Page turns stay on the keyboard; the status bar starts
-                    // with the reading position.
+                    // with the draft's editor status when one is open.
                     .when(
                         self.books[self.active].markdown_editing
                             && self.books[self.active].markdown_edit.is_some(),
@@ -977,17 +977,22 @@ impl Breeze {
                             )
                         },
                     )
-                    .child({
-                        let position = self.reflow_position_text();
-                        div()
-                            .id("reflow-position")
-                            .test_support()
-                            .min_w(px(56.))
-                            .text_size(px(12.))
-                            // The visible text is a page count; name it for
-                            // assistive technology and for the tests that pin it.
-                            .aria_label(position.clone())
-                            .child(position)
+                    // Only a paginated EPUB has a page position. Markdown
+                    // scrolls without pages, so it reports no reading progress
+                    // here rather than a percentage that duplicates the
+                    // scrollbar.
+                    .when_some(self.reflow_position_text(), |bar, position| {
+                        bar.child(
+                            div()
+                                .id("reflow-position")
+                                .test_support()
+                                .min_w(px(56.))
+                                .text_size(px(12.))
+                                // The visible text is a page count; name it for
+                                // assistive technology and for the tests that pin it.
+                                .aria_label(position.clone())
+                                .child(position),
+                        )
                     })
                     .when(!epub, |bar| match self.markdown_characters(cx) {
                         Some(characters) => {
@@ -1162,7 +1167,19 @@ impl Breeze {
     /// EPUB is paginated one chapter at a time — laying out the whole book to
     /// number its pages would cost what the chapter-local design exists to avoid
     /// — so the count is the page within the open chapter. Markdown has no pages
-    /// and keeps reporting its reading progress.
+    /// and reports no position, and neither does a chapter whose frame has not
+    /// landed yet.
+    fn reflow_position_text(&self) -> Option<String> {
+        let frame = self.reflow.frame.as_ref()?;
+        let left = frame.chapter_page + 1;
+        let right = (frame.chapter_page + frame.columns).min(frame.chapter_pages);
+        Some(if right > left {
+            format!("{left}\u{2013}{right} / {}", frame.chapter_pages)
+        } else {
+            format!("{left} / {}", frame.chapter_pages)
+        })
+    }
+
     /// Characters the Markdown reading surface shows, or `None` for EPUB.
     ///
     /// An open draft reports its own projection, so the count follows the text
@@ -1181,19 +1198,6 @@ impl Breeze {
                     .as_ref()
                     .map(|document| document.characters)
             })
-    }
-
-    fn reflow_position_text(&self) -> String {
-        if let Some(frame) = &self.reflow.frame {
-            let left = frame.chapter_page + 1;
-            let right = (frame.chapter_page + frame.columns).min(frame.chapter_pages);
-            return if right > left {
-                format!("{left}\u{2013}{right} / {}", frame.chapter_pages)
-            } else {
-                format!("{left} / {}", frame.chapter_pages)
-            };
-        }
-        format!("{:.0}%", self.books[self.active].reflow.progress * 100.)
     }
 
     /// The one status notice the reflow reader shows, or `None` when there is

@@ -1,3 +1,25 @@
+## October 20 no reading progress in the Markdown status bar
+
+The Markdown status bar reported a reading percentage where EPUB reports a page
+position. Markdown scrolls without pages, so that percentage only repeated the
+scrollbar's fraction in another form, and it read as a page position beside the
+rendered character count. The position element now renders only from a landed
+EPUB frame — `reflow_position_text` returns the chapter page count for a frame
+and nothing otherwise — so Markdown and a chapter still being laid out show no
+progress figure. Character count, text size and the reading-width toggle are
+unchanged, and the document information panel keeps reporting reading progress.
+
+Validation ran in a detached worktree of `5f4bdd4` holding only this change,
+because unrelated Markdown text-style work is in progress in the checkout.
+`cargo fmt --all -- --check` passes; `cargo test --workspace --locked` passes
+with the app suite's 232 tests, including regressions that a Markdown document
+and an open draft have no `reflow-position` while the EPUB page count still
+parses as `page / pages`; and `cargo clippy --workspace --all-targets --locked --
+-D warnings` passes. Native visual inspection was not performed: screen capture
+returned a uniform surface with no readable content, so the display appeared
+locked or asleep, and the status-bar change is covered by rendered-component
+tests alone. Windows and Linux runtime remain unverified.
+
 ## October 20 reading draws one selection, not two
 
 A read-mode drag painted two highlights: the selection fill, and the amber

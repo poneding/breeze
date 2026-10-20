@@ -3090,8 +3090,9 @@ fn reflow_outline_matches_the_pdf_outline_style(cx: &mut TestAppContext) {
     .unwrap();
 }
 
-/// Markdown scrolls, so it has no page-turn buttons, and the status bar carries
-/// a stateful width toggle between the readable measure and the full window.
+/// Markdown scrolls, so it has no page-turn buttons and no reading progress,
+/// and the status bar carries a stateful width toggle between the readable
+/// measure and the full window.
 #[gpui_kit::test]
 fn markdown_has_no_paging_and_toggles_its_reading_width(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
@@ -3113,6 +3114,12 @@ fn markdown_has_no_paging_and_toggles_its_reading_width(cx: &mut TestAppContext)
         // The PDF page-turn controls belong to fixed pages only.
         assert!(window.try_find("reflow-previous").is_none());
         assert!(window.try_find("reflow-next").is_none());
+        // A scrolling document has no page position, so the status bar shows no
+        // reading progress beside the character count.
+        assert!(
+            window.try_find("reflow-position").is_none(),
+            "the Markdown status bar still reports a reading position"
+        );
 
         // The status bar reports the rendered character count of the document.
         let characters = view.read(cx).reflow.markdown.as_ref().unwrap().characters;
@@ -3790,6 +3797,10 @@ fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppCon
         assert!(
             window.try_find("reflow-status").is_some(),
             "the shared status bar must stay in edit mode"
+        );
+        assert!(
+            window.try_find("reflow-position").is_none(),
+            "the status bar reports a reading position for a draft"
         );
         assert!(window.try_find("markdown-editor").is_some());
         assert!(window.try_find("markdown-measure").is_some());

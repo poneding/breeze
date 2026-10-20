@@ -60,7 +60,7 @@ controls that need one are dropped.
 | Content toolbar | Read/annotate and existing tools | Chapter navigation | Nothing format-specific |
 | Left panel | Outline / thumbnails | Publication contents | Heading outline |
 | Right panel | Information, annotations, search | Publication information / search | Document information / search |
-| Status | Pages, zoom, fit, layout, rotation | Chapter and reading progress, text size | Reading progress, text size, reading width; no page-turn controls |
+| Status | Pages, zoom, fit, layout, rotation | Chapter and reading progress, text size | Rendered character count, text size, reading width; no page-turn controls and no reading progress |
 | Position | Page plus PDF view settings | Chapter href plus an in-chapter position | Source block/offset and scroll position |
 | Reading width | Not applicable | Not applicable; the page is laid out at the viewport | Centred maximum measure by default, toggleable to the full window |
 
