@@ -77,6 +77,14 @@ bounded BGRA texture; it is never fetched over the network. An available release
 still offers its GitHub page, and the window-level update banner is suppressed while
 a non-library Home page already shows that state.
 
+Installed application identity uses each platform's own icon channel rather than a
+second in-window logo: the Windows executable embeds `breeze.ico` as icon resource 1,
+which GPUI loads for its window class and Explorer reads for the file or shortcut;
+the macOS bundle declares `Breeze.icns`; and the Linux packages install `breeze.png`
+while the window carries `app_id=breeze` and `StartupWMClass=breeze`, so Wayland and
+X11 can group it with the launcher and resolve that icon. The 256 px Linux raster is
+also the X11 `_NET_WM_ICON`, because X11 has no desktop-entry lookup.
+
 Shortcuts lists the registered bindings through `Kbd::binding_for_action` and
 `Kbd::global_binding_for_action`, so the page cannot invent or drift from a real
 binding. Rows whose action has no registered binding are omitted, and one muted line
@@ -165,6 +173,8 @@ In addition to component tests, inspect titlebar dragging/double-click/window co
 Use Kit Small controls instead of XSmall: the default 15 px rem gives global icon buttons a 22.5 px hit box. Keep the title bar, toolbar, navigation header, and status bar heights unchanged. Left alignment must be applied to a full-width child row inside Kit Button; outer `justify_start` alone does not override the component's centered content container.
 
 Document tabs have one four-corner rounded surface, a theme-background active fill with a small shadow, and no inter-tab separators. Inactive tabs receive the same shadow on hover, including over their Close overlay. Home and the tab group's trailing divider/Plus control retain their control widths; Kit's Windows/Linux window controls occupy their own sibling region. Each tab fits its filename, icon, and normal padding up to 228 logical pixels; short names do not stretch to the maximum. Tabs shrink from their preferred widths as more documents open or the window narrows. At the 40 px minimum, excess tabs scroll within that bounded region. Preserve 4 px of leading space and 6 px of trailing space inside the tab scroller so edge shadows remain visible. A single 1 × 14 px divider and Plus button follow the visible tab region, including when it is empty. Plus opens the document picker, uses muted foreground at rest and ordinary button foreground/background on hover, and is never part of the scrolling content. The old right-side Open button is removed.
+
+Home, a tab, and Plus are ordinary client controls on every platform. The empty width after Plus is the window-drag surface, with 24 logical pixels kept available so a full tab strip still leaves somewhere to move the window. Windows maps a hit test over a drag surface to its native caption, and that caption consumes the press; the title-bar controls therefore block the caption hit test instead of sitting under it. macOS and Linux ignore the window-control area and move the window through `start_window_move` from the same surface, which also keeps double-click zoom and the Linux window menu there.
 
 Each tab's icon/title content has equal 0.5 rem left and right insets (7.5 logical pixels at the current 15 px rem). Preferred widths include both sides, keeping the right edge of short titles as comfortably inset as the left document icon. Close uses a separate 2 px right inset; its overlay does not inherit the title's larger inset.
 

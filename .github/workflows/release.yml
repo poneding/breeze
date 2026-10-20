@@ -216,8 +216,34 @@ jobs:
           Remove-Item -Recurse -Force $extract -ErrorAction SilentlyContinue
           $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/a', $msi.FullName, '/qn', "TARGETDIR=$extract")
           if ($process.ExitCode -ne 0) { throw "administrative install failed: $($process.ExitCode)" }
-          if (-not (Get-ChildItem -Recurse -Path $extract -Filter 'breeze-app.exe')) {
-            throw 'the MSI payload does not contain breeze-app.exe'
+          $payloadExe = Get-ChildItem -Recurse -Path $extract -Filter 'breeze-app.exe' | Select-Object -First 1
+          if ($null -eq $payloadExe) { throw 'the MSI payload does not contain breeze-app.exe' }
+          # GPUI loads icon resource 1 (RT_GROUP_ICON) from the module for the
+          # window class, and Explorer reads the same resource for the executable
+          # and its shortcuts. Without it the installed application shows the
+          # generic Windows program icon even though the installers carry one.
+          $resourceApi = @(
+            'using System;'
+            'using System.Runtime.InteropServices;'
+            'public static class BreezeResources {'
+            '  [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)]'
+            '  public static extern IntPtr LoadLibraryExW(string file, IntPtr fileHandle, uint flags);'
+            '  [DllImport("kernel32", SetLastError = true)]'
+            '  public static extern IntPtr FindResourceW(IntPtr module, IntPtr name, IntPtr type);'
+            '  [DllImport("kernel32")]'
+            '  public static extern bool FreeLibrary(IntPtr module);'
+            '}'
+          ) -join "`n"
+          Add-Type -TypeDefinition $resourceApi
+          $module = [BreezeResources]::LoadLibraryExW($payloadExe.FullName, [IntPtr]::Zero, 0x2)
+          if ($module -eq [IntPtr]::Zero) { throw "cannot open $($payloadExe.Name) to read its resources" }
+          try {
+            $icon = [BreezeResources]::FindResourceW($module, [IntPtr]1, [IntPtr]14)
+            if ($icon -eq [IntPtr]::Zero) {
+              throw "$($payloadExe.Name) has no icon resource 1; the taskbar and Explorer would show the generic program icon"
+            }
+          } finally {
+            [void][BreezeResources]::FreeLibrary($module)
           }
           $versionFile = Get-ChildItem -Recurse -Path $extract -Filter 'VERSION' | Select-Object -First 1
           if ($null -eq $versionFile) { throw 'the MSI payload does not carry VERSION' }

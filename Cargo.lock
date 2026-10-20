@@ -754,6 +754,7 @@ dependencies = [
  "breeze-pdf",
  "breeze-reflow",
  "breeze-storage",
+ "embed-resource",
  "futures",
  "gpui-kit",
  "image",

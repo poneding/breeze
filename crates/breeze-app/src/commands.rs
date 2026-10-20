@@ -501,6 +501,14 @@ impl Breeze {
                     .when(window.is_fullscreen(), |this| {
                         this.on_double_click(|_, _, cx| cx.stop_propagation())
                     })
+                    // Windows turns a hit test over a drag area into the native
+                    // window caption, and the caption consumes the press before
+                    // GPUI sees it. Kit marks the whole title-bar content area as
+                    // draggable, so without this block the caption would sit on top
+                    // of Home and Plus and neither would ever receive a click.
+                    // Blocking the mouse stops the hit test at this row, leaving the
+                    // tab group's empty width as the title bar's drag surface.
+                    .occlude()
                     .test_support()
                     // A zero basis prevents Kit's nonshrinking titlebar wrapper
                     // from requesting the tabs' combined intrinsic width.
@@ -537,13 +545,46 @@ impl Breeze {
         } else {
             split::Destination::Primary
         };
-        row()
+        let group = row()
             .id("document-tab-group")
             .h_full()
             .w_0()
             .flex_1()
             .min_w_0()
             .gap_1()
+            // Windows turns a hit test over this area into the native window
+            // caption, and the caption consumes the press before GPUI sees it.
+            // The controls below block this hitbox, so only the empty width after
+            // them keeps the caption; Home and Plus stay ordinary client clicks.
+            // macOS and Linux ignore the window-control area and start the move
+            // from these listeners instead.
+            .window_control_area(WindowControlArea::Drag)
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| {
+                    this.title_bar_drag = true;
+                }),
+            )
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| {
+                    this.title_bar_drag = false;
+                }),
+            )
+            .on_mouse_up_out(
+                MouseButton::Left,
+                cx.listener(|this, _, _, _| {
+                    this.title_bar_drag = false;
+                }),
+            )
+            .on_mouse_move(cx.listener(|this, event: &MouseMoveEvent, window, _| {
+                // A press that ends outside the group never reaches `on_mouse_up`,
+                // so require the button to still be down before moving the window.
+                if this.title_bar_drag && event.dragging() {
+                    this.title_bar_drag = false;
+                    window.start_window_move();
+                }
+            }))
             .on_drop(cx.listener(move |this, drag: &split::TabDrag, window, cx| {
                 this.queue_tab_drop(drag, destination, None, window, cx);
             }))
@@ -556,10 +597,20 @@ impl Breeze {
                     .flex_1()
                     .max_w(tab_strip_width)
                     .min_w_0()
+                    // Block the group's caption behind the strip, including the
+                    // gaps between tabs, so a tab press reaches the tab and not the
+                    // window move. Tabs themselves paint in front and stay clickable.
+                    .occlude()
                     .overflow_x_scroll()
                     .pl(px(4.))
                     .pr(px(6.))
                     .gap_1()
+                    // The strip blocks the group's drop target, so dropping in its
+                    // padding still moves the tab to the end of this pane. A drop on
+                    // a tab reaches that tab's own target first and inserts there.
+                    .on_drop(cx.listener(move |this, drag: &split::TabDrag, window, cx| {
+                        this.queue_tab_drop(drag, destination, None, window, cx);
+                    }))
                     .children(
                         tabs.into_iter()
                             .map(|(index, width)| self.document_tab(index, width, cx)),
@@ -570,6 +621,8 @@ impl Breeze {
                     .id("document-tab-add")
                     .test_support()
                     .flex_shrink_0()
+                    // The same block keeps the Plus click out of the caption.
+                    .occlude()
                     .gap_1()
                     .child(
                         div()
@@ -590,7 +643,23 @@ impl Breeze {
                         .text_color(self.p(cx).muted),
                     ),
             )
-            .into_any_element()
+            // Keep a drag handle even when tabs fill the strip: without it the
+            // caption would vanish and the window could not be moved from its
+            // title bar. The spacer is covered by the group's drag area.
+            .child(div().w(px(24.)).flex_shrink_0());
+        // Windows handles a caption double click itself; the other platforms reach
+        // the same behavior through Kit's title-bar listeners, which the controls
+        // above keep away from the tab area. These are stateful element methods,
+        // so they precede `test_support`.
+        #[cfg(target_os = "macos")]
+        let group = group.on_double_click(|_, window, _| window.titlebar_double_click());
+        #[cfg(target_os = "linux")]
+        let group = group
+            .on_double_click(|_, window, _| window.zoom_window())
+            .on_mouse_down(MouseButton::Right, |event, window, _| {
+                window.show_window_menu(event.position);
+            });
+        group.test_support().into_any_element()
     }
 
     fn workspace_tabs(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {

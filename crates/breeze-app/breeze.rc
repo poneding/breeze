@@ -1,0 +1,9 @@
+// Breeze application icon. Resource 1 is the group icon GPUI loads when it
+// registers its window class, and the icon Explorer, shortcuts, and the taskbar
+// read from breeze-app.exe.
+//
+// The path is relative to the crate root: rc.exe resolves resource files against
+// its working directory (the crate root), and embed-resource sets the same
+// directory for llvm-rc. Keeping this file and the working directory together
+// avoids embedding a checkout-specific absolute path.
+1 ICON "../../assets/brand/breeze.ico"

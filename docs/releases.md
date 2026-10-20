@@ -50,8 +50,12 @@ Every installer carries `VERSION`, `Cargo.lock`, `README.md`, these release note
 as `RELEASE-NOTES.md`, and the repository's maintained third-party notices under
 `licenses/`: inside `Breeze.app/Contents/Resources` on macOS, beside the
 executable on Windows, and under `/usr/share/doc/breeze` on Linux. The PDF
-sample, Kit icons, and macOS shaders are embedded in the executable. The included
-notices are not yet a complete audited dependency-license inventory.
+sample, Kit icons, and macOS shaders are embedded in the executable. The Windows
+executable also embeds the Breeze icon resource, so Explorer, shortcuts, the
+taskbar, and Alt-Tab show the application logo rather than the generic program
+icon. Linux packages install the desktop entry and `hicolor` icon, and the window
+reports `app_id=breeze` so Wayland and X11 can associate it with them. The
+included notices are not yet a complete audited dependency-license inventory.
 
 Two platform conventions are worth knowing. The Debian package maps a SemVer
 prerelease onto Debian's `~` (`0.1.0~alpha.1-1`) so that prereleases sort *below*

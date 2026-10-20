@@ -1090,6 +1090,66 @@ fn chrome_heights_and_left_navigation_are_preserved(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn window_options_carry_the_desktop_identity_and_icon(cx: &mut TestAppContext) {
+    let options = cx.update(|cx| app_window_options(cx));
+    assert_eq!(options.app_id.as_deref(), Some("breeze"));
+    let icon = options.icon.expect("the bundled window icon decodes");
+    assert_eq!(icon.dimensions(), (256, 256));
+    assert_eq!(icon.get_pixel(0, 0).0[3], 0);
+}
+
+/// The empty title bar after the Plus control is the only surface that the
+/// Windows hit test maps to the native caption. Its press handlers must not hover
+/// over a control, or the caption would consume the click before GPUI sees it.
+#[gpui_kit::test]
+fn title_bar_drag_area_excludes_the_tab_controls(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let content = window.find("titlebar-content").bounds();
+        let group = window.find("document-tab-group").bounds();
+        let home = window.find("home-tab").bounds();
+        let tab = window.find(("document", 0usize)).bounds();
+        let plus = window.find("add-document").bounds();
+        let empty = point(group.right() - px(12.), content.top() + px(6.));
+        assert!(empty.x > plus.right());
+
+        // The empty width after the controls is the draggable surface.
+        pointer_press(window, empty, cx);
+        assert!(view.read(cx).title_bar_drag);
+        pointer_release(window, empty, cx);
+        assert!(!view.read(cx).title_bar_drag);
+
+        // Kit's title bar starts a native move from a press anywhere in its drag
+        // area. The test platform has no move loop, so a press that leaked through
+        // to the bar would panic here instead of reaching the control.
+        // Releasing away from a control also keeps the press from activating it.
+        let neutral = point(px(2.), content.top() + px(2.));
+        pointer_press(window, home.center(), cx);
+        window.dispatch_event(
+            MouseMoveEvent {
+                position: home.center() + point(px(6.), px(0.)),
+                pressed_button: Some(MouseButton::Left),
+                modifiers: Default::default(),
+            }
+            .to_platform_input(),
+            cx,
+        );
+        pointer_release(window, neutral, cx);
+
+        for (name, bounds) in [("Home", home), ("document tab", tab), ("Plus", plus)] {
+            pointer_press(window, bounds.center(), cx);
+            assert!(
+                !view.read(cx).title_bar_drag,
+                "the title-bar caption must not cover the {name} control"
+            );
+            pointer_release(window, neutral, cx);
+        }
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn panel_toggles_live_in_their_expanded_headers(cx: &mut TestAppContext) {
     let (handle, view) = app(cx);
     cx.update_window(handle, |_, window, cx| {

@@ -228,6 +228,9 @@ struct Breeze {
     /// Page text kept between searches of the same document revision.
     search_cache: Option<Arc<breeze_pdf::SearchCache>>,
     full_screen: bool,
+    /// Whether a press on the title bar's empty drag area is in progress, so the
+    /// first pointer move can hand the window to the platform's move loop.
+    title_bar_drag: bool,
     /// Whether the status-bar Fullscreen action entered native fullscreen from
     /// a windowed state and should therefore leave it again on exit.
     full_screen_entered_windowed: bool,
@@ -411,6 +414,7 @@ impl Breeze {
             search_cancel: None,
             search_cache: None,
             full_screen: false,
+            title_bar_drag: false,
             full_screen_entered_windowed: false,
             library_input,
             _subscriptions: vec![
@@ -1237,6 +1241,31 @@ fn main() {
     }
 }
 
+/// Application identifier the Linux desktop entry and Wayland compositor use to
+/// group the window with its launcher and resolve the installed icon.
+const APP_ID: &str = "breeze";
+
+/// Options common to every application window.
+///
+/// The Linux desktop integration depends on both identity fields: Wayland has no
+/// window icon property, so it finds `breeze.desktop` and its `breeze.png` by
+/// `app_id`, while X11 has no desktop-entry lookup and needs the raster on the
+/// window itself.
+fn app_window_options(cx: &App) -> WindowOptions {
+    WindowOptions {
+        window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+            None,
+            size(px(1340.), px(900.)),
+            cx,
+        ))),
+        window_min_size: Some(size(px(900.), px(650.))),
+        app_id: Some(APP_ID.to_string()),
+        icon: about::window_icon(),
+        // Keep dragging, double clicking and window controls owned by Kit.
+        ..TitleBar::window_options()
+    }
+}
+
 /// Run the application, returning the failure that stopped it from starting.
 fn run() -> Result<()> {
     let worker = PdfWorker::new()?;
@@ -1266,49 +1295,37 @@ fn run() -> Result<()> {
             }
         })
         .detach();
-        let result = gpui_kit::open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
-                    None,
-                    size(px(1340.), px(900.)),
-                    cx,
-                ))),
-                window_min_size: Some(size(px(900.), px(650.))),
-                ..TitleBar::window_options()
-            },
-            cx,
-            move |window, cx| {
-                let view = cx.new(|cx| Breeze::new(worker, window, cx));
-                // Attach before draining so an event that arrives during
-                // startup is delivered to this window instead of waiting.
-                requests.attach(cx.to_async(), window.window_handle(), view.downgrade());
-                let mut initial = open_events::argument_paths(std::env::args_os().skip(1));
-                initial.extend(requests.take_pending());
-                view.update(cx, |this, cx| {
-                    window.focus(&this.focus, cx);
-                    window.set_window_title(tr!("Breeze · Local reading workspace"));
-                    this.apply_theme(cx);
-                    this.initialize_storage(initial, cx);
-                });
-                let closing = view.downgrade();
-                window.on_window_should_close(cx, move |window, cx| {
-                    closing
-                        .update(cx, |this, cx| this.request_close(window, cx))
-                        .unwrap_or(true)
-                });
-                let flushing = view.clone();
-                cx.on_app_quit(move |cx| {
-                    let future = flushing.read(cx).flush_state();
-                    async move {
-                        if let Some(future) = future {
-                            future.await;
-                        }
+        let result = gpui_kit::open_window(app_window_options(cx), cx, move |window, cx| {
+            let view = cx.new(|cx| Breeze::new(worker, window, cx));
+            // Attach before draining so an event that arrives during
+            // startup is delivered to this window instead of waiting.
+            requests.attach(cx.to_async(), window.window_handle(), view.downgrade());
+            let mut initial = open_events::argument_paths(std::env::args_os().skip(1));
+            initial.extend(requests.take_pending());
+            view.update(cx, |this, cx| {
+                window.focus(&this.focus, cx);
+                window.set_window_title(tr!("Breeze · Local reading workspace"));
+                this.apply_theme(cx);
+                this.initialize_storage(initial, cx);
+            });
+            let closing = view.downgrade();
+            window.on_window_should_close(cx, move |window, cx| {
+                closing
+                    .update(cx, |this, cx| this.request_close(window, cx))
+                    .unwrap_or(true)
+            });
+            let flushing = view.clone();
+            cx.on_app_quit(move |cx| {
+                let future = flushing.read(cx).flush_state();
+                async move {
+                    if let Some(future) = future {
+                        future.await;
                     }
-                })
-                .detach();
-                view
-            },
-        );
+                }
+            })
+            .detach();
+            view
+        });
         if let Err(error) = result {
             report_startup_failure(&tf!("Cannot start Breeze: {}", format!("{:#}", error)));
             cx.quit();

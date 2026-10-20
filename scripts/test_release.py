@@ -340,6 +340,7 @@ class ReleaseTests(unittest.TestCase):
         desktop = release.desktop_entry()
         self.assertIn("Exec=breeze-app %F", desktop)
         self.assertIn("Icon=breeze", desktop)
+        self.assertIn("StartupWMClass=breeze", desktop)
         self.assertIn("MimeType=application/pdf;", desktop)
         self.assertTrue((payload / "usr/bin/breeze-app").is_file())
         self.assertTrue((payload / "usr/share/icons/hicolor/256x256/apps/breeze.png").is_file())

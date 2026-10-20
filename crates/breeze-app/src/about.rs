@@ -6,6 +6,9 @@ const AUTHOR: &str = "Pone Ding<poneding@gmail.com>";
 /// The tile is displayed at 64 logical pixels; decode once at a bounded size.
 const LOGO_MAX_PIXELS: u32 = 160;
 const LOGO_BYTES: &[u8] = include_bytes!("../../../assets/brand/breeze-icon.png");
+/// The desktop icon the Windows taskbar and X11 window display. Wayland reads
+/// the icon from the installed desktop entry instead of the window.
+const WINDOW_ICON_BYTES: &[u8] = include_bytes!("../../../assets/brand/breeze-icon-256.png");
 /// Keeps the two credit labels in one left-aligned column.
 const CREDIT_LABEL_WIDTH: f32 = 64.;
 
@@ -29,6 +32,17 @@ pub(super) fn brand_logo() -> Option<Arc<RenderImage>> {
     }
     let buffer = image::RgbaImage::from_raw(width, height, pixels)?;
     Some(Arc::new(RenderImage::new(vec![image::Frame::new(buffer)])))
+}
+
+/// Decode the bundled desktop icon into straight RGBA for the platform window.
+///
+/// The X11 backend publishes it as `_NET_WM_ICON`; the Windows window class
+/// loads the icon resource compiled from `assets/brand/breeze.ico` instead, so
+/// this raster is only consulted where the platform asks for one.
+pub(super) fn window_icon() -> Option<Arc<image::RgbaImage>> {
+    image::load_from_memory(WINDOW_ICON_BYTES)
+        .ok()
+        .map(|icon| Arc::new(icon.to_rgba8()))
 }
 
 impl Breeze {
@@ -253,6 +267,25 @@ mod tests {
             (span - 1 - max_x, span - 1 - max_y),
             "the canvas keeps the tile centred"
         );
+    }
+
+    /// The desktop icon reaches the window through a different decoder than the
+    /// About tile: the release packages install this 256 px raster for Linux and
+    /// X11 needs its pixels kept straight. A premultiplied or opaque decode would
+    /// put a square around the tile in the taskbar.
+    #[test]
+    fn window_icon_decodes_the_packaged_raster_unpremultiplied() {
+        let icon = window_icon().expect("bundled window icon decodes");
+        assert_eq!(icon.dimensions(), (256, 256));
+        // The canvas corner outside the rounded tile stays transparent, and the
+        // tile in the middle keeps its authored charcoal without a white fringe.
+        assert_eq!(
+            icon.get_pixel(0, 0).0[3],
+            0,
+            "canvas corner stays transparent"
+        );
+        assert_eq!(icon.get_pixel(128, 128).0[3], 255, "the tile is opaque");
+        assert_eq!(icon.get_pixel(20, 20).0[3], 0, "the margin stays clear");
     }
 
     /// A renderer that approximates the tile's rounded corners with straight

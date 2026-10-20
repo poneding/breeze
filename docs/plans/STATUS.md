@@ -1,3 +1,95 @@
+## October 20 Windows title-bar clicks and the installed application icon
+
+Two platform defects were reported from the Windows package: Home and the Plus
+button in the title bar did nothing, and an installed Breeze had no application
+logo. Both had platform-specific causes; the icon defect was also present on
+Linux.
+
+### The title-bar caption swallowed Home and Plus
+
+GPUI Kit's `TitleBar` marks the container of its children with
+`WindowControlArea::Drag`. On Windows, GPUI answers `WM_NCHITTEST` with
+`HTCAPTION` whenever that drag hitbox is anywhere in the current mouse hit-test
+path (`gpui-pre-windows` 0.3.8, `handle_hit_test_msg`). A caption press is
+delivered to GPUI first (`handle_nc_mouse_down_msg`), but the native move loop
+starts unless a GPUI element stops propagation during the press.
+
+Kit's `Button` prevents focus and text selection on mouse-down but does not stop
+propagation; its action runs from `on_click`, which requires the mouse-up. The
+caption therefore took the press, moved the window, and never delivered the
+release, so Home and Plus had no effect. Document tabs were not affected: the
+draggable tab row stops propagation on press, which suppresses the native move
+loop. Close buttons sit inside that row and were equally protected. There was no Linux equivalent: the Linux backend ignores
+window-control hitboxes (`on_hit_test_window_control` is a no-op), so a press is
+never reclassified as a caption.
+
+The fix keeps Kit's title bar for its chrome but removes the caption from under
+the controls:
+
+- `titlebar-content` blocks the mouse (`occlude`), which cuts the hit-test path
+  before Kit's drag hitbox and turns Home and Plus into ordinary client clicks.
+- The tab group's empty width is the window-drag surface. The tab strip and the
+  divider/Plus row block the group's own caption hitbox, so only the width after
+  the controls maps to the caption; tab rows additionally stop their own press.
+  A 24 px spacer stays reserved there even when tabs fill the strip, so the
+  window cannot become unmovable from its title bar.
+- macOS and Linux ignore the window-control area. The same empty width starts
+  their move through `start_window_move`, and keeps Kit's title-bar double-click
+  behavior (`titlebar_double_click` on macOS, zoom on Linux) and the Linux window
+  menu. The handlers require a press on that surface and the button still held,
+  so a press that leaves the strip cannot start a later, unrequested move.
+
+`title_bar_drag_area_excludes_the_tab_controls` presses the empty width, Home, a
+document tab, and Plus with real GPUI hit testing, then moves the pointer with
+the button held. Kit's title bar starts `start_window_move` from that move; the
+headless test platform has no move loop and panics, so a caption leak reaches a
+failing test instead of passing silently. Removing the content-row block
+reproduces that failure. The same test also covers the reported controls
+directly.
+
+### The executable and window had no icon
+
+Windows reads a window's taskbar icon from the window class. GPUI registers that
+class with `LoadImageW(module, MAKEINTRESOURCE(1), IMAGE_ICON, …)`, but
+`breeze-app.exe` shipped with no icon resource. The MSI and setup UI used
+`breeze.ico` for their own artwork, while the Start Menu shortcut, the PDF
+association, and the Inno uninstall entry pointed at the executable's icon, so
+they fell back too. Explorer, the taskbar, Alt-Tab, and the uninstall entry all
+showed the generic program icon.
+
+`crates/breeze-app/build.rs` now embeds `crates/breeze-app/breeze.rc` as
+resource 1 through `embed-resource` (already locked as GPUI's manifest build
+dependency); the script refers to `assets/brand/breeze.ico` relative to the crate
+root, which is the working directory both rc.exe and llvm-rc receive. A missing resource
+compiler fails the Windows build instead of shipping an icon-less executable.
+The release workflow now opens the packaged `breeze-app.exe` as a data module
+and requires a `RT_GROUP_ICON` resource named 1, which is the resource GPUI and
+Explorer load.
+
+Linux had the equivalent gap: the window was created without `app_id` and
+without `WindowOptions.icon`. Wayland has no window icon property and matches
+the application to a desktop entry by `app_id`, so without one it could not find
+the installed `breeze.desktop`/`breeze.png`; X11 also had no `_NET_WM_ICON` and
+no `WM_CLASS` for its launcher to match. `app_window_options` now sets
+`app_id=breeze` and the bundled 256 px raster (which X11 publishes as
+`_NET_WM_ICON`), and the desktop entry declares `StartupWMClass=breeze` for X11.
+The raster is decoded straight RGBA; the About tile remains a separate bounded
+BGRA decode and is unchanged. Tests cover the packaged raster's transparency and
+the window options' identity fields, and the Python release tests assert the
+desktop entry, the installed icon, and the package layout.
+
+Windows uses the executable's icon resource rather than this raster. macOS keeps
+`Breeze.icns` in the bundle.
+
+Verification on this host: `cargo fmt --all -- --check`, the full workspace tests,
+Clippy with warnings denied, and the release tooling tests pass on macOS. The
+Windows resource link and the Windows/Linux runtime behavior were not executed
+here. Native visual inspection of the AppKit window could not be completed: the
+session has no Accessibility or Screen Recording authorization, so synthetic
+input and window capture were refused. `CGWindowListCopyWindowInfo` confirmed the
+reader window opened at 1340×901. Native Windows and Linux acceptance, including
+the caption interaction and the taskbar/dock icon, remains pending.
+
 ## October 17 Windows lays out Chinese prose an order of magnitude slower
 
 `chinese_prose_is_drawn_with_its_own_stylesheet` guards the CJK font hooks with a

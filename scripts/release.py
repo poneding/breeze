@@ -223,6 +223,9 @@ def desktop_entry() -> str:
         "Comment=Read documents locally\n"
         f"Exec={LINUX_EXECUTABLE} %F\n"
         f"Icon={LINUX_PACKAGE}\n"
+        # X11 window managers match `WM_CLASS` against this value; Wayland uses
+        # the window's app_id, which Breeze sets to the same name.
+        f"StartupWMClass={LINUX_PACKAGE}\n"
         "Terminal=false\n"
         "Categories=Office;Viewer;\n"
         f"MimeType={PDF_MIME_TYPE};\n"

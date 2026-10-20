@@ -23,6 +23,11 @@ sys-locale = "=0.3.2"
 [lints]
 workspace = true
 
+[build-dependencies]
+# Embeds `assets/brand/breeze.ico` as the executable's Windows icon resource.
+# Already locked through GPUI's manifest build script.
+embed-resource = "=3.0.11"
+
 [dev-dependencies]
 zip = { version = "=9.0.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 futures.workspace = true

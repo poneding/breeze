@@ -32,14 +32,18 @@ another size; none of them is re-framed per platform.
 - `breeze-icon.png`: 1024 × 1024 RGBA icon, the master at full size. Supplies the
   About page tile, general use, and installer artwork.
 - `breeze-icon-256.png`: 256 × 256 RGBA icon for Linux desktop integration
-  (`hicolor` themes and the AppImage). Installers cannot resize it themselves
-  because the release tool is standard-library-only.
+  (`hicolor` themes and the AppImage), and the X11 window icon. Wayland has no
+  window icon property and resolves `breeze.png` through the window's `app_id`
+  and the installed desktop entry instead. Installers cannot resize it
+  themselves because the release tool is standard-library-only.
 - `Breeze.icns`: macOS icon with 16, 32, 128, 256 and 512 point representations at
   1× and 2×. Used by `scripts/bundle-macos.sh` and `scripts/release.py`.
 - `breeze.ico`: Windows icon with 16, 32, 48, 64, 128 and 256 pixel images, stored
   as 32 bpp BGRA so the tile keeps its antialiased edges and its rounded corners.
-  Used by the Windows installer resources; executable resource integration is not
-  implemented by this asset change.
+  The Windows installer resources reference it, and `crates/breeze-app/build.rs`
+  embeds it as executable icon resource 1. That resource is what GPUI loads for
+  the window class (taskbar and Alt-Tab) and what Explorer shows for the
+  executable, its shortcuts, and the PDF association.
 
 ## Regenerating the rasters
 
