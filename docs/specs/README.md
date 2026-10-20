@@ -19,6 +19,7 @@ The user accepted the compact UI's general direction on September 29, 2026. Impl
 | [12 — EPUB and Markdown](12-reflowable-reading.md) | Native integration assessment, format-specific controls, locations and performance constraints |
 | [13 — Markdown live editing](13-markdown-live-editing.md) | Typora-like interaction research, native editor candidates, source preservation and proposed acceptance gates |
 | [14 — Markdown editor design](14-markdown-editor-design.md) | Source transactions, native input/projection, scheduling, save/recovery and authoring contracts |
+| [15 — Markdown parser and projection rebuild](15-markdown-rs-parser.md) | markdown-rs as the sole parser, unified AST projection for reading/editing/source, measured parse costs, 2 MiB parse ceiling and accepted behavior changes |
 | [11 — MuPDF migration implementation](../plans/22-mupdf-migration.md) | Authorized AGPL migration phases and verification gates |
 
 Implementation plans belong in [docs/plans](../plans/README.md). Do not treat target behavior in a specification as already implemented. Consult [AGENTS.md](../../AGENTS.md) for language, coding, validation, and commit rules.

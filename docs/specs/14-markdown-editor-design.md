@@ -24,11 +24,13 @@ Implement the document surface with GPUI shaping/layout and
 marked text and bounds/hit testing; those are the integration contract, not a
 promise that native IME behavior has already been validated [R1].
 
-Keep `pulldown-cmark = 0.13.4` for semantics. Add an explicit exact dependency on
-the existing `ropey = 2.0.0-beta.1` resolution when implementing the model, with
-the required byte/UTF-16/line metrics enabled and tested. Its shared snapshots
-are useful for worker handoff [R2]; beta status is a dependency risk to verify,
-not grounds to silently upgrade the application dependency graph.
+Keep `markdown = 1.0.0` (markdown-rs) as the only Markdown parser, as recorded
+in [parser rebuild 15](15-markdown-rs-parser.md). `pulldown-cmark` is removed.
+Add an explicit exact dependency on the existing `ropey = 2.0.0-beta.1`
+resolution when implementing the model, with the required byte/UTF-16/line
+metrics enabled and tested. Its shared snapshots are useful for worker handoff
+[R2]; beta status is a dependency risk to verify, not grounds to silently
+upgrade the application dependency graph.
 
 Velotype and `gpui-markdown-editor` remain reference sources. Adopt small,
 reviewed routines only when they preserve these contracts and carry their
@@ -130,13 +132,13 @@ take precedence over reading/page/zoom bindings.
 
 ## D4. Semantic work and layout scheduling
 
-Use the reader's existing CommonMark extension options: tables, strikethrough,
-task lists, footnotes and heading attributes. The offset iterator supplies
+Use GitHub Flavored Markdown through markdown-rs: tables, strikethrough, task
+lists, footnotes and autolink literals. Every mdast node's `position` supplies
 semantic source ranges [R3]. Keep syntax not handled by live presentation as
 editable literal spans with its bytes intact.
 
 The initial semantic implementation parses a complete immutable snapshot on a
-worker. `pulldown-cmark` is not treated as an incremental edit parser. Admit one
+worker. markdown-rs is not treated as an incremental edit parser. Admit one
 active parse and one newest pending snapshot across the editing coordinator;
 active-document input has priority, without starving a pending session. Flatten
 the rope, parse, build spans and hash source off the UI thread. Reject results
@@ -171,6 +173,7 @@ by workers. Release measurements must justify any later adjustment.
 | Resource | Initial policy |
 |---|---|
 | Source | Existing 16 MiB per document; depth 64 and 100,000 semantic blocks remain. |
+| One parse | At most 2 MiB per Markdown file; larger files offer the source view only. See [parser rebuild 15](15-markdown-rs-parser.md). |
 | Retained source/checkpoint data | 128 MiB application-wide; include live drafts, saved baselines and worker snapshots. Refuse additional admission before losing a dirty draft. |
 | Undo/redo | At most 256 transactions and 32 MiB per session; 64 MiB application-wide. Evict oldest eligible history, never source/recovery data; reject a command if its required inverse cannot fit. |
 | Parsed/projection/layout data | 64 MiB application-wide retained data budget, with a measured separate parse/shaping transient peak. Evict reconstructible inactive state first. |
@@ -312,4 +315,5 @@ relaxed silently. Implementation status belongs in `docs/plans/STATUS.md`.
   the matching local registry `src/input.rs` was inspected.
 - **R2:** [Ropey 2.0.0-beta.1 Rope](https://docs.rs/ropey/2.0.0-beta.1/ropey/struct.Rope.html);
   the matching source documents shared snapshots and UTF-16 metrics.
-- **R3:** [pulldown-cmark 0.13.4 Parser](https://docs.rs/pulldown-cmark/0.13.4/pulldown_cmark/struct.Parser.html).
+- **R3:** [markdown-rs 1.0.0 `to_mdast`](https://docs.rs/markdown/1.0.0/markdown/fn.to_mdast.html)
+  and [mdast nodes](https://docs.rs/markdown/1.0.0/markdown/mdast/index.html).
