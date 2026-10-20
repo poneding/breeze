@@ -529,27 +529,27 @@ impl Breeze {
         }
         cx.notify();
     }
-    fn draft(&self) -> Option<Annotation> {
+    /// The annotation a gesture is drawing, while annotating. Reading draws the
+    /// text selection instead, so it never previews an annotation of its own.
+    pub(super) fn draft(&self) -> Option<Annotation> {
+        if self.books[self.active].state.mode != Mode::Annotate {
+            return None;
+        }
         let first = *self.gesture.first()?;
         let last = *self.gesture.last()?;
-        let mode = self.books[self.active].state.mode;
-        let kind = if mode == Mode::Read {
-            Kind::Highlight
-        } else {
-            match self.tool {
-                0 => Kind::Highlight,
-                1 => Kind::Area,
-                2 => Kind::Underline,
-                3 => Kind::Strikeout,
-                4 => Kind::Ink,
-                5 => Kind::Note,
-                6 => Kind::Ellipse,
-                7 => Kind::Rectangle,
-                8 => Kind::Line,
-                9 => Kind::Squiggle,
-                10 => Kind::Arrow,
-                _ => return None,
-            }
+        let kind = match self.tool {
+            0 => Kind::Highlight,
+            1 => Kind::Area,
+            2 => Kind::Underline,
+            3 => Kind::Strikeout,
+            4 => Kind::Ink,
+            5 => Kind::Note,
+            6 => Kind::Ellipse,
+            7 => Kind::Rectangle,
+            8 => Kind::Line,
+            9 => Kind::Squiggle,
+            10 => Kind::Arrow,
+            _ => return None,
         };
         let quads = if kind.text_markup() {
             let text = &self.preview.as_ref()?.text;
@@ -562,10 +562,7 @@ impl Breeze {
         } else {
             Vec::new()
         };
-        let style =
-            self.tool_settings
-                .annotation
-                .get(if mode == Mode::Read { 0 } else { self.tool })?;
+        let style = self.tool_settings.annotation.get(self.tool)?;
         Some(Annotation {
             page: self.books[self.active].state.navigation.page(),
             kind,

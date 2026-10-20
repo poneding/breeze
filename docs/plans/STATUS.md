@@ -227,6 +227,21 @@ pixels) of its frame corner or edge midpoint, and a corner-handle drag still
 resized the ellipse while the frame and handles stayed aligned. Windows and Linux
 remain unverified.
 
+## October 16 reading draws one selection, not two
+
+A read-mode drag painted two highlights: the selection fill, and the amber
+preview of the highlight annotation that `draft()` used to build in any mode.
+The preview was drawn above the selection, clamped to the page the press landed
+on, so once a drag passed that page it stopped while the selection kept going —
+the "yellow-brown layer freezes" report. Reading never creates an annotation, so
+`draft()` now returns nothing outside Annotate mode; the selection fill is the
+only highlight a read-mode drag draws.
+
+Validation: formatting, the app suite (232 tests, including a regression that a
+read-mode drag leaves `draft()` empty and the annotation history untouched while
+Annotate still previews its highlight) and Clippy with warnings denied for
+`breeze-app` and `breeze-pdf` pass.
+
 ## October 16 selection scrolling and late pages
 
 Two limits of the cross-page selection are gone. Holding a drag past the reading

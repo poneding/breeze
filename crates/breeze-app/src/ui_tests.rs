@@ -4168,6 +4168,48 @@ fn holding_a_drag_past_the_edge_scrolls_and_keeps_selecting(cx: &mut TestAppCont
     );
 }
 
+/// Reading paints exactly one highlight — the selection. An annotation draft in
+/// the highlight tool's amber used to be drawn over it, froze at the page the
+/// press landed on, and looked like a second, broken selection.
+#[gpui_kit::test]
+fn reading_previews_no_annotation_draft(cx: &mut TestAppContext) {
+    let (handle, view) = spread_pages(cx);
+    cx.update_window(handle, |_, window, cx| {
+        let left = window
+            .within(("page-frame", 0usize))
+            .find("page-surface")
+            .bounds();
+        window.drag(
+            left.origin + point(px(40.), px(380.)),
+            left.origin + point(px(320.), px(140.)),
+            cx,
+        );
+        let snapshot = view.read(cx);
+        assert!(snapshot.text_selection.is_some(), "the drag selected text");
+        assert!(
+            snapshot.draft().is_none(),
+            "reading must not preview an annotation on top of its selection"
+        );
+        assert!(
+            snapshot.books[0].annotations.history.items.is_empty(),
+            "a read-mode drag creates no annotation"
+        );
+    })
+    .unwrap();
+    // Annotating keeps its own preview, and its own colour.
+    view.update(cx, |view, _| {
+        view.books[0].state.mode = Mode::Annotate;
+        view.tool = 0;
+        view.clear_text_selection();
+        view.gesture
+            .push(breeze_core::annotations::Point::new(50., 50.));
+        view.gesture
+            .push(breeze_core::annotations::Point::new(200., 100.));
+        let draft = view.draft().expect("annotating previews its annotation");
+        assert_eq!(draft.kind, breeze_core::annotations::Kind::Highlight);
+    });
+}
+
 #[gpui_kit::test]
 fn a_press_that_never_moves_selects_nothing(cx: &mut TestAppContext) {
     let (handle, view) = spread_pages(cx);
