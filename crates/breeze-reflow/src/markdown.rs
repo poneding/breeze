@@ -29,6 +29,13 @@ pub struct Block {
     pub source: Range<usize>,
     pub html: Arc<str>,
     pub text: Arc<str>,
+    /// The block's own Markdown source, kept only when the block contains a
+    /// fenced or indented code block.
+    ///
+    /// [`Self::html`] has no `<pre>` semantics: the HTML reader turns a fence
+    /// into inline-code runs with no code card. Those blocks are laid out from
+    /// this source instead, so a reader can still show real code.
+    pub markdown: Option<Arc<str>>,
 }
 
 #[derive(Clone, Debug)]
@@ -74,6 +81,7 @@ impl Document {
         let mut depth = 0usize;
         let mut start = 0;
         let mut heading = None;
+        let mut code = false;
         let mut anchors = HashMap::<String, usize>::new();
         let mut render_bytes = 0;
         // References are resolved by the whole-source parser before events are split.
@@ -87,6 +95,9 @@ impl Document {
                     ensure!(depth <= MAX_DEPTH, "Markdown nesting exceeds 64 levels");
                     if let Tag::Heading { level, id, .. } = tag {
                         heading = Some((*level as usize, id.as_ref().map(ToString::to_string)));
+                    }
+                    if matches!(tag, Tag::CodeBlock(_)) {
+                        code = true;
                     }
                 }
                 Event::End(_) => depth = depth.saturating_sub(1),
@@ -139,7 +150,9 @@ impl Document {
                 source: start..range.end,
                 html: output.into(),
                 text: std::mem::take(&mut text).into(),
+                markdown: code.then(|| Arc::from(&source[start..range.end])),
             });
+            code = false;
         }
         Ok(document)
     }
@@ -245,6 +258,31 @@ mod tests {
         assert_eq!(doc.anchor_block("标题-1"), Some(2));
         assert_eq!(doc.block_at_offset(doc.source_bytes), doc.blocks.len() - 1);
         assert!(doc.blocks.last().unwrap().html.contains("two"));
+    }
+
+    #[test]
+    fn code_blocks_keep_the_markdown_the_reader_needs() {
+        let doc = Document::parse(
+            "Para\n\n```rust\nfn main() {}\n```\n\n    indented\n\n- item\n  ```\n  nested\n  ```\n",
+        )
+        .unwrap();
+        assert_eq!(doc.blocks.len(), 4);
+        // A plain paragraph still renders from its HTML alone.
+        assert!(doc.blocks[0].markdown.is_none());
+        // The fence's HTML is the subset the reader cannot draw as a code
+        // block, which is why the source is kept beside it.
+        assert!(doc.blocks[1].html.contains("<pre>"));
+        assert_eq!(
+            doc.blocks[1].markdown.as_deref(),
+            Some("```rust\nfn main() {}\n```")
+        );
+        // A fence nested in a list item keeps the item's own source, so the
+        // list keeps its marker and indentation.
+        let indented = doc.blocks[2].markdown.as_deref().expect("indented code");
+        assert!(indented.trim_end().ends_with("indented"), "{indented:?}");
+        let nested = doc.blocks[3].markdown.as_deref().expect("nested fence");
+        assert!(nested.starts_with("- item"), "{nested:?}");
+        assert!(nested.contains("nested"), "{nested:?}");
     }
 
     #[test]

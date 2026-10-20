@@ -151,4 +151,52 @@ mod tests {
         })
         .unwrap();
     }
+
+    /// A fence has to reach the reader as a code block, including one nested in
+    /// a list item, where the HTML path drew it as inline-code runs.
+    #[gpui_kit::test]
+    fn reader_lays_fenced_code_out_as_code(cx: &mut TestAppContext) {
+        use gpui_kit::test::TestWindowExt;
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("code.md");
+        std::fs::write(
+            &path,
+            "Intro\n\n```rust\nfn main() {\n    let x = 1;\n}\n```\n\n- item\n  ```\n  nested\n  ```\n",
+        )
+        .unwrap();
+        let (handle, view) = crate::ui_tests::app(cx);
+        cx.update_window(handle, |_, _, cx| {
+            view.update(cx, |view, cx| {
+                view.books[0].source = Source::File(path.clone());
+                view.books[0].title = "code.md".into();
+                view.load(cx);
+            });
+        })
+        .unwrap();
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            window.render_frame(cx);
+            let document = view
+                .read(cx)
+                .reflow
+                .markdown
+                .clone()
+                .expect("the Markdown document did not load");
+            assert!(
+                document.blocks[1].markdown.is_some(),
+                "the reader kept no Markdown for the top-level fence"
+            );
+            assert!(
+                document.blocks[2].markdown.is_some(),
+                "the reader kept no Markdown for the fence inside the list"
+            );
+            let intro = window.find(("markdown-block", 0usize)).bounds();
+            let fence = window.find(("markdown-block", 1usize)).bounds();
+            let item = window.find(("markdown-block", 2usize)).bounds();
+            assert!(fence.size.height > intro.size.height, "{fence:?}");
+            assert!(item.size.height > intro.size.height, "{item:?}");
+        })
+        .unwrap();
+    }
 }

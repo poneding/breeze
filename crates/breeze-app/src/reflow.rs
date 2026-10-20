@@ -2038,7 +2038,14 @@ impl Breeze {
             self.reflow.blocks.push_back(block);
             state
         } else {
-            let state = cx.new(|cx| TextViewState::html(&block.html, cx).selectable(true));
+            // A block that contains a code block is laid out from its own
+            // Markdown: the HTML projection has no `<pre>` handling, so it
+            // would draw the code as inline-code runs with no code card,
+            // language or highlighting.
+            let state = cx.new(|cx| match block.markdown.as_deref() {
+                Some(markdown) => TextViewState::markdown(markdown, cx).selectable(true),
+                None => TextViewState::html(&block.html, cx).selectable(true),
+            });
             let list = self.reflow.list.clone();
             let view = cx.entity().downgrade();
             let subscription = cx.observe(&state, move |_, _, cx| {
