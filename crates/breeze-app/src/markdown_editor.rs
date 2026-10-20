@@ -228,6 +228,13 @@ impl MarkdownEditor {
         source.text(0..source.len()).unwrap_or_default()
     }
 
+    /// Drop the parse-limit notice once the document is inside the ceiling.
+    fn clear_limit_notice(&mut self) {
+        if self.notice.as_deref() == Some(over_limit_notice().as_str()) {
+            self.notice = None;
+        }
+    }
+
     /// Rebuild the projection from the current source, selection and mode.
     ///
     /// The provisional pass runs here so the typed characters are on screen in
@@ -265,6 +272,7 @@ impl MarkdownEditor {
             self.layout.invalidate();
             return;
         }
+        self.clear_limit_notice();
         let mode = match self.view {
             EditView::Live => ProjectionMode::Live,
             EditView::Source => ProjectionMode::Source,
@@ -421,6 +429,9 @@ impl MarkdownEditor {
             return;
         }
         self.view = view;
+        if view == EditView::Live {
+            self.clear_limit_notice();
+        }
         // Switching projection is not an edit: bytes, history and selection
         // are unchanged.
         self.refresh_projection(cx);
