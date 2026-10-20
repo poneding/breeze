@@ -19,7 +19,7 @@ commands; those stay with [work package 25](25-markdown-live-editing.md).
 | M1 Reading model | mdast parse with byte-accurate positions, top-level blocks, headings, plain text, document-wide definitions and the mdast→HTML projection; `pulldown-cmark` removed | `breeze-reflow` Markdown tests, link/footnote/table/code fixtures, dependency check | Complete (October 20) |
 | M2 Editor semantics | `LineKind` per source line with block markers, quote depth and hidden setext underlines; styled inline spans with exact source ranges; projection consumes them for live and source modes | `markdown_semantic`, `markdown_projection`, `markdown_editing` tests | Complete (October 20) |
 | M3 Application wiring | Reading view on the new projection, source-only behavior above 2 MiB with explicit notices, editor pipeline admission, toolbar state | Component tests plus native visual inspection | Complete except native visual inspection (October 20) |
-| M4 Verification | Workspace checks, Release measurements for the corpus, STATUS and specification records | `fmt`, `test --workspace`, `clippy -D warnings`, measurement table, visual review note | In progress (October 20) |
+| M4 Verification | Workspace checks, Release measurements for the corpus, STATUS and specification records | `fmt`, `test --workspace`, `clippy -D warnings`, measurement table, visual review note | Complete except native visual inspection (October 20) |
 
 Execute in order and commit each completed phase. M1 and M2 share the commit
 `refactor(markdown): rebuild the parser and projections on markdown-rs`: the

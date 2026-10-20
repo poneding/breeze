@@ -19,6 +19,9 @@ Markdown live editing was requested with research first on October 16, 2026;
 [technical design 14](../specs/14-markdown-editor-design.md) defines the source,
 input, rendering and persistence contracts. [Work package 25](25-markdown-live-editing.md)
 maps them to seven implementation phases with dependencies and acceptance gates.
+On October 20, 2026 the user directed a complete rebuild on markdown-rs;
+[specification 15](../specs/15-markdown-rs-parser.md) and
+[work package 27](27-markdown-rs-rebuild.md) own that parser replacement.
 Research, design and planning are complete; editor implementation is unstarted.
 
 - Preserve the accepted compact layout and GPUI Kit components.
@@ -63,3 +66,7 @@ These work-package documents were written before the corresponding code changes.
 
 13. [26 — Draggable tabs and split reading](26-split-reading.md): one horizontal
     split with independent reader panes and movable document tabs.
+
+14. [27 — Markdown parser rebuild on markdown-rs](27-markdown-rs-rebuild.md):
+    replace pulldown-cmark with one mdast parse that drives reading, live
+    editing and the source view, with a 2 MiB whole-file parse ceiling.
