@@ -3,6 +3,7 @@ use crate::*;
 use breeze_core::annotations::{Annotation, Kind};
 use gpui_kit::component::{
     Icon, Theme,
+    button::ButtonCustomVariant,
     menu::{DropdownMenu, PopupMenuItem},
     switch::Switch,
     tooltip::Tooltip,
@@ -439,7 +440,16 @@ impl Breeze {
         let remove_expected = expected.clone();
         let (icon, label) = kind_presentation(annotation.kind);
         let disabled = !book.annotations.ready || book.annotations.source_conflict;
-        let muted = Theme::global(cx).muted_foreground;
+        let theme = Theme::global(cx);
+        let muted = theme.muted_foreground;
+        // The ghost row owns the hover fill; the nested delete button must not
+        // paint a second one, and only its icon changes on its own hover.
+        let trash_color = if disabled {
+            muted.opacity(0.5)
+        } else {
+            theme.secondary_foreground
+        };
+        let trash_hover = theme.danger;
         let color: Hsla = gpui_kit::Rgba {
             r: annotation.color[0],
             g: annotation.color[1],
@@ -448,87 +458,102 @@ impl Breeze {
         }
         .into();
         Some(
-            row()
-                .w_full()
-                .min_w_0()
-                .h(px(48.))
-                .px_2()
-                .gap_1()
-                .child(
-                    Button::new(("annotation-item", index))
-                        .ghost()
-                        .small()
-                        .h_full()
-                        .flex_1()
-                        .min_w_0()
-                        .disabled(disabled)
-                        .accessibility_label(tf!("{} · Page {}", label, annotation.page + 1))
-                        .tooltip(if annotation.text.is_empty() {
-                            tf!("{} · Page {}", label, annotation.page + 1)
-                        } else {
-                            annotation.text.clone()
-                        })
-                        .child(
-                            row()
-                                .w_full()
-                                .gap_2()
-                                .child(Icon::new(icon).small().text_color(color))
-                                .child(
-                                    column()
-                                        .flex_1()
-                                        .min_w_0()
-                                        .items_start()
-                                        .child(div().w_full().text_left().text_ellipsis().child(
-                                            if annotation.text.is_empty() {
-                                                label.to_owned()
-                                            } else {
-                                                annotation.text.clone()
-                                            },
-                                        ))
-                                        .child(div().text_size(px(11.)).text_color(muted).child(
-                                            tf!("Page {} · {}", annotation.page + 1, label),
-                                        )),
-                                ),
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            let book = &mut this.books[this.active];
-                            if !book.annotations.ready
-                                || book.annotations.source_conflict
-                                || book.source != source
-                                || book.annotations.history.items.get(index) != Some(&expected)
-                            {
-                                return;
-                            }
-                            this.go_to_annotation_page(expected.page, cx);
-                        })),
-                )
-                .child(
-                    Button::new(("remove-annotation", index))
-                        .ghost()
-                        .small()
-                        .icon(IconName::Trash)
-                        .disabled(disabled)
-                        .accessibility_label(tr!("Delete this annotation"))
-                        .tooltip(tr!("Delete this annotation"))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if !this.annotation_navigation_allowed(cx) {
-                                return;
-                            }
-                            let book = &mut this.books[this.active];
-                            if !book.annotations.ready
-                                || book.annotations.source_conflict
-                                || book.source != remove_source
-                                || book.annotations.history.items.get(index)
-                                    != Some(&remove_expected)
-                            {
-                                return;
-                            }
-                            let mut items = book.annotations.history.items.clone();
-                            items.remove(index);
-                            book.annotations.history.replace(items);
-                            cx.notify();
-                        })),
-                ),
+            row().w_full().min_w_0().h(px(48.)).px_2().gap_1().child(
+                Button::new(("annotation-item", index))
+                    .ghost()
+                    .small()
+                    .h_full()
+                    .flex_1()
+                    .min_w_0()
+                    .disabled(disabled)
+                    .accessibility_label(tf!("{} · Page {}", label, annotation.page + 1))
+                    .tooltip(if annotation.text.is_empty() {
+                        tf!("{} · Page {}", label, annotation.page + 1)
+                    } else {
+                        annotation.text.clone()
+                    })
+                    .child(
+                        row()
+                            .w_full()
+                            .gap_2()
+                            .child(Icon::new(icon).small().text_color(color))
+                            .child(
+                                column()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .items_start()
+                                    .child(div().w_full().text_left().text_ellipsis().child(
+                                        if annotation.text.is_empty() {
+                                            label.to_owned()
+                                        } else {
+                                            annotation.text.clone()
+                                        },
+                                    ))
+                                    .child(div().text_size(px(11.)).text_color(muted).child(tf!(
+                                        "Page {} · {}",
+                                        annotation.page + 1,
+                                        label
+                                    ))),
+                            )
+                            .child(
+                                Button::new(("remove-annotation", index))
+                                    .custom(ButtonCustomVariant::new(cx))
+                                    .small()
+                                    .size(px(24.))
+                                    .p_0()
+                                    .group("annotation-remove")
+                                    .disabled(disabled)
+                                    .accessibility_label(tr!("Delete this annotation"))
+                                    .tooltip(tr!("Delete this annotation"))
+                                    .child(
+                                        div()
+                                            .size_full()
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .text_color(trash_color)
+                                            .when(!disabled, |action| {
+                                                action
+                                                    .group_hover("annotation-remove", move |icon| {
+                                                        icon.text_color(trash_hover)
+                                                    })
+                                            })
+                                            .child(Icon::new(IconName::Trash).small()),
+                                    )
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        // The row behind this button navigates.
+                                        cx.stop_propagation();
+                                        if !this.annotation_navigation_allowed(cx) {
+                                            return;
+                                        }
+                                        let book = &mut this.books[this.active];
+                                        if !book.annotations.ready
+                                            || book.annotations.source_conflict
+                                            || book.source != remove_source
+                                            || book.annotations.history.items.get(index)
+                                                != Some(&remove_expected)
+                                        {
+                                            return;
+                                        }
+                                        let mut items = book.annotations.history.items.clone();
+                                        items.remove(index);
+                                        book.annotations.history.replace(items);
+                                        cx.notify();
+                                    })),
+                            ),
+                    )
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        let book = &mut this.books[this.active];
+                        if !book.annotations.ready
+                            || book.annotations.source_conflict
+                            || book.source != source
+                            || book.annotations.history.items.get(index) != Some(&expected)
+                        {
+                            return;
+                        }
+                        this.go_to_annotation_page(expected.page, cx);
+                    })),
+            ),
         )
     }
 }

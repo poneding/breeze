@@ -98,6 +98,13 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         assert_eq!(view.read(cx).document_panel.tab, 1);
         assert!(window.find(("annotation-item", 0usize)).visible());
         assert!(window.find(("annotation-item", 1usize)).visible());
+        // Deleting shares the row's hover surface instead of sitting beside it.
+        let annotation_row = window.find(("annotation-item", 1usize)).bounds();
+        let remove = window.find(("remove-annotation", 1usize)).bounds();
+        assert!(
+            annotation_row.contains(&remove.center()),
+            "the annotation row {annotation_row:?} does not cover its delete action {remove:?}"
+        );
         window.click("annotation-kind-filter", cx);
         for _ in 0..7 {
             window.press("down", cx);
@@ -116,7 +123,12 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         window.click("annotations-current-page", cx);
         assert!(window.find("annotations-empty").visible());
         window.click("annotations-current-page", cx);
+        let page = view.read(cx).books[0].state.navigation.page();
+        let generation = view.read(cx).generation;
         window.click(("remove-annotation", 2usize), cx);
+        // The nested delete action must not also navigate to its page.
+        assert_eq!(view.read(cx).books[0].state.navigation.page(), page);
+        assert_eq!(view.read(cx).generation, generation);
         assert_eq!(view.read(cx).books[0].annotations.history.items, items[..2]);
         window.click("undo", cx);
         assert_eq!(view.read(cx).books[0].annotations.history.items, items);

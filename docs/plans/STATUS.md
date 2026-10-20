@@ -18,6 +18,25 @@ the mode tabs; this session's Windows window renders at 2x into a smaller
 window whose right side is clipped, so the Annotate-mode divider was not
 captured natively.
 
+## October 19 The annotation list keeps one hover surface
+
+Deleting an annotation is now a borderless trailing action inside the row button
+instead of a sibling outside it, so the row's hover fill covers the delete icon.
+That button paints no background of its own: only its trash icon changes, from
+the secondary foreground to the destructive color while the button itself is
+hovered. Disabled rows keep a dimmed icon and no hover change, and the delete
+click stops propagation so deleting never also navigates to the annotation's
+page.
+
+Validation: formatting and all-target Clippy pass. Component checks assert the
+row button's bounds contain the delete action and that deleting leaves the
+navigation page and generation unchanged. The workspace suite reaches 221
+passing app tests; three EPUB/reflow tests fail identically on the unmodified
+checkout in this Windows session (the recorded Windows EPUB layout hang), and
+two PDF timing probes pass when rerun serially. The row's hover and icon colors
+were not captured natively; this session clips the reader window's right side,
+where the annotation panel sits.
+
 ## October 17 Windows lays out Chinese prose an order of magnitude slower
 
 `chinese_prose_is_drawn_with_its_own_stylesheet` guards the CJK font hooks with a
