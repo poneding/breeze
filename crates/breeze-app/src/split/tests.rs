@@ -435,9 +435,9 @@ fn markdown_editor_entity_and_unsaved_draft_follow_a_moved_tab(cx: &mut TestAppC
             view.toggle_markdown_editing(window, cx);
         });
         window.render_frame(cx);
-        window.input("Unsaved ", cx);
         let editor = view.read(cx).books[1].markdown_edit.clone().unwrap();
-        assert!(editor.read(cx).dirty());
+        window.input("Unsaved ", cx);
+        assert!(editor.read(cx).dirty(cx));
         let peer = split(&view, Side::Right, window, cx);
         assert_eq!(peer.read(cx).books[0].markdown_edit.as_ref(), Some(&editor));
         assert!(view.read(cx).books[1].markdown_edit.is_none());
@@ -456,7 +456,7 @@ fn markdown_editor_entity_and_unsaved_draft_follow_a_moved_tab(cx: &mut TestAppC
             view.drop_tab(&drag, Destination::Primary, None, window, cx)
         });
         assert_eq!(view.read(cx).books[1].markdown_edit.as_ref(), Some(&editor));
-        assert!(editor.read(cx).dirty());
+        assert!(editor.read(cx).dirty(cx));
         assert_eq!(
             std::fs::read_to_string(&path).unwrap(),
             "# Draft\n\nOriginal text\n"

@@ -70,3 +70,7 @@ These work-package documents were written before the corresponding code changes.
 14. [27 — Markdown parser rebuild on markdown-rs](27-markdown-rs-rebuild.md):
     replace pulldown-cmark with one mdast parse that drives reading, live
     editing and the source view, with a 2 MiB whole-file parse ceiling.
+
+15. [28 — Markdown source editor](28-markdown-source-editor.md): GPUI Kit's
+    code editor with tree-sitter Markdown highlighting, with the reading view
+    as the rendered preview, replacing the home-grown live-preview surface.

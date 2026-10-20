@@ -145,12 +145,37 @@ of the same AST:
 
 This split is a rendering-widget limitation, not a second semantic parser.
 
+## Editing surface (October 20, 2026)
+
+The user replaced the home-grown live-preview editing surface with a reliable
+source editor: GPUI Kit's code editor with the tree-sitter Markdown grammar.
+The reading view is the rendered preview. Evidence for that choice:
+
+- The only published GPUI WYSIWYG component, `zorite-editor 0.11.2` (MIT),
+  compiles against this project's `gpui-pre 0.3.8`, but measured 0.86 s for the
+  first 64 KiB frame in a debug harness and did not finish the first 1 MiB frame
+  within 60 s in a Release build. `zorite-markdown` lays out a whole document
+  and has the same scale problem. Velotype is a complete application, not a
+  reusable crate, and would require extracting ~25 000 lines and upgrading the
+  GPUI/Kit stack.
+- Kit's editor owns text, selection, undo/redo, IME composition, soft wrap,
+  search and syntax highlighting. It is virtualized and handled the existing
+  2 MiB editing fixture in the application suite.
+- Editing therefore shows Markdown source with highlighting; the reader is the
+  preview. The `Live formatting` / `Markdown source` toolbar pair is removed.
+- The mdast semantic/projection modules in `breeze-reflow` are no longer used by
+  the application. They remain tested while a later cleanup decides whether to
+  retire them; the reading model (`Document`, HTML projection) and the parser
+  are still the application's rendering path.
+- The reading parse ceiling does not apply to editing: a larger file is read and
+  edited as source, while the reader still reports its limit.
+
 ## Resource limits
 
 | Limit | Value | Behavior |
 |---|---|---|
 | Editing/source session | 16 MiB | Unchanged; buffer and history are parser-independent. |
-| One Markdown parse/layout | 2 MiB | `Document::parse`, `Semantic::parse` and the editor pipeline refuse larger input with an explicit error. Container chains above 64 leading markers on a line are refused before parsing. |
+| One Markdown parse/layout | 2 MiB | The reading model refuses larger input with an explicit error. Container chains above 64 leading markers on a line are refused before parsing. Editing uses Kit's editor and does not parse the whole document. |
 | Reading a larger file | — | The reader reports the limit and keeps the Edit control; the editor opens directly in Source mode with a notice. |
 | Inline spans / blocks / depth / render text | 200 000 / 100 000 / 64 / 64 MiB | Unchanged hostile-input bounds, now measured on the mdast tree. |
 

@@ -7,6 +7,11 @@ record; [design 14](../specs/14-markdown-editor-design.md) defines contracts D1â
 and acceptance gates G1â€“G6. This plan executes that design rather than reopening
 the candidate selection at every phase.
 
+The live-preview surface described in this plan was replaced on October 20, 2026
+by a Markdown source editor with syntax highlighting and the reading view as
+preview; see [work package 28](28-markdown-source-editor.md). The parser note
+below still records the earlier parser replacement.
+
 The parser named below (pulldown-cmark) was replaced on October 20, 2026 by
 markdown-rs under [work package 27](27-markdown-rs-rebuild.md); the source,
 history, input and save contracts in this plan are unchanged.

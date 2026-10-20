@@ -3169,10 +3169,73 @@ fn markdown_has_no_paging_and_toggles_its_reading_width(cx: &mut TestAppContext)
     .unwrap();
 }
 
-/// A Markdown file above the parse ceiling stays readable as source: the
-/// reader names the limit, the editor opens in source mode, and asking for
-/// live formatting is refused instead of attempting a parse that cannot be
-/// admitted.
+/// The reader is the draft's preview: leaving edit mode renders what was
+/// typed, without writing the file.
+#[gpui_kit::test]
+fn markdown_reading_previews_the_unsaved_draft(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("preview.md");
+    let original = "# Title\n\nOriginal body\n";
+    std::fs::write(&path, original).unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "preview.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.click("markdown-edit-toggle", cx);
+        window.render_frame(cx);
+        window.input("Draft addition ", cx);
+        window.render_frame(cx);
+        let session = view.read(cx).books[0]
+            .markdown_edit
+            .clone()
+            .expect("entering edit mode creates the session");
+        assert!(
+            session.read(cx).dirty(cx),
+            "typing must make the draft dirty"
+        );
+        // Leaving edit mode switches the reader to the draft preview.
+        window.click("markdown-edit-toggle", cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(!view.read(cx).books[0].markdown_editing);
+        let document = view
+            .read(cx)
+            .reflow
+            .markdown
+            .clone()
+            .expect("the draft preview did not load");
+        let text: String = document
+            .blocks
+            .iter()
+            .map(|block| block.text.as_ref())
+            .collect();
+        assert!(
+            text.contains("Draft addition"),
+            "the preview did not read the draft: {text:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            original,
+            "the preview must not write the file"
+        );
+    })
+    .unwrap();
+}
+
+/// A Markdown file above the reading parse ceiling still edits: the reader
+/// names the limit while the source editor opens with every byte intact.
 #[gpui_kit::test]
 fn oversized_markdown_reports_the_limit_and_edits_as_source(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
@@ -3214,22 +3277,12 @@ fn oversized_markdown_reports_the_limit_and_edits_as_source(cx: &mut TestAppCont
             .markdown_edit
             .clone()
             .expect("opening an oversized document still edits it");
-        assert!(!session.read(cx).live_available());
         assert_eq!(
-            session.read(cx).view(),
-            markdown_editor::EditView::Source,
-            "an oversized document has no live formatting"
-        );
-        assert_eq!(
-            session.read(cx).characters(),
+            session.read(cx).characters(cx),
             source.chars().count(),
-            "the source view must show every byte of the document"
+            "the source editor must hold every byte of the document"
         );
-
-        // The live control is disabled; asking again leaves the source view.
-        window.click("markdown-live-view", cx);
-        window.render_frame(cx);
-        assert_eq!(session.read(cx).view(), markdown_editor::EditView::Source);
+        assert!(!session.read(cx).dirty(cx), "opening is not an edit");
     })
     .unwrap();
 }
@@ -3873,13 +3926,13 @@ fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppCon
             .markdown_edit
             .clone()
             .expect("entering edit mode creates the session");
-        assert!(!session.read(cx).dirty());
+        assert!(!session.read(cx).dirty(cx));
 
         // The status bar counts the text the draft shows rather than the file
         // that was loaded, so the number follows the open session.
         let live = i18n::format_message(
             i18n::text("{} characters"),
-            &[session.read(cx).characters().to_string()],
+            &[session.read(cx).characters(cx).to_string()],
         );
         assert_eq!(
             window.find("markdown-characters").label(),
@@ -3887,27 +3940,12 @@ fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppCon
             "the status bar must count the open draft"
         );
 
-        // The live/source toggle lives in the reader toolbar and does not edit.
-        window.click("markdown-source-view", cx);
-        window.render_frame(cx);
-        assert_eq!(session.read(cx).view(), markdown_editor::EditView::Source);
-        assert!(!session.read(cx).dirty(), "switching views must not edit");
-        let source = i18n::format_message(
-            i18n::text("{} characters"),
-            &[session.read(cx).characters().to_string()],
-        );
+        // The editing surface is Markdown source with syntax highlighting; the
+        // reading view is the rendered preview.
         assert_eq!(
-            window.find("markdown-characters").label(),
-            Some(source.as_str()),
-            "the count follows the source view too"
-        );
-        window.click("markdown-live-view", cx);
-        window.render_frame(cx);
-        assert_eq!(session.read(cx).view(), markdown_editor::EditView::Live);
-        assert_eq!(
-            window.find("markdown-characters").label(),
-            Some(live.as_str()),
-            "returning to the live view restores its count"
+            session.read(cx).status(cx).as_ref(),
+            i18n::text("Markdown source"),
+            "the status line must name the source editor"
         );
 
         // Leaving edit mode returns to reading but keeps the draft session.

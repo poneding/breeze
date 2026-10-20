@@ -1,3 +1,38 @@
+## October 20 Markdown editing becomes a highlighted source editor
+
+The user chose the reliable source-editor route after the live-preview
+experiments were measured. Editing is now GPUI Kit's code editor with the
+tree-sitter Markdown grammar; the reading view is the rendered preview. See
+[specification 15](../specs/15-markdown-rs-parser.md#editing-surface-october-20-2026)
+and [work package 28](28-markdown-source-editor.md).
+
+- `MarkdownEditor` hosts Kit's `EditorState`/`Editor` instead of the home-grown
+  projection surface. Text, selection, undo/redo, IME, soft wrap, search and
+  highlighting belong to the component; Breeze wires the file, font size, dirty
+  state and the status line. The `Live formatting` / `Markdown source` toolbar
+  pair is removed; the reader's Edit/Reading control switches between source and
+  preview.
+- `breeze-app` enables `gpui-kit`'s `tree-sitter-markdown` feature. The editor
+  uses soft wrap with no line numbers or folding, so a note reads as a page.
+- Dirty state is read from the editor text: a byte-length read keeps caret
+  movement cheap, contents are compared at equal length, and an in-progress
+  composition counts as an edit. Opening is clean; leaving and re-entering edit
+  mode keeps the draft; the close and quit guards still see it.
+- The reader's 2 MiB parse ceiling no longer limits editing: a larger file opens
+  in the source editor while the reader reports the limit. The 16 MiB source
+  session limit is unchanged.
+- The mdast semantic/projection modules in `breeze-reflow` are no longer used by
+  the application. Their tests still pass; a follow-up cleanup can retire them.
+- The earlier `zorite-editor` evaluation was not kept: 64 KiB took 0.86 s for a
+  debug first frame and 1 MiB did not finish a Release first frame within 60 s.
+
+Verified with `cargo fmt --all -- --check`, `cargo test --workspace --locked`,
+`cargo clippy --workspace --all-targets --locked -- -D warnings` and a native
+launch with an isolated `BREEZE_DATA_DIR`. Component tests cover entering edit
+mode, the source status line, the character count, the split-tab draft, and the
+oversized-file path. Native visual inspection was not performed: this session's
+model cannot view images. Windows and Linux remain unverified.
+
 ## October 20 Markdown rebuilt on markdown-rs
 
 The user asked for rendering, live editing and the source view to be rebuilt

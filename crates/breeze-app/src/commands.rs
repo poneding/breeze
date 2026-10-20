@@ -299,7 +299,7 @@ impl Breeze {
         if self.books[index]
             .markdown_edit
             .as_ref()
-            .is_some_and(|editor| editor.read(cx).dirty())
+            .is_some_and(|editor| editor.read(cx).dirty(cx))
         {
             if self.pending_markdown_discard != Some(index) {
                 self.pending_markdown_discard = Some(index);

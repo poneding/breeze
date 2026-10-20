@@ -5,6 +5,14 @@ requested a technical design followed by an implementation plan. This document
 defines the implementation contracts; it does not record implemented behavior.
 The application still reads Markdown without editing it.
 
+**Editing surface superseded on October 20, 2026.** The user selected a Markdown
+source editor with syntax highlighting (GPUI Kit's code editor with the
+tree-sitter Markdown grammar) and the reading view as the rendered preview.
+D1's live/source projection and D3's native live-editing surface remain the
+design record but are not the shipped editing path; see
+[parser and projection rebuild 15](15-markdown-rs-parser.md#editing-surface-october-20-2026).
+The source, history, persistence and safety contracts below still apply.
+
 [Assessment 13](13-markdown-live-editing.md) retains the candidate comparison
 and pinned upstream evidence. [Work package 25](../plans/25-markdown-live-editing.md)
 owns sequencing and verification. Changes to the contracts below must update

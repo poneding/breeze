@@ -457,10 +457,30 @@ impl Breeze {
         let Source::File(path) = source else { return };
         match self.books[self.active].format() {
             Some(DocumentFormat::Markdown) => {
+                // A draft is the reader's source whenever an editing session
+                // exists: switching back shows the preview of what was typed,
+                // not the file on disk.
+                let draft = self.books[self.active]
+                    .markdown_edit
+                    .as_ref()
+                    .map(|editor| editor.read(cx).source_text(cx));
                 // Refuse the parse before reading or spawning: above the
                 // ceiling the document stays available in the source view.
-                if std::fs::metadata(&path)
-                    .is_ok_and(|metadata| metadata.len() > markdown::MAX_PARSE_BYTES as u64)
+                if draft
+                    .as_ref()
+                    .is_some_and(|source| source.len() > markdown::MAX_PARSE_BYTES)
+                {
+                    self.loading = false;
+                    self.message = tf!(
+                        "Markdown over {} MiB is available only as source",
+                        markdown::MAX_PARSE_BYTES / (1024 * 1024)
+                    );
+                    cx.notify();
+                    return;
+                }
+                if draft.is_none()
+                    && std::fs::metadata(&path)
+                        .is_ok_and(|metadata| metadata.len() > markdown::MAX_PARSE_BYTES as u64)
                 {
                     self.loading = false;
                     self.message = tf!(
@@ -471,8 +491,13 @@ impl Breeze {
                     return;
                 }
                 let generation = self.generation;
-                let work = cx
-                    .background_spawn(async move { markdown::Document::open(&path).map(Arc::new) });
+                let work = cx.background_spawn(async move {
+                    match draft {
+                        Some(source) => markdown::Document::parse(&source),
+                        None => markdown::Document::open(&path),
+                    }
+                    .map(Arc::new)
+                });
                 self.reflow.task = Some(cx.spawn(async move |this, cx| {
                     let result = work.await;
                     let _ = this.update(cx, |this, cx| {
@@ -891,50 +916,6 @@ impl Breeze {
                                 })),
                         )
                     })
-                    .when(
-                        self.books[self.active].is_markdown()
-                            && self.books[self.active].markdown_editing,
-                        |bar| {
-                            let view = self.books[self.active]
-                                .markdown_edit
-                                .as_ref()
-                                .map(|editor| editor.read(cx).view());
-                            let live = view == Some(markdown_editor::EditView::Live);
-                            let source = view == Some(markdown_editor::EditView::Source);
-                            let live_available = self.books[self.active]
-                                .markdown_edit
-                                .as_ref()
-                                .is_none_or(|editor| editor.read(cx).live_available());
-                            bar.child(
-                                Button::new("markdown-live-view")
-                                    .ghost()
-                                    .small()
-                                    .selected(live)
-                                    .disabled(!live_available)
-                                    .accessibility_label(tr!("Live formatting"))
-                                    .tooltip(tr!("Live formatting"))
-                                    .child(IconName::Type)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.set_markdown_view(markdown_editor::EditView::Live, cx)
-                                    })),
-                            )
-                            .child(
-                                Button::new("markdown-source-view")
-                                    .ghost()
-                                    .small()
-                                    .selected(source)
-                                    .accessibility_label(tr!("Markdown source"))
-                                    .tooltip(tr!("Markdown source"))
-                                    .child(IconName::TextCursorInput)
-                                    .on_click(cx.listener(|this, _, _, cx| {
-                                        this.set_markdown_view(
-                                            markdown_editor::EditView::Source,
-                                            cx,
-                                        )
-                                    })),
-                            )
-                        },
-                    )
                     .child(div().flex_1())
                     .child(
                         self.command(
@@ -989,7 +970,7 @@ impl Breeze {
                             let status = self.books[self.active]
                                 .markdown_edit
                                 .as_ref()
-                                .map(|editor| editor.read(cx).status());
+                                .map(|editor| editor.read(cx).status(cx));
                             bar.child(
                                 div()
                                     .id("markdown-editor-status")
@@ -1214,7 +1195,7 @@ impl Breeze {
         book.markdown_editing
             .then_some(book.markdown_edit.as_ref())
             .flatten()
-            .map(|editor| editor.read(cx).characters())
+            .map(|editor| editor.read(cx).characters(cx))
             .or_else(|| {
                 self.reflow
                     .markdown
@@ -1609,6 +1590,12 @@ impl Breeze {
         }
         if self.books[self.active].markdown_editing {
             self.books[self.active].markdown_editing = false;
+            if self.books[self.active].markdown_edit.is_some() {
+                // The reader is the preview of the draft: re-read it instead of
+                // the file on disk.
+                self.reflow.source = None;
+                self.load_reflow(cx);
+            }
             cx.notify();
             return;
         }
@@ -1619,7 +1606,7 @@ impl Breeze {
                 return;
             };
             let body = self.books[self.active].reflow.font_size;
-            let editor = cx.new(|cx| markdown_editor::MarkdownEditor::open(path, body, cx));
+            let editor = cx.new(|cx| markdown_editor::MarkdownEditor::open(path, body, window, cx));
             self.books[self.active].markdown_edit = Some(editor);
         }
         self.books[self.active].markdown_editing = true;
@@ -1628,17 +1615,6 @@ impl Breeze {
             window.focus(&focus, cx);
         }
         cx.notify();
-    }
-
-    pub(super) fn set_markdown_view(
-        &mut self,
-        view: markdown_editor::EditView,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(editor) = self.books[self.active].markdown_edit.clone() {
-            editor.update(cx, |editor, cx| editor.set_view(view, cx));
-            cx.notify();
-        }
     }
 
     /// Maps a pointer in a laid-out page image to normalized page coordinates.
