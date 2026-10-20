@@ -16,14 +16,15 @@ commands; those stay with [work package 25](25-markdown-live-editing.md).
 
 | Phase | Deliverable | Exit evidence | Status |
 |---|---|---|---|
-| M1 Reading model | mdast parse with byte-accurate positions, top-level blocks, headings, plain text, document-wide definitions and the mdast→HTML projection; `pulldown-cmark` removed | `breeze-reflow` Markdown tests, link/footnote/table/code fixtures, dependency check | Not started |
-| M2 Editor semantics | `LineKind` per source line with block markers, quote depth and hidden setext underlines; styled inline spans with exact source ranges; projection consumes them for live and source modes | `markdown_semantic`, `markdown_projection`, `markdown_editing` tests | Not started |
-| M3 Application wiring | Reading view on the new projection, source-only behavior above 2 MiB with explicit notices, editor pipeline admission, toolbar state | Component tests plus native visual inspection | Not started |
-| M4 Verification | Workspace checks, Release measurements for the corpus, STATUS and specification records | `fmt`, `test --workspace`, `clippy -D warnings`, measurement table, visual review note | Not started |
+| M1 Reading model | mdast parse with byte-accurate positions, top-level blocks, headings, plain text, document-wide definitions and the mdast→HTML projection; `pulldown-cmark` removed | `breeze-reflow` Markdown tests, link/footnote/table/code fixtures, dependency check | Complete (October 20) |
+| M2 Editor semantics | `LineKind` per source line with block markers, quote depth and hidden setext underlines; styled inline spans with exact source ranges; projection consumes them for live and source modes | `markdown_semantic`, `markdown_projection`, `markdown_editing` tests | Complete (October 20) |
+| M3 Application wiring | Reading view on the new projection, source-only behavior above 2 MiB with explicit notices, editor pipeline admission, toolbar state | Component tests plus native visual inspection | Complete except native visual inspection (October 20) |
+| M4 Verification | Workspace checks, Release measurements for the corpus, STATUS and specification records | `fmt`, `test --workspace`, `clippy -D warnings`, measurement table, visual review note | In progress (October 20) |
 
-Execute in order and commit each completed phase. M1 and M2 both touch
-`crates/breeze-reflow/src/markdown/`; they are separate commits because the
-reading model and the editor semantics have different acceptance evidence.
+Execute in order and commit each completed phase. M1 and M2 share the commit
+`refactor(markdown): rebuild the parser and projections on markdown-rs`: the
+parser dependency cannot be removed while one of its two consumers still uses
+it. M3 and M4 keep their own commits.
 
 ## M1. Reading model
 

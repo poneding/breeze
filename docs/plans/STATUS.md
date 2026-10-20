@@ -1,3 +1,47 @@
+## October 20 Markdown rebuilt on markdown-rs
+
+The user asked for rendering, live editing and the source view to be rebuilt
+entirely on markdown-rs, taking ELY Office's `apps/ely-mark` as the reference,
+and chose one AST projection, editing parity instead of new authoring features,
+and a 2 MiB whole-file parse ceiling. The decision and its measured costs are in
+[specification 15](../specs/15-markdown-rs-parser.md) and
+[work package 27](27-markdown-rs-rebuild.md).
+
+- `breeze-reflow` now has one parse function (`markdown::ast`) over
+  `markdown = 1.0.0` with GFM. `pulldown-cmark` is removed from the workspace
+  and lockfile. Reading blocks, headings, plain text and search text all come
+  from the same mdast tree; link and footnote definitions resolve
+  document-wide.
+- `markdown/render.rs` projects mdast to the HTML subset GPUI Kit reads. A
+  block containing a code block still hands its own source to Kit's Markdown
+  view, because Kit's HTML reader has no code card.
+- `markdown/semantic.rs` derives one `LineKind` per source line (block kind,
+  quote depth, hidden setext underline, exact ATX/list marker range) and inline
+  spans from node positions. Character references and escapes are split into
+  per-run source ranges, so `&amp;` keeps a byte-accurate caret map and CRLF
+  documents keep their bytes. The projection's line scanner remains only as the
+  provisional projection used before a worker result.
+- Above 2 MiB the reader does not parse: it states the limit, the editor opens
+  in Source, the Live control is disabled, and every byte stays editable and
+  copyable. `MAX_PARSE_BYTES` is the ceiling.
+- Leading container chains deeper than the 64-level policy are refused before
+  parsing, so markdown-rs cannot spend minutes on `> > > ...` before the tree
+  check.
+
+Verified with `cargo fmt --all -- --check`, `cargo test --workspace --locked`
+(241 app tests and all crate suites), `cargo clippy --workspace --all-targets
+--locked -- -D warnings`, and the Release corpus probe: 10 KiB 2.0 ms, 100 KiB
+36 ms and 1 MiB 2.0 s for a semantic parse; the 2 MiB ceiling is refused before
+parsing. New coverage includes a component test that renders the mdast HTML
+through Kit (references, table and footnote) and an oversized-document test that
+checks the reader notice, source-only editor and full character count.
+
+Native visual inspection was not performed: this session's model cannot view
+images, so the macOS screenshot could not be reviewed. The app was launched with
+an isolated `BREEZE_DATA_DIR` and a fixture covering headings, lists, quotes,
+tables, code, images, footnotes and raw HTML, and component tests cover the same
+content. Windows and Linux remain unverified.
+
 ## October 20 Split tabs start on the pane divider
 
 Reported on macOS: after dragging a tab to split the reader, the right pane's

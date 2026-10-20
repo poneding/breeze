@@ -68,6 +68,43 @@ worker with revision rejection. A 2 MiB structured file may take many seconds
 to lay out; the reading surface stays responsive and shows its loading state.
 Do not describe the limit as a measured capacity for adversarial input.
 
+### Application corpus probe
+
+`cargo test --release -p breeze-reflow --test markdown_performance -- --ignored
+--nocapture`, same machine, 20 samples up to 100 KiB and 5 samples at 1 MiB. The
+corpus is plain application content: headings, a paragraph with inline markup
+and CJK, a nested list, a quote, a small table and a fence per section.
+
+| Source | Lines | Semantic parse p50/p95 | Reading model p50/p95 | Projection p50/p95 | Provisional p50/p95 |
+|---|---|---|---|---|---|
+| 10 KiB | 475 | 2.0 / 2.2 ms | 2.0 / 2.2 ms | 0.04 ms | 0.2 ms |
+| 100 KiB | 4 655 | 36.4 / 37.8 ms | 36.9 / 40.4 ms | 0.4 ms | 2.4 ms |
+| 1 MiB | 47 025 | 1 985 / 2 027 ms | 2 003 / 2 014 ms | 5.6 / 6.7 ms | 29.4 / 30.2 ms |
+
+The 2 MiB ceiling is refused before parsing. A 1 MiB file costs about two
+seconds of worker time when opened; editing re-parses after the debounce and
+keeps the provisional projection on screen meanwhile.
+
+### Adversarial input
+
+markdown-rs is also superlinear in token count. Measured on the same machine:
+
+| Input | Bytes | Parse |
+|---|---|---|
+| 100 KB of unmatched `[` | 100 KB | 2.1 s |
+| 400 KB of unmatched `[` | 400 KB | 49 s |
+| 50 000 emphasis runs | 439 KB | 20.7 s |
+| 50 000 images | 789 KB | 11.4 s |
+| 20 000 links | 498 KB | 2.3 s |
+| 20 000 nested block quotes | 40 KB | 3.3 s |
+
+Leading container chains (`>`, list markers) deeper than the 64-level policy are
+now refused by a cheap pre-parse scan, so the deep-nesting case cannot occupy a
+worker for minutes before the tree check. Dense inline markup has no equivalent
+guard: it stays a measured limitation of the pinned parser. Parsing runs on a
+worker, typing stays responsive through the provisional projection, and stale
+results are rejected, but no latency bound is claimed for such documents.
+
 ## Architecture
 
 ```
@@ -113,7 +150,7 @@ This split is a rendering-widget limitation, not a second semantic parser.
 | Limit | Value | Behavior |
 |---|---|---|
 | Editing/source session | 16 MiB | Unchanged; buffer and history are parser-independent. |
-| One Markdown parse/layout | 2 MiB | `Document::parse`, `Semantic::parse` and the editor pipeline refuse larger input with an explicit error. |
+| One Markdown parse/layout | 2 MiB | `Document::parse`, `Semantic::parse` and the editor pipeline refuse larger input with an explicit error. Container chains above 64 leading markers on a line are refused before parsing. |
 | Reading a larger file | — | The reader reports the limit and keeps the Edit control; the editor opens directly in Source mode with a notice. |
 | Inline spans / blocks / depth / render text | 200 000 / 100 000 / 64 / 64 MiB | Unchanged hostile-input bounds, now measured on the mdast tree. |
 

@@ -7,6 +7,10 @@ record; [design 14](../specs/14-markdown-editor-design.md) defines contracts D1�
 and acceptance gates G1–G6. This plan executes that design rather than reopening
 the candidate selection at every phase.
 
+The parser named below (pulldown-cmark) was replaced on October 20, 2026 by
+markdown-rs under [work package 27](27-markdown-rs-rebuild.md); the source,
+history, input and save contracts in this plan are unchanged.
+
 Research, design, P1, P2 and P3 are complete. **The editing surface runs inside
 the reader content area, parses on a worker with revision rejection, and shapes
 only the visible window.** P4–P7 are unstarted: there is no save workflow,

@@ -1,5 +1,10 @@
 # Markdown live editing assessment
 
+Research date: October 16, 2026. Parser choice superseded on October 20, 2026 by
+[parser and projection rebuild 15](15-markdown-rs-parser.md): markdown-rs
+replaces pulldown-cmark for reading, live editing and source. The interaction
+research below remains the source record.
+
 Research date: October 16, 2026. Status: **proposal; no editor implementation or
 native editor acceptance has been performed**. The user requested Markdown
 editing with a Typora-like experience and asked for technical research first.
