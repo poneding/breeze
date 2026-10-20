@@ -22,8 +22,6 @@ use std::{
     rc::Rc,
 };
 
-const BODY_SIZE: f32 = 16.;
-const CODE_SIZE: f32 = 13.;
 const MEASURE: f32 = 760.;
 const PAD_X: f32 = 24.;
 const PAD_Y: f32 = 16.;
@@ -38,6 +36,8 @@ pub(super) enum EditView {
 struct LayoutKey {
     revision: u64,
     view: EditView,
+    /// The reader's body size; the surface reflows when it changes.
+    font_size: u8,
     width: u32,
 }
 
@@ -100,6 +100,7 @@ impl Default for Layout {
             key: LayoutKey {
                 revision: u64::MAX,
                 view: EditView::Live,
+                font_size: 0,
                 width: 0,
             },
             bounds: Bounds::default(),
@@ -120,6 +121,9 @@ impl Default for Layout {
 pub(super) struct MarkdownEditor {
     session: EditSession,
     view: EditView,
+    /// The reader's body size in logical pixels; every line metric derives
+    /// from it so editing and reading show the same type scale.
+    font_size: u8,
     focus: FocusHandle,
     scroll: f32,
     projection: Arc<Projection>,
@@ -148,6 +152,21 @@ impl MarkdownEditor {
         self.toggle_view(view, cx);
     }
 
+    /// Follow the reader's font size. The layout is keyed on it, so the next
+    /// frame reflows every measured line at the new size.
+    pub(super) fn set_font_size(&mut self, font_size: u8, cx: &mut Context<Self>) {
+        if self.font_size == font_size {
+            return;
+        }
+        // Every line scales with the body size, so scaling the offset keeps the
+        // reader at the same place in the text instead of drifting backwards.
+        let previous = self.font_size.max(1);
+        self.scroll *= f32::from(font_size) / f32::from(previous);
+        self.font_size = font_size;
+        self.layout.invalidate();
+        cx.notify();
+    }
+
     pub(super) fn focus_handle(&self) -> FocusHandle {
         self.focus.clone()
     }
@@ -166,11 +185,12 @@ impl MarkdownEditor {
         self.characters
     }
 
-    pub(super) fn open(path: PathBuf, cx: &mut Context<Self>) -> Self {
+    pub(super) fn open(path: PathBuf, font_size: u8, cx: &mut Context<Self>) -> Self {
         let (session, notice) = load_session(&path);
         let mut editor = Self {
             session,
             view: EditView::Live,
+            font_size,
             focus: cx.focus_handle(),
             scroll: 0.,
             projection: Arc::new(Projection::live("", 0..0)),
@@ -829,6 +849,7 @@ impl MarkdownEditor {
         let key = LayoutKey {
             revision: self.session.revision(),
             view: self.view,
+            font_size: self.font_size,
             width: f32::from(bounds.size.width).to_bits(),
         };
         let measure = (f32::from(bounds.size.width) - PAD_X * 2.).clamp(80., MEASURE);
@@ -1017,9 +1038,10 @@ impl Layout {
         measure: f32,
         projection: &Projection,
     ) -> Self {
+        let body = f32::from(key.font_size);
         let mut units = Vec::with_capacity(projection.lines.len());
         for (index, line) in projection.lines.iter().enumerate() {
-            let (font_size, indent) = line_metrics(&line.kind);
+            let (font_size, indent) = line_metrics(&line.kind, body);
             // Windowed so one enormous line never becomes one shape call; the
             // split is at character boundaries and does not alter the source.
             // An empty line still produces one unit so it keeps its row and its
@@ -1191,22 +1213,15 @@ impl Layout {
     }
 }
 
-/// The font size and indent one block kind renders at.
-fn line_metrics(kind: &BlockKind) -> (f32, f32) {
+/// The font size and indent one block kind renders at, derived from the
+/// reader's body size so both surfaces share one type scale.
+fn line_metrics(kind: &BlockKind, body: f32) -> (f32, f32) {
     match kind {
-        BlockKind::Heading(level) => (
-            match level {
-                1 => 28.,
-                2 => 23.,
-                3 => 20.,
-                _ => BODY_SIZE,
-            },
-            0.,
-        ),
-        BlockKind::Quote { depth } => (BODY_SIZE, 16. * *depth as f32),
-        BlockKind::List { depth, .. } => (BODY_SIZE, 16. * *depth as f32),
-        BlockKind::Fence | BlockKind::Code => (CODE_SIZE, 12.),
-        BlockKind::Paragraph | BlockKind::Table => (BODY_SIZE, 0.),
+        BlockKind::Heading(level) => (markdown_style::heading_size(*level, body), 0.),
+        BlockKind::Quote { depth } => (body, 16. * *depth as f32),
+        BlockKind::List { depth, .. } => (body, 16. * *depth as f32),
+        BlockKind::Fence | BlockKind::Code => (markdown_style::code_size(body), 12.),
+        BlockKind::Paragraph | BlockKind::Table => (body, 0.),
     }
 }
 
@@ -1634,7 +1649,7 @@ pub(super) mod tests {
                 },
                 cx,
                 move |window, cx| {
-                    let editor = cx.new(|cx| MarkdownEditor::open(path.clone(), cx));
+                    let editor = cx.new(|cx| MarkdownEditor::open(path.clone(), 18, cx));
                     let focus = editor.read(cx).focus.clone();
                     window.focus(&focus, cx);
                     editor
@@ -1642,6 +1657,49 @@ pub(super) mod tests {
             )
             .unwrap()
         })
+    }
+
+    #[gpui_kit::test]
+    fn the_surface_follows_the_reading_font_size(cx: &mut TestAppContext) {
+        let mut markdown = String::from("# Title\n\nBody text\n\n```\ncode\n```\n");
+        for index in 0..40 {
+            markdown.push_str(&format!("\nParagraph {index} with 中文 text.\n"));
+        }
+        let (handle, editor) = editor_window(cx, "size.md", &markdown);
+        let mut small = 0.;
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            small = editor.read(cx).layout.content_height;
+            editor.update(cx, |editor, cx| {
+                assert_eq!(editor.layout.units[0].font_size, 18. * 1.6);
+                assert_eq!(editor.layout.units[2].font_size, 18.);
+                editor.scroll_by(120., cx);
+                assert!(editor.scroll > 0., "the surface has to scroll first");
+                editor.set_font_size(26, cx);
+                assert_eq!(
+                    editor.layout.unit_count(),
+                    0,
+                    "a new size needs a new layout"
+                );
+            });
+            window.render_frame(cx);
+            editor.update(cx, |editor, _| {
+                assert_eq!(editor.layout.units[0].font_size, 26. * 1.6);
+                assert_eq!(editor.layout.units[2].font_size, 26.);
+                assert_eq!(editor.layout.units[4].font_size, 26. * 0.85);
+                assert!(
+                    editor.layout.content_height > small,
+                    "the surface did not grow: {} <= {small}",
+                    editor.layout.content_height
+                );
+                assert!(
+                    editor.scroll > 120.,
+                    "the reading position did not scale with the text: {}",
+                    editor.scroll
+                );
+            });
+        })
+        .unwrap();
     }
 
     #[gpui_kit::test]

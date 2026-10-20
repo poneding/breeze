@@ -1,3 +1,42 @@
+## October 20 Markdown type scale, code blocks and editor size
+
+The Markdown reader laid every block out as HTML in Kit's rich-text view, which
+sizes headings from a fixed 14 px base: h1-h6 were 28, 21, 17.5, 15.75, 14 and
+14 px whatever the reading font size, so h3-h6 were smaller than the 18 px body
+text and the text-size control never moved a heading. The same view has no
+`<pre>` handling, so a fence became a paragraph of inline-code runs — no code
+card, no language, 0.875 em text. The live editor kept its own fixed 16 px body
+and 13 px code, so editing ignored the reading size entirely.
+
+`breeze-app::markdown_style` now derives the reader's heading scale (1.6, 1.4,
+1.25, 1.1, 1, 1 times the body size), code size and paragraph rhythm from
+`reflow.font_size`, and rebuilds the themed `TextViewStyle` because Kit exposes
+only a whole-style override. A block whose source contains a fenced or indented
+code block keeps that source and is laid out from Markdown instead of HTML, so
+Kit draws its own code card. `MarkdownEditor` derives body, heading and code
+metrics from the same reading size, reflows when it changes and scales its
+scroll offset with it.
+
+Limits: code blocks use Kit's card, padding and monospace size but no syntax
+highlighting, because the optional `tree-sitter` feature stays off; laying a
+code-containing block out from its own source would drop reference and footnote
+definitions written elsewhere in the document; horizontal rules and task-list
+checkboxes still render as nothing, because the HTML projection has no element
+for them; the editor's list indent stays at 16 px per level.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked` (239
+app tests, seven of them new: heading-scale unit tests, rendered heading and
+body block heights before and after a text-size change, a fence slice parsing as
+code, the reader laying out top-level and nested fences, and the editor
+reflowing while keeping its place) and `cargo clippy --workspace --all-targets
+--locked -- -D warnings` pass. `cargo run --locked -p breeze-app` starts on the
+disposable Chinese Markdown fixture under `target/md-review/` without a console
+error. Native visual inspection is unperformed: two `screencapture` runs taken
+around an app launch are byte-identical and show only the desktop, so this
+session cannot capture the window, and the layout statements above come from
+rendered-component bounds instead of pixels. Windows and Linux runtime remain
+unverified.
+
 ## October 20 no reading progress in the Markdown status bar
 
 The Markdown status bar reported a reading percentage where EPUB reports a page

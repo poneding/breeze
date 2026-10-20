@@ -791,6 +791,11 @@ impl Breeze {
     pub(super) fn resize_reflow_text(&mut self, delta: i16, cx: &mut Context<Self>) {
         let current = &mut self.books[self.active].reflow.font_size;
         *current = (*current as i16 + delta).clamp(12, 32) as u8;
+        let font_size = *current;
+        // An open draft keeps its own layout, so it follows the same control.
+        if let Some(editor) = self.books[self.active].markdown_edit.clone() {
+            editor.update(cx, |editor, cx| editor.set_font_size(font_size, cx));
+        }
         self.reflow.list.remeasure();
         self.request_epub(0, 0., None, cx);
         cx.notify();
@@ -1595,7 +1600,8 @@ impl Breeze {
                 cx.notify();
                 return;
             };
-            let editor = cx.new(|cx| markdown_editor::MarkdownEditor::open(path, cx));
+            let body = self.books[self.active].reflow.font_size;
+            let editor = cx.new(|cx| markdown_editor::MarkdownEditor::open(path, body, cx));
             self.books[self.active].markdown_edit = Some(editor);
         }
         self.books[self.active].markdown_editing = true;
