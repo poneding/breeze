@@ -46,6 +46,10 @@ pub fn parse(source: &str) -> Result<Node> {
 fn check_nesting(source: &str) -> Result<()> {
     for line in source.split('\n') {
         let line = line.strip_suffix('\r').unwrap_or(line);
+        // A rule may repeat its marker with spaces between; it opens none.
+        if is_thematic_break(line) {
+            continue;
+        }
         let mut rest = line;
         let mut depth = 0usize;
         loop {
@@ -67,6 +71,17 @@ fn check_nesting(source: &str) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Whether the line is a rule: three or more of `-`, `*` or `_`, spaced.
+fn is_thematic_break(line: &str) -> bool {
+    let mut markers = line.chars().filter(|character| !character.is_whitespace());
+    let Some(first) = markers.next() else {
+        return false;
+    };
+    matches!(first, '-' | '*' | '_')
+        && markers.clone().count() + 1 >= 3
+        && markers.all(|character| character == first)
 }
 
 /// Strip one list marker and the whitespace after it.
@@ -307,6 +322,9 @@ mod tests {
             assert!(error.to_string().contains("64 levels"), "{error}");
         }
         assert!(parse("- - - three deep\n> > quoted twice\n").is_ok());
+        // A long spaced rule is one block, not a container chain.
+        let rule = format!("{}\n", "- ".repeat(200).trim_end());
+        assert!(parse(&rule).is_ok());
     }
 
     #[test]
