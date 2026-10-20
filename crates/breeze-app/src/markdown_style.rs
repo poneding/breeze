@@ -70,6 +70,7 @@ pub(super) fn text_style(cx: &App, body: f32) -> TextViewStyle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gpui_kit::base::TextViewState;
 
     #[test]
     fn headings_are_never_smaller_than_the_body_text() {
@@ -150,6 +151,18 @@ mod tests {
             );
         })
         .unwrap();
+    }
+
+    /// The reader hands a fence's own source to the Markdown parser, so this
+    /// pins what that parser makes of the slice: code, not algorithm text.
+    #[gpui_kit::test]
+    fn a_fence_slice_parses_as_code(cx: &mut TestAppContext) {
+        cx.update(gpui_kit::init);
+        let state =
+            cx.update(|cx| cx.new(|cx| TextViewState::markdown("```rust\nfn main() {}\n```", cx)));
+        cx.run_until_parked();
+        let rendered = cx.update(|cx| state.read(cx).rendered_text().as_str().trim().to_owned());
+        assert_eq!(rendered, "fn main() {}");
     }
 
     /// A fence has to reach the reader as a code block, including one nested in
