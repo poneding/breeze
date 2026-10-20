@@ -356,47 +356,6 @@ impl Breeze {
                     .flex_shrink_0()
                     .border_t_1()
                     .border_color(border)
-                    .child(
-                        row()
-                            .gap_1()
-                            .child(
-                                self.command(
-                                    "undo",
-                                    IconName::Undo2,
-                                    tr!("Undo annotation"),
-                                    &UndoAnnotation,
-                                    cx,
-                                )
-                                .disabled(!data.history.can_undo()),
-                            )
-                            .child(
-                                self.command(
-                                    "redo",
-                                    IconName::Redo2,
-                                    tr!("Redo annotation"),
-                                    &RedoAnnotation,
-                                    cx,
-                                )
-                                .disabled(!data.history.can_redo()),
-                            )
-                            .child(
-                                self.command(
-                                    "save-sidecar",
-                                    IconName::Save,
-                                    tr!("Save annotations"),
-                                    &SaveAnnotations,
-                                    cx,
-                                )
-                                .disabled(!data.ready || data.saving || data.error.is_some()),
-                            )
-                            .child(self.command(
-                                "save-sidecar-as",
-                                IconName::FolderOpen,
-                                tr!("Save annotations as"),
-                                &SaveAnnotationsAs,
-                                cx,
-                            )),
-                    )
                     .when_some(
                         if data.saving {
                             Some(tr!("Saving…"))

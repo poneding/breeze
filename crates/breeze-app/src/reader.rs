@@ -140,6 +140,7 @@ impl Breeze {
                                     }),
                             ),
                     )
+                    .child(self.annotation_history(mode, cx))
                     .child(self.tools(mode, cx))
                     .child(
                         self.command(
@@ -229,6 +230,59 @@ impl Breeze {
                         row.child(self.document_sidebar(cx))
                     }),
             )
+    }
+    /// Undo, redo, and sidecar saving sit at the toolbar's left so an edit never
+    /// depends on the document panel being open. In Annotate mode a divider
+    /// separates them from the annotation tools they act on.
+    fn annotation_history(&self, mode: Mode, cx: &mut Context<Self>) -> AnyElement {
+        let data = &self.books[self.active].annotations;
+        let line = Theme::global(cx).border;
+        row()
+            .id("annotation-history")
+            .test_support()
+            .flex_shrink_0()
+            .gap_1()
+            .child(
+                self.command(
+                    "undo",
+                    IconName::Undo2,
+                    tr!("Undo annotation"),
+                    &UndoAnnotation,
+                    cx,
+                )
+                .disabled(!data.history.can_undo()),
+            )
+            .child(
+                self.command(
+                    "redo",
+                    IconName::Redo2,
+                    tr!("Redo annotation"),
+                    &RedoAnnotation,
+                    cx,
+                )
+                .disabled(!data.history.can_redo()),
+            )
+            .child(
+                self.command(
+                    "save-sidecar",
+                    IconName::Save,
+                    tr!("Save annotations"),
+                    &SaveAnnotations,
+                    cx,
+                )
+                .disabled(!data.ready || data.saving || data.error.is_some()),
+            )
+            .child(self.command(
+                "save-sidecar-as",
+                IconName::FolderOpen,
+                tr!("Save annotations as"),
+                &SaveAnnotationsAs,
+                cx,
+            ))
+            .when(mode == Mode::Annotate, |history| {
+                history.child(div().w(px(1.)).h(px(16.)).flex_shrink_0().bg(line))
+            })
+            .into_any_element()
     }
     pub(super) fn navigation_outline(&self) -> Option<Arc<Vec<breeze_pdf::Outline>>> {
         self.preview

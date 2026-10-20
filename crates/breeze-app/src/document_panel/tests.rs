@@ -60,6 +60,19 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         });
         window.render_frame(cx);
         assert!(window.try_find("document-panel").is_none());
+        // History and save stay reachable from the reader toolbar, not the panel.
+        let toolbar = window.find("reader-toolbar").bounds();
+        let history = window.find("annotation-history").bounds();
+        assert!(
+            history.left() >= toolbar.left() && history.right() <= toolbar.right(),
+            "annotation history {history:?} is outside the toolbar {toolbar:?}"
+        );
+        for id in ["undo", "redo", "save-sidecar", "save-sidecar-as"] {
+            assert!(
+                window.find(id).visible(),
+                "{id} is not in the reader toolbar"
+            );
+        }
         let search = window.find("reader-search").bounds();
         let favorite = window.find("reader-star").bounds();
         let sidebar = window.find("document-panel-toggle").bounds();

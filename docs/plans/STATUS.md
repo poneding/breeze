@@ -1,3 +1,23 @@
+## October 19 Annotation history moves into the reader toolbar
+
+The annotation sidebar no longer carries its own Undo, Redo, Save, and Save As
+row. Those commands now sit in the reader toolbar's left half, immediately after
+the Read/Annotate tabs and ahead of the centered tool group, so editing does not
+depend on the document panel being open and Save stays reachable in both modes.
+In Annotate mode a 1 px divider separates the history group from the annotation
+tool icons; Read mode omits the separator because no tools follow it. Command ids
+are unchanged (`undo`, `redo`, `save-sidecar`, `save-sidecar-as`). The sidebar
+footer keeps the unsaved/not-ready status, annotation errors, recovery actions,
+and PDF export.
+
+Validation: formatting and all-target Clippy with warnings denied pass. The
+component test asserts the group stays inside `reader-toolbar` with all four
+controls visible while the document panel is closed. A native capture of the
+isolated reader confirmed the left-aligned Undo/Redo/Save/Save As group after
+the mode tabs; this session's Windows window renders at 2x into a smaller
+window whose right side is clipped, so the Annotate-mode divider was not
+captured natively.
+
 ## October 17 Windows lays out Chinese prose an order of magnitude slower
 
 `chinese_prose_is_drawn_with_its_own_stylesheet` guards the CJK font hooks with a
