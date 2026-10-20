@@ -485,7 +485,9 @@ fn flatten_runs(paints: &mut Vec<(Range<usize>, RunStyle)>, len: usize) -> Vec<D
 }
 
 struct ListPrefix {
+    /// Byte offset where the marker starts, after the leading indentation.
     indent: usize,
+    /// Byte offset just past the marker and the spaces that follow it.
     end: usize,
     ordered: bool,
     depth: usize,
@@ -849,13 +851,21 @@ fn quote_prefix(line: &str) -> Option<(usize, usize)> {
 }
 
 fn list_prefix(line: &str) -> Option<ListPrefix> {
-    let indent = line
-        .chars()
-        .take_while(|c| *c == ' ' || *c == '\t')
-        .map(|c| if c == '\t' { 4 } else { 1 })
-        .sum::<usize>();
+    // Two measurements: `indent` is a byte offset into the line, while
+    // `columns` counts a tab as four columns for the fallback nesting depth.
+    // Mixing them would slice a tab-indented line at a non-boundary.
+    let mut indent = 0usize;
+    let mut columns = 0usize;
+    for character in line.chars() {
+        match character {
+            ' ' => columns += 1,
+            '\t' => columns += 4,
+            _ => break,
+        }
+        indent += character.len_utf8();
+    }
     let rest = &line[indent..];
-    let mut depth = indent / 2;
+    let mut depth = columns / 2;
     let (marker_len, ordered): (usize, bool) = if rest.starts_with(['-', '+', '*']) {
         (1, false)
     } else {

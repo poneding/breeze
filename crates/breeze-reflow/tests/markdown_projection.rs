@@ -186,6 +186,31 @@ fn lists_quotes_and_code_fences_keep_editable_source() {
 }
 
 #[test]
+fn tab_indentation_is_measured_in_bytes_for_lists() {
+    // A tab counts as four columns for nesting depth but occupies one source
+    // byte. Using the column count as a byte offset sliced these lines inside
+    // the CJK text, which aborted the application when switching to edit mode.
+    let literal = live("\t-关\n", 0);
+    assert_eq!(literal.text, "\t-关\n");
+    assert_eq!(literal.lines[0].kind, BlockKind::Paragraph);
+
+    let list = live("\t- 关灯\n", 0);
+    assert_eq!(list.text, "\t\u{2022} 关灯\n");
+    assert_eq!(
+        list.lines[0].kind,
+        BlockKind::List {
+            ordered: false,
+            depth: 1
+        }
+    );
+    // The tab is copied verbatim and keeps its place in the mapping.
+    assert_eq!(list.source_to_display(1), 1);
+    // The substituted bullet occupies four bytes (`•` plus a space).
+    assert_eq!(list.source_to_display(3), 5);
+    assert_eq!(list.display_to_source(5, Affinity::After), 3);
+}
+
+#[test]
 fn display_and_source_ranges_round_trip_per_line() {
     let source = "# H\n\n- a **b**\n\n> q `c`\n\ntext\n";
     let projection = Projection::live(source, 0..0);
