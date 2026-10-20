@@ -1339,7 +1339,9 @@ fn shape_unit(
     let mut wrapped: Vec<Wrapped> = wrap_line(&shaped, px((measure - unit.indent).max(1.)))
         .into_iter()
         .map(|(fragment, shaped)| Wrapped {
-            x: unit.indent + fragment.start_offset,
+            // Every row starts at the block's margin. A continuation row is a
+            // separate shaped line whose coordinates already start at zero.
+            x: unit.indent,
             // Wrapping works in unit-local bytes; selection, hit tests and the
             // mapping all use document display offsets.
             display: unit.display.start + fragment.range.start
@@ -1485,7 +1487,6 @@ fn build_runs(
 
 struct Fragment {
     range: Range<usize>,
-    start_offset: f32,
 }
 
 /// Greedy wrapping over the shaped line. P3 replaces this with the bounded
@@ -1496,7 +1497,6 @@ fn wrap_line(shaped: &ShapedLine, max_width: Pixels) -> Vec<(Fragment, ShapedLin
         out.push((
             Fragment {
                 range: 0..shaped.text.len(),
-                start_offset: 0.,
             },
             shaped.clone(),
         ));
@@ -1504,13 +1504,11 @@ fn wrap_line(shaped: &ShapedLine, max_width: Pixels) -> Vec<(Fragment, ShapedLin
     }
     let mut remaining = shaped.clone();
     let mut base = 0usize;
-    let mut offset = 0.;
     loop {
         if remaining.width() <= max_width || remaining.text.is_empty() {
             out.push((
                 Fragment {
                     range: base..base + remaining.text.len(),
-                    start_offset: offset,
                 },
                 remaining,
             ));
@@ -1530,16 +1528,13 @@ fn wrap_line(shaped: &ShapedLine, max_width: Pixels) -> Vec<(Fragment, ShapedLin
         }
         let cut = cut.min(remaining.text.len());
         let (prefix, suffix) = remaining.split_at(cut);
-        let next_offset = offset + f32::from(prefix.width());
         out.push((
             Fragment {
                 range: base..base + cut,
-                start_offset: offset,
             },
             prefix,
         ));
         base += cut;
-        offset = next_offset;
         remaining = suffix;
     }
     out
@@ -1907,6 +1902,39 @@ pub(super) mod tests {
                 let selection = editor.session.selection();
                 assert_eq!(selection.range(), 1..5);
                 assert!(!selection.is_empty());
+            });
+        })
+        .unwrap();
+    }
+
+    /// Every wrapped row starts at the block's left margin. Before this, each
+    /// continuation row was painted further right by the width of every row
+    /// above it, so long paragraphs ran off the surface.
+    #[gpui_kit::test]
+    fn wrapped_rows_keep_the_left_margin(cx: &mut TestAppContext) {
+        let text = format!("{}\n", "word ".repeat(200));
+        let (handle, editor) = editor_window(cx, "wrap.md", &text);
+        cx.update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            editor.update(cx, |editor, _| {
+                let shaped = editor
+                    .layout
+                    .shaped
+                    .values()
+                    .next()
+                    .expect("the visible unit is shaped");
+                assert!(
+                    shaped.wrapped.len() > 1,
+                    "the fixture did not wrap: {} rows",
+                    shaped.wrapped.len()
+                );
+                for (row, wrapped) in shaped.wrapped.iter().enumerate() {
+                    assert_eq!(
+                        wrapped.x, 0.,
+                        "wrapped row {row} starts at x={} instead of the margin",
+                        wrapped.x
+                    );
+                }
             });
         })
         .unwrap();
