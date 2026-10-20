@@ -6,6 +6,7 @@ catalog! {
     "Split to the right" => ("拖到此处，在右侧分屏", "拖到此處，在右側分割"),
     "Wait for saving or export before moving a tab" => ("请等待保存或导出完成后再移动标签页", "請等待儲存或匯出完成後再移動分頁"),
     "Cannot format this Markdown: {}" => ("无法解析此 Markdown：{}", "無法解析此 Markdown：{}"),
+    "Markdown over {} MiB is available only as source" => ("超过 {} MiB 的 Markdown 仅提供源码视图。", "超過 {} MiB 的 Markdown 僅提供原始碼檢視。"),
     "Edit document" => ("编辑文档", "編輯文件"),
     "Reading view" => ("阅读视图", "閱讀檢視"),
     "Live formatting" => ("即时排版", "即時排版"),

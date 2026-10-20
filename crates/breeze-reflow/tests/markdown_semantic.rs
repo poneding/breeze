@@ -227,3 +227,58 @@ fn unfinished_delimiters_stay_visible_and_editable() {
         );
     }
 }
+
+#[test]
+fn crlf_documents_decode_entities_without_losing_line_endings() {
+    let source = "a &amp; b\r\nc &lt; d\r\n";
+    let projection = live(source, source.len());
+    assert_eq!(projection.text, "a & b\r\nc < d\r\n");
+    // Each decoded run maps back to the entity's own bytes.
+    for (source_range, shown) in [(2..7, "&"), (13..17, "<")] {
+        let display = projection.source_range_to_display(source_range.clone());
+        assert_eq!(&projection.text[display.clone()], shown);
+        assert_eq!(projection.display_range_to_source(display), source_range);
+    }
+}
+
+#[test]
+fn a_task_item_keeps_the_checkbox_it_was_written_with() {
+    let source = "- [x] done\n- [ ] later\n";
+    let projection = live(source, source.len());
+    assert_eq!(projection.text, "\u{2022} [x] done\n\u{2022} [ ] later\n");
+    assert_eq!(
+        &projection.text[projection.lines[0].display.clone()],
+        "\u{2022} [x] done"
+    );
+}
+
+#[test]
+fn a_gfm_autolink_literal_is_styled_without_hiding_its_text() {
+    let source = "see https://example.com now\n";
+    let projection = live(source, source.len());
+    assert_eq!(
+        projection.text, source,
+        "an autolink has no delimiters to hide"
+    );
+    let link = projection.lines[0]
+        .runs
+        .iter()
+        .find(|run| run.style.link)
+        .expect("the literal is a link under GFM");
+    assert_eq!(&projection.text[link.range.clone()], "https://example.com");
+}
+
+#[test]
+fn an_html_block_stays_literal_and_does_not_become_a_heading() {
+    let source = "<div>\n# not a heading\n</div>\n\n# heading\n";
+    let projection = live(source, source.len());
+    assert_eq!(
+        &projection.text[projection.lines[1].display.clone()],
+        "# not a heading"
+    );
+    assert_eq!(projection.lines[4].kind, BlockKind::Heading(1));
+    assert_eq!(
+        &projection.text[projection.lines[4].display.clone()],
+        "heading"
+    );
+}

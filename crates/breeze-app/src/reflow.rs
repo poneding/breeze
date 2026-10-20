@@ -457,6 +457,19 @@ impl Breeze {
         let Source::File(path) = source else { return };
         match self.books[self.active].format() {
             Some(DocumentFormat::Markdown) => {
+                // Refuse the parse before reading or spawning: above the
+                // ceiling the document stays available in the source view.
+                if std::fs::metadata(&path)
+                    .is_ok_and(|metadata| metadata.len() > markdown::MAX_PARSE_BYTES as u64)
+                {
+                    self.loading = false;
+                    self.message = tf!(
+                        "Markdown over {} MiB is available only as source",
+                        markdown::MAX_PARSE_BYTES / (1024 * 1024)
+                    );
+                    cx.notify();
+                    return;
+                }
                 let generation = self.generation;
                 let work = cx
                     .background_spawn(async move { markdown::Document::open(&path).map(Arc::new) });
@@ -888,11 +901,16 @@ impl Breeze {
                                 .map(|editor| editor.read(cx).view());
                             let live = view == Some(markdown_editor::EditView::Live);
                             let source = view == Some(markdown_editor::EditView::Source);
+                            let live_available = self.books[self.active]
+                                .markdown_edit
+                                .as_ref()
+                                .is_none_or(|editor| editor.read(cx).live_available());
                             bar.child(
                                 Button::new("markdown-live-view")
                                     .ghost()
                                     .small()
                                     .selected(live)
+                                    .disabled(!live_available)
                                     .accessibility_label(tr!("Live formatting"))
                                     .tooltip(tr!("Live formatting"))
                                     .child(IconName::Type)

@@ -153,6 +153,42 @@ mod tests {
         .unwrap();
     }
 
+    /// The reading model's HTML is only useful if GPUI Kit turns it into the
+    /// text the parser meant. This pins a document-wide reference, inline
+    /// styles, a table and a footnote label together, which is what the mdast
+    /// projection replaced the pulldown-cmark event stream with.
+    #[gpui_kit::test]
+    fn mdast_html_renders_as_parsed_text(cx: &mut TestAppContext) {
+        use breeze_reflow::markdown::Document;
+        cx.update(gpui_kit::init);
+        let source = "## 标题\n\nsee [label][ref] and **bold** and `code`\n\n| 甲 | 乙 |\n|---|---|\n| 1 | 2 |\n\n脚注[^a]\n\n[ref]: https://example.com\n\n[^a]: 脚注正文\n";
+        let document = Document::parse(source).expect("parses");
+        let html: String = document
+            .blocks
+            .iter()
+            .map(|block| block.html.as_ref())
+            .collect();
+        let state = cx.update(|cx| cx.new(|cx| TextViewState::html(&html, cx)));
+        cx.run_until_parked();
+        let rendered = cx.update(|cx| state.read(cx).rendered_text().as_str().to_owned());
+        for expected in [
+            "标题",
+            "see label and bold and code",
+            "甲",
+            "乙",
+            "脚注正文",
+        ] {
+            assert!(
+                rendered.contains(expected),
+                "{expected:?} is missing from {rendered:?}"
+            );
+        }
+        assert!(
+            !rendered.contains("[ref]"),
+            "the reference label resolved instead of showing its source: {rendered:?}"
+        );
+    }
+
     /// The reader hands a fence's own source to the Markdown parser, so this
     /// pins what that parser makes of the slice: code, not algorithm text.
     #[gpui_kit::test]

@@ -12,8 +12,8 @@
 use crate::*;
 // `crate::*` re-exports the PDF geometry `Pixels`; the surface uses GPUI's.
 use breeze_reflow::markdown::{
-    Affinity, BlockKind, EditSession, Pipeline, Position, Projection, ProjectionMode, Replacement,
-    Request, Selection, SourceBuffer,
+    Affinity, BlockKind, EditSession, MAX_PARSE_BYTES, Pipeline, Position, Projection,
+    ProjectionMode, Replacement, Request, Selection, SourceBuffer,
 };
 use gpui_kit::{Bounds, Pixels, Point, point, px, relative, size};
 use std::{
@@ -175,6 +175,14 @@ impl MarkdownEditor {
         self.session.dirty()
     }
 
+    /// Whether this document is small enough to parse and format.
+    ///
+    /// One markdown-rs parse is bounded at [`MAX_PARSE_BYTES`]; above it the
+    /// session still edits every byte, but only as source.
+    pub(super) fn live_available(&self) -> bool {
+        self.session.source().len() <= MAX_PARSE_BYTES
+    }
+
     /// Characters in the text this editor currently shows.
     ///
     /// The reader counts the characters of the rendered document, so the count
@@ -187,9 +195,14 @@ impl MarkdownEditor {
 
     pub(super) fn open(path: PathBuf, font_size: u8, cx: &mut Context<Self>) -> Self {
         let (session, notice) = load_session(&path);
+        let limited = session.source().len() > MAX_PARSE_BYTES;
         let mut editor = Self {
             session,
-            view: EditView::Live,
+            view: if limited {
+                EditView::Source
+            } else {
+                EditView::Live
+            },
             font_size,
             focus: cx.focus_handle(),
             scroll: 0.,
@@ -202,7 +215,9 @@ impl MarkdownEditor {
             worker_epoch: 0,
             last_refine: None,
             layout: Layout::default(),
-            notice: notice.map(Into::into),
+            notice: notice
+                .or_else(|| limited.then(over_limit_notice))
+                .map(Into::into),
         };
         editor.refresh_projection(cx);
         editor
@@ -229,6 +244,27 @@ impl MarkdownEditor {
         let source: Arc<str> = self.source_text().into();
         let selection = self.session.selection().range();
         let literal = self.session.composition_range();
+        // A document above the parse ceiling keeps its bytes and history, but
+        // has no semantic layer to format: switch to the source projection and
+        // say so once, rather than retrying a parse that cannot be admitted.
+        if source.len() > MAX_PARSE_BYTES {
+            if self.view != EditView::Source {
+                self.view = EditView::Source;
+            }
+            if self.notice.is_none() {
+                self.notice = Some(over_limit_notice().into());
+            }
+            self.semantic = None;
+            self.semantic_revision = u64::MAX;
+            self.install_projection(Projection::build_with_literal(
+                &source,
+                selection,
+                ProjectionMode::Source,
+                literal,
+            ));
+            self.layout.invalidate();
+            return;
+        }
         let mode = match self.view {
             EditView::Live => ProjectionMode::Live,
             EditView::Source => ProjectionMode::Source,
@@ -376,6 +412,12 @@ impl MarkdownEditor {
         self.finish_composition();
 
         if self.view == view {
+            return;
+        }
+        if view == EditView::Live && !self.live_available() {
+            // Refuse the switch instead of showing an unformatted live view.
+            self.notice = Some(over_limit_notice().into());
+            cx.notify();
             return;
         }
         self.view = view;
@@ -597,6 +639,14 @@ enum Motion {
     Down,
     Home,
     End,
+}
+
+/// What the editor says when a document cannot be parsed.
+fn over_limit_notice() -> String {
+    tf!(
+        "Markdown over {} MiB is available only as source",
+        MAX_PARSE_BYTES / (1024 * 1024)
+    )
 }
 
 fn load_session(path: &Path) -> (EditSession, Option<String>) {

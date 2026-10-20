@@ -3169,6 +3169,71 @@ fn markdown_has_no_paging_and_toggles_its_reading_width(cx: &mut TestAppContext)
     .unwrap();
 }
 
+/// A Markdown file above the parse ceiling stays readable as source: the
+/// reader names the limit, the editor opens in source mode, and asking for
+/// live formatting is refused instead of attempting a parse that cannot be
+/// admitted.
+#[gpui_kit::test]
+fn oversized_markdown_reports_the_limit_and_edits_as_source(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("large.md");
+    let mut source = String::new();
+    while source.len() <= breeze_reflow::markdown::MAX_PARSE_BYTES {
+        source.push_str("# Section\n\nbody text\n\n");
+    }
+    std::fs::write(&path, &source).unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "large.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    let limit_notice = i18n::format_message(
+        i18n::text("Markdown over {} MiB is available only as source"),
+        &["2".to_string()],
+    );
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            view.read(cx).reflow.markdown.is_none(),
+            "an oversized document was parsed anyway"
+        );
+        assert_eq!(
+            view.read(cx).message,
+            limit_notice,
+            "the reader must name the rendering limit"
+        );
+
+        window.click("markdown-edit-toggle", cx);
+        window.render_frame(cx);
+        let session = view.read(cx).books[0]
+            .markdown_edit
+            .clone()
+            .expect("opening an oversized document still edits it");
+        assert!(!session.read(cx).live_available());
+        assert_eq!(
+            session.read(cx).view(),
+            markdown_editor::EditView::Source,
+            "an oversized document has no live formatting"
+        );
+        assert_eq!(
+            session.read(cx).characters(),
+            source.chars().count(),
+            "the source view must show every byte of the document"
+        );
+
+        // The live control is disabled; asking again leaves the source view.
+        window.click("markdown-live-view", cx);
+        window.render_frame(cx);
+        assert_eq!(session.read(cx).view(), markdown_editor::EditView::Source);
+    })
+    .unwrap();
+}
+
 /// A picture that exists must be shown even when its Markdown reference is
 /// URL-encoded, which is what an editor writes for a name with a space. The
 /// reader used to open the literal `%20` path, fail, and report the image as

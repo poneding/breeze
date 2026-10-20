@@ -10,7 +10,7 @@ publish.workspace = true
 anyhow.workspace = true
 breeze-core.workspace = true
 futures.workspace = true
-pulldown-cmark = { version = "=0.13.4", default-features = false, features = ["html"] }
+markdown = { version = "=1.0.0", default-features = false }
 ropey = { version = "=2.0.0-beta.1", default-features = false, features = ["metric_utf16", "metric_lines_lf_cr"] }
 unicode-segmentation = "=1.13.3"
 rbook = { version = "=0.7.12", default-features = false }

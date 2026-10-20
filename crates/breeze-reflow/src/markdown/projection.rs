@@ -614,48 +614,31 @@ impl Builder<'_> {
                 .unwrap_or(BlockKind::Paragraph);
             return finish(local, kind, true);
         }
-        // Copy the reference out of `self` so the mutable `self.fence` state
-        // below does not conflict with the borrowed spans.
-        let semantic = self.semantic;
-        let spans = spans_for(semantic, start, end);
+        let spans = spans_for(self.semantic, start, end);
+        if let Some(kind) = semantic_line {
+            // Block kinds and markers come from the AST; no line scanner has to
+            // guess whether a `#` opens a heading or sits inside a fence.
+            return render_known(local, line, kind.kind, kind.quote_depth, kind.marker, spans);
+        }
 
         let trimmed = line.trim_start();
         let leading = line.len() - trimmed.len();
-        let semantic_kind = semantic_line.as_ref().map(|line| line.kind.clone());
-        let quote_depth = semantic_line
-            .as_ref()
-            .map(|line| line.quote_depth)
-            .unwrap_or(0);
 
-        // With the parser's block kinds, fences and code are known without a
-        // line-level state machine; the fallback keeps its own scanner.
-        let fenced = matches!(semantic_kind, Some(BlockKind::Code | BlockKind::Fence));
-        if !fenced {
-            if let Some(marker) = self.fence {
-                if trimmed.starts_with(&marker.to_string().repeat(3)) {
-                    self.fence = None;
-                    local.copy(0..line.len());
-                    return finish(local, BlockKind::Fence, true);
-                }
-                local.copy(0..line.len());
-                return finish(local, BlockKind::Code, false);
-            }
-            if let Some(marker) = fence_opener(trimmed) {
-                self.fence = Some(marker);
+        // Without a semantic layer (the provisional projection before a worker
+        // result), the line-local scanner keeps typing responsive.
+        if let Some(marker) = self.fence {
+            if trimmed.starts_with(&marker.to_string().repeat(3)) {
+                self.fence = None;
                 local.copy(0..line.len());
                 return finish(local, BlockKind::Fence, true);
             }
-        } else {
-            self.fence = None;
             local.copy(0..line.len());
-            // The fence lines themselves are the delimiters being shown.
-            let kind = if fence_opener(trimmed).is_some() {
-                BlockKind::Fence
-            } else {
-                BlockKind::Code
-            };
-            let revealed = kind == BlockKind::Fence;
-            return finish(local, kind, revealed);
+            return finish(local, BlockKind::Code, false);
+        }
+        if let Some(marker) = fence_opener(trimmed) {
+            self.fence = Some(marker);
+            local.copy(0..line.len());
+            return finish(local, BlockKind::Fence, true);
         }
 
         if let Some((level, prefix_end)) = heading_prefix(line) {
@@ -669,21 +652,7 @@ impl Builder<'_> {
             return finish(local, BlockKind::Heading(level), revealed);
         }
 
-        // A setext heading's title sits on its own line with no marker to hide.
-        if let Some(BlockKind::Heading(level)) = semantic_kind
-            && semantic_kind_is_setext(semantic, index)
-        {
-            inline_styled(&mut local, 0..line.len(), spans);
-            return finish(local, BlockKind::Heading(level), false);
-        }
-
-        // Quote markers are hidden one per enclosing block, not by shape.
-        let prefix_end = if quote_depth > 0 {
-            quote_markers(line, quote_depth).unwrap_or(0)
-        } else {
-            quote_prefix(line).map(|(end, _)| end).unwrap_or(0)
-        };
-        if prefix_end > 0 {
+        if let Some((prefix_end, depth)) = quote_prefix(line) {
             let revealed = local.selection_touches(&(0..prefix_end));
             if revealed {
                 local.copy(0..prefix_end);
@@ -691,7 +660,6 @@ impl Builder<'_> {
                 local.replace(0..prefix_end, "");
             }
             inline_styled(&mut local, prefix_end..line.len(), spans);
-            let depth = quote_depth.max(1);
             return finish(local, BlockKind::Quote { depth }, revealed);
         }
 
@@ -705,18 +673,11 @@ impl Builder<'_> {
                 local.replace(prefix.indent..prefix.end, "\u{2022} ");
             }
             inline_styled(&mut local, prefix.end..line.len(), spans);
-            let depth = semantic_kind
-                .as_ref()
-                .and_then(|kind| match kind {
-                    BlockKind::List { depth, .. } => Some(*depth),
-                    _ => None,
-                })
-                .unwrap_or(prefix.depth);
             return finish(
                 local,
                 BlockKind::List {
                     ordered: prefix.ordered,
-                    depth,
+                    depth: prefix.depth,
                 },
                 false,
             );
@@ -726,8 +687,79 @@ impl Builder<'_> {
             local.copy(0..leading);
         }
         inline_styled(&mut local, leading..line.len(), spans);
-        finish(local, semantic_kind.unwrap_or(BlockKind::Paragraph), false)
+        finish(local, BlockKind::Paragraph, false)
     }
+}
+
+/// Render a line whose block kind and markers came from the AST.
+fn render_known(
+    mut local: LineBuilder<'_, '_>,
+    line: &str,
+    kind: BlockKind,
+    quote_depth: usize,
+    marker: Option<super::Marker>,
+    spans: Option<&[super::Span]>,
+) -> Rendered {
+    let mut position = 0usize;
+    let mut revealed = false;
+
+    // Quote markers stack one per enclosing quote. The AST says how many the
+    // line sits in; hiding them by shape is safe because the parser already
+    // classified the line as quoted.
+    if quote_depth > 0 {
+        let prefix_end = quote_markers(line, quote_depth).unwrap_or(0);
+        if prefix_end > 0 {
+            revealed = local.selection_touches(&(0..prefix_end));
+            if revealed {
+                local.copy(0..prefix_end);
+            } else {
+                local.replace(0..prefix_end, "");
+            }
+            position = prefix_end;
+        }
+    }
+
+    if let Some(marker) = marker.filter(|marker| {
+        let base = local.base;
+        marker.source.start >= base + position && marker.source.end <= base + line.len()
+    }) {
+        let range = marker.source.start - local.base..marker.source.end - local.base;
+        local.copy(position..range.start);
+        match marker.kind {
+            super::MarkerKind::Heading => {
+                revealed |= local.selection_touches(&range);
+                if revealed {
+                    local.copy(range.clone());
+                } else {
+                    local.replace(range.clone(), "");
+                }
+            }
+            super::MarkerKind::Bullet { ordered } => {
+                if ordered {
+                    local.copy(range.clone());
+                } else {
+                    local.replace(range.clone(), "\u{2022} ");
+                }
+            }
+        }
+        position = range.end;
+    }
+
+    let rest = &line[position..];
+    let leading = rest.len() - rest.trim_start().len();
+    if leading > 0 {
+        local.copy(position..position + leading);
+    }
+    inline_styled(&mut local, position + leading..line.len(), spans);
+
+    // A line inside a quote keeps the quote's indentation and kind, as the
+    // projection has always shown it, even when a heading or list starts it.
+    let kind = if quote_depth > 0 {
+        BlockKind::Quote { depth: quote_depth }
+    } else {
+        kind
+    };
+    finish(local, kind, revealed)
 }
 
 /// The semantic spans that start on this line.
@@ -743,17 +775,6 @@ fn spans_for(semantic: Option<&Semantic>, start: usize, end: usize) -> Option<&[
     // `Some(&[])` is meaningful: the parser saw nothing to style on this line,
     // so the line is literal and the fallback scanner must not second-guess it.
     Some(&semantic.spans[first..last.max(first)])
-}
-
-/// Whether the heading at `index` was written as `Title` + an underline.
-fn semantic_kind_is_setext(semantic: Option<&Semantic>, index: usize) -> bool {
-    let Some(semantic) = semantic else {
-        return false;
-    };
-    semantic
-        .lines
-        .get(index..index + 2)
-        .is_some_and(|lines| lines[0].kind == lines[1].kind && lines[1].hidden)
 }
 
 /// Hide at most `depth` block-quote markers and the spaces that follow them.

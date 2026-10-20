@@ -5,7 +5,7 @@
 //! times: they say how much of the input budget one snapshot would consume if
 //! it ran on the UI thread, which is what decides whether a provisional path
 //! must exist at all.
-use breeze_reflow::markdown::{Projection, ProjectionMode, Semantic};
+use breeze_reflow::markdown::{Document, MAX_PARSE_BYTES, Projection, ProjectionMode, Semantic};
 use std::time::{Duration, Instant};
 
 /// A document with the shapes real Markdown actually contains.
@@ -47,16 +47,27 @@ fn measure(samples: usize, mut run: impl FnMut()) -> (Duration, Duration) {
 #[ignore = "Release measurement; run explicitly with --release"]
 fn parse_and_projection_cost_by_document_size() {
     println!(
-        "{:>10}  {:>8}  {:>16}  {:>16}  {:>16}",
-        "source", "lines", "parse p50/p95", "semantic p50/p95", "provisional p50/p95"
+        "{:>10}  {:>8}  {:>16}  {:>16}  {:>16}  {:>16}",
+        "source",
+        "lines",
+        "semantic p50/p95",
+        "reading p50/p95",
+        "projection p50/p95",
+        "provisional p50/p95"
     );
-    let samples = if cfg!(debug_assertions) { 3 } else { 20 };
-    for size in [10 * 1024, 100 * 1024, 1024 * 1024, 16 * 1024 * 1024] {
+    // One markdown-rs parse is superlinear in node count: a megabyte needs a
+    // few samples to stay a practical probe.
+    for size in [10 * 1024, 100 * 1024, 1024 * 1024] {
         let source = corpus(size);
         let lines = source.lines().count();
+        let samples = if size > 256 * 1024 { 5 } else { 20 };
         let (parse_p50, parse_p95) = measure(samples, || {
             let semantic = Semantic::parse(&source).unwrap();
             std::hint::black_box(semantic.lines.len());
+        });
+        let (reading_p50, reading_p95) = measure(samples, || {
+            let document = Document::parse(&source).unwrap();
+            std::hint::black_box(document.blocks.len());
         });
         let semantic = Semantic::parse(&source).unwrap();
         let (build_p50, build_p95) = measure(samples, || {
@@ -79,17 +90,27 @@ fn parse_and_projection_cost_by_document_size() {
             std::hint::black_box(projection.text.len());
         });
         println!(
-            "{:>10}  {:>8}  {:>7.1}/{:<6.1}ms  {:>7.1}/{:<6.1}ms  {:>7.1}/{:<6.1}ms",
+            "{:>10}  {:>8}  {:>7.1}/{:<6.1}ms  {:>7.1}/{:<6.1}ms  {:>7.1}/{:<6.1}ms  {:>7.1}/{:<6.1}ms",
             size,
             lines,
             parse_p50.as_secs_f64() * 1e3,
             parse_p95.as_secs_f64() * 1e3,
+            reading_p50.as_secs_f64() * 1e3,
+            reading_p95.as_secs_f64() * 1e3,
             build_p50.as_secs_f64() * 1e3,
             build_p95.as_secs_f64() * 1e3,
             provisional_p50.as_secs_f64() * 1e3,
             provisional_p95.as_secs_f64() * 1e3,
         );
     }
+    // The accepted ceiling refuses larger input before any parse work.
+    let oversized = corpus(MAX_PARSE_BYTES + 4096);
+    assert!(Semantic::parse(&oversized).is_err());
+    assert!(Document::parse(&oversized).is_err());
+    println!(
+        "{} MiB parse ceiling: refused",
+        MAX_PARSE_BYTES / 1024 / 1024
+    );
 }
 
 #[test]
