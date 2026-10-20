@@ -18,7 +18,7 @@ pub(super) struct Workspace {
     pub secondary_sources: Vec<Source>,
     pub side: Side,
     pub order: Vec<Source>,
-    split: Option<Entity<ResizableState>>,
+    pub(super) split: Option<Entity<ResizableState>>,
     observation: Option<Subscription>,
     resize_observation: Option<Subscription>,
 }

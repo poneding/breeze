@@ -517,3 +517,60 @@ fn fast_drag_can_split_before_the_preview_has_painted(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+/// The right-hand pane's tab group must begin on the panes' divider: sized to
+/// its pane and carrying the divider as its leading pixel, not half of whatever
+/// the title bar has left after Home and the traffic lights.
+fn assert_tabs_start_on_the_pane(window: &mut Window, side: Side) {
+    let (pane_id, tabs_id) = if side == Side::Left {
+        ("primary-pane", "primary-tabs")
+    } else {
+        ("secondary-pane", "secondary-tabs")
+    };
+    let pane = window.find(pane_id).bounds();
+    let group = window.find(tabs_id).bounds();
+    assert_eq!(
+        group.left(),
+        pane.left(),
+        "{side:?}: group {group:?} starts off the divider at {pane:?}"
+    );
+    // Only the strip's documented 4 px leading space (plus the wrapper's 1 px
+    // divider) sits between the divider and the first tab.
+    let first = window.within(tabs_id).find(("document", 0usize)).bounds();
+    assert_eq!(first.left() - pane.left(), px(5.));
+}
+
+#[gpui_kit::test]
+fn split_tab_groups_start_on_their_panes(cx: &mut TestAppContext) {
+    for side in [Side::Right, Side::Left] {
+        let (handle, view) = fixture(cx);
+        cx.update_window(handle, |_, window, cx| {
+            split(&view, side, window, cx);
+            // The panes report their sizes on the first frame; the groups follow
+            // them on the next one.
+            window.render_frame(cx);
+            window.render_frame(cx);
+            assert_tabs_start_on_the_pane(window, side);
+        })
+        .unwrap();
+        for width in [1440., 900.] {
+            cx.simulate_window_resize(handle, size(px(width), px(700.)));
+            cx.update_window(handle, |_, window, cx| {
+                window.render_frame(cx);
+                window.render_frame(cx);
+                assert_tabs_start_on_the_pane(window, side);
+            })
+            .unwrap();
+        }
+        // Dragging the divider moves the tab groups with it.
+        cx.update_window(handle, |_, window, cx| {
+            if let Some(state) = view.read(cx).workspace.split.clone() {
+                state.update(cx, |state, cx| state.resize_panel(0, px(420.), window, cx));
+            }
+            window.render_frame(cx);
+            window.render_frame(cx);
+            assert_tabs_start_on_the_pane(window, side);
+        })
+        .unwrap();
+    }
+}

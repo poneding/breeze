@@ -1,7 +1,7 @@
 //! Bindings are the single source of truth for command buttons and Kit's Kbd tooltips.
 use crate::*;
 use gpui_kit::base::InteractiveElementExt as _;
-use gpui_kit::component::{TitleBar, button::ButtonCustomVariant};
+use gpui_kit::component::{ElementExt, TitleBar, button::ButtonCustomVariant};
 
 pub fn bind(cx: &mut App) {
     tool_settings::bind(cx);
@@ -509,6 +509,22 @@ impl Breeze {
                     // Blocking the mouse stops the hit test at this row, leaving the
                     // tab group's empty width as the title bar's drag surface.
                     .occlude()
+                    .on_prepaint({
+                        let view = cx.entity();
+                        move |bounds, window, cx| {
+                            // Where the window's trailing chrome starts: Kit's
+                            // window controls on Windows and Linux, none on
+                            // macOS. Measuring it keeps the pane groups aligned
+                            // with the panes without duplicating Kit's widths.
+                            let chrome = window.viewport_size().width - bounds.right();
+                            view.update(cx, |this, cx| {
+                                if (this.title_bar_right_chrome - chrome).abs() > px(0.5) {
+                                    this.title_bar_right_chrome = chrome;
+                                    cx.defer_in(window, |_, _, cx| cx.notify());
+                                }
+                            });
+                        }
+                    })
                     .test_support()
                     // A zero basis prevents Kit's nonshrinking titlebar wrapper
                     // from requesting the tabs' combined intrinsic width.
@@ -517,7 +533,6 @@ impl Breeze {
                     .flex_1()
                     .min_w_0()
                     .gap_1()
-                    .pr_2()
                     .child(
                         self.command("home-tab", IconName::House, tr!("Home"), &Home, cx)
                             .selected(
@@ -663,39 +678,78 @@ impl Breeze {
     }
 
     fn workspace_tabs(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
+        let p = self.p(cx);
         let primary = self.tab_group(window, cx);
         let Some(peer) = self.workspace.secondary.clone() else {
-            return primary;
+            return row()
+                .id("primary-tabs")
+                .test_support()
+                .h_full()
+                .flex_1()
+                .min_w_0()
+                .pr_2()
+                .child(primary)
+                .into_any_element();
         };
         let secondary = peer.update(cx, |peer, cx| peer.tab_group(window, cx));
-        let primary = row()
-            .id("primary-tabs")
-            .test_support()
-            .h_full()
-            .flex_1()
-            .min_w_0()
-            .child(primary);
-        let secondary = row()
-            .id("secondary-tabs")
-            .test_support()
-            .h_full()
-            .flex_1()
-            .min_w_0()
-            .child(secondary);
-        let divider = div().h(px(20.)).w(px(1.)).mx_1().bg(self.p(cx).line);
+        // The panes divide the whole window, so the right pane's tab group has to
+        // start on that same seam; half of whatever the title bar has left after
+        // Home and the traffic lights does not land there. `sizes()[1]` is the
+        // right-hand pane in either arrangement, because the secondary pane is
+        // added second unless it sits on the left.
+        let right_width = self.workspace.split.as_ref().and_then(|state| {
+            let sizes = state.read(cx).sizes();
+            let right_pane = *sizes.get(1)?;
+            // This row ends where the window's trailing chrome begins, so that
+            // distance is added back onto the pane to reach the window's edge.
+            Some(right_pane - self.title_bar_right_chrome)
+        });
+        let primary_on_right = self.workspace.side == split::Side::Left;
+        let primary =
+            Self::pane_tabs_row("primary-tabs", primary_on_right, right_width, p, primary);
+        let secondary = Self::pane_tabs_row(
+            "secondary-tabs",
+            !primary_on_right,
+            right_width,
+            p,
+            secondary,
+        );
         let group = row().h_full().w_0().flex_1().min_w_0();
-        if self.workspace.side == split::Side::Left {
-            group
-                .child(secondary)
-                .child(divider)
-                .child(primary)
-                .into_any_element()
+        if primary_on_right {
+            group.child(secondary).child(primary).into_any_element()
         } else {
-            group
-                .child(primary)
-                .child(divider)
-                .child(secondary)
-                .into_any_element()
+            group.child(primary).child(secondary).into_any_element()
+        }
+    }
+
+    /// One pane's tab row in the title bar.
+    ///
+    /// The right-hand row is sized to its pane and carries the divider as its
+    /// leading border, which puts the hairline on the same pixel as the panes'
+    /// own divider and the first tab at the pane's left edge. It also carries the
+    /// header's trailing space, so this row's own bounds end at the window's
+    /// trailing chrome.
+    fn pane_tabs_row(
+        id: &'static str,
+        on_right: bool,
+        right_width: Option<gpui_kit::Pixels>,
+        p: Palette,
+        content: AnyElement,
+    ) -> AnyElement {
+        let row = row().id(id).test_support().h_full().min_w_0();
+        if !on_right {
+            return row.flex_1().child(content).into_any_element();
+        }
+        let row = row.border_l_1().border_color(p.line).pr_2();
+        match right_width {
+            Some(width) => row
+                .flex_none()
+                .w(width.max(px(0.)))
+                .child(content)
+                .into_any_element(),
+            // Until both panes have reported their sizes, the groups share the
+            // leftover width.
+            None => row.flex_1().child(content).into_any_element(),
         }
     }
 }

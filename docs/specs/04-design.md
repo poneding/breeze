@@ -198,3 +198,16 @@ returns the remaining documents to one pane. The middle divider resizes the
 panes; narrow content areas retain horizontal scrolling for their controls.
 Split placement and tab order are session state; reopening restores the existing
 persisted documents in one group.
+
+The right pane's tab group is as wide as that pane and starts on the panes'
+divider, which it carries as a 1 px leading border, so the first tab sits the
+documented 4 px inside the divider. Splitting the leftover title-bar width
+between the groups instead put the first tab tens of pixels to the right of the
+divider, because the title bar starts after the traffic lights and Home. The
+group follows the divider while the user drags it. The title-bar content row
+ends at the window's trailing chrome — Kit's window controls on Windows and
+Linux, nothing on macOS — and that measured distance is added back to the pane
+width to reach the window's right edge. The left-hand group takes the remaining
+width, which cannot fall below its pane, and the header's trailing space sits on
+the right-hand group rather than on the row so the row's own bounds end at that
+chrome.

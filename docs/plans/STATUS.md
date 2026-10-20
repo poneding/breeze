@@ -1,3 +1,50 @@
+## October 20 Split tabs start on the pane divider
+
+Reported on macOS: after dragging a tab to split the reader, the right pane's
+first tab sat well to the right of the panes' divider. Measured at a 1000 px
+window with an even split: panes at x 0 and 500, the right group's tab strip
+starting at 553 and its first tab at 557 — 57 px off the divider.
+
+The title bar's two tab groups shared whatever width remained after the macOS
+traffic lights and the Home button in equal halves. The panes divide the whole
+window, so the two coordinate spaces do not meet: half of 894 px of leftover
+title bar is not the pane boundary at 500 px. The same layout could not follow
+the divider being dragged at all, because the split was never consulted.
+
+The right-hand group is now sized to its pane and starts on the seam. It carries
+the divider as a 1 px leading border, which puts the hairline on the same pixel
+the resize handle paints and leaves the first tab the documented 4 px inside the
+strip. `sizes()[1]` of the split's `ResizableState` is the right-hand pane in
+either arrangement (the secondary pane is added second unless it sits on the
+left), and the state's existing observation already redraws the title bar while
+the divider is dragged.
+
+The width needs one correction. The title-bar content row ends before the
+window's right edge — on Windows and Linux Kit's window controls take about
+102 px there, and on macOS nothing — so the pane width alone would overhang by
+that distance. The row is measured during prepaint (`window.viewport_size()`
+minus its own bounds) into `title_bar_right_chrome`; the header's trailing space
+moved from the row onto the right-hand group so the row's bounds end exactly at
+that chrome. The left-hand group keeps the remaining width, which equals its
+pane, so a wide left pane never starves its tabs.
+
+`split_tab_groups_start_on_their_panes` splits both ways, resizes the window to
+1440 and 900 px, and then moves the divider programmatically to 420 px. Each
+time it asserts that the right-hand group's left edge equals the right pane's
+left edge and that exactly 5 px (the 1 px divider plus the strip's 4 px lead
+space) separate the divider from the first tab. Before the change the assertion
+failed by 53 px.
+
+Verification on this host: `cargo fmt --all -- --check` and `cargo test -p
+breeze-app --locked` (240 tests) pass, including the new test. The workspace-wide
+`cargo test`/`cargo clippy` runs could not complete: a concurrent, uncommitted
+edit in `crates/breeze-reflow/src/markdown/projection.rs` (an inferred `depth`
+integer) does not compile, so `breeze-reflow` and every crate above it fail to
+build. That file is not part of this change and was left untouched. Native
+visual inspection on macOS also remains unavailable in this session: window
+capture and synthetic input are refused for lack of Screen Recording and
+Accessibility authorization, so the assertion is geometric rather than visual.
+
 ## October 20 Markdown type scale, code blocks and editor size
 
 The Markdown reader laid every block out as HTML in Kit's rich-text view, which

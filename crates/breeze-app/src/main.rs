@@ -232,6 +232,9 @@ struct Breeze {
     /// Whether a press on the title bar's empty drag area is in progress, so the
     /// first pointer move can hand the window to the platform's move loop.
     title_bar_drag: bool,
+    /// Distance from the title-bar content row's right edge to the window's, so
+    /// the split panes' tab groups can be sized to land on the pane divider.
+    title_bar_right_chrome: gpui_kit::Pixels,
     /// Whether the status-bar Fullscreen action entered native fullscreen from
     /// a windowed state and should therefore leave it again on exit.
     full_screen_entered_windowed: bool,
@@ -416,6 +419,7 @@ impl Breeze {
             search_cache: None,
             full_screen: false,
             title_bar_drag: false,
+            title_bar_right_chrome: px(0.),
             full_screen_entered_windowed: false,
             library_input,
             _subscriptions: vec![
