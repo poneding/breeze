@@ -91,6 +91,11 @@ impl AnnotationEditing {
 }
 
 impl Breeze {
+    pub(super) fn annotation_selection_allowed(&self) -> bool {
+        let book = &self.books[self.active];
+        book.state.mode == Mode::Annotate && self.tool == SELECT_TOOL && editable(book)
+    }
+
     pub(super) fn annotation_navigation_allowed(&mut self, cx: &mut Context<Self>) -> bool {
         if self.annotation_editing.editor.is_some() {
             self.message =
@@ -268,7 +273,13 @@ impl Breeze {
         // The note stays unsaved until the user saves it; the reader status area
         // and the annotation footer both report the pending change.
         self.message.clear();
-        self.select_annotation(index, window, cx);
+        // Adding with a drawing tool must not leave the new note selected. Editing
+        // an existing note keeps its selection because the Select tool is active.
+        if self.annotation_selection_allowed() {
+            self.select_annotation(index, window, cx);
+        } else {
+            self.annotation_editing.clear();
+        }
         window.focus(&self.focus, cx);
         cx.notify();
     }
@@ -279,6 +290,9 @@ impl Breeze {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if !self.annotation_selection_allowed() {
+            return;
+        }
         if self.annotation_editing.editor.is_some() {
             self.focus_annotation_editor(window, cx);
             return;
@@ -407,7 +421,10 @@ impl Breeze {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.screen != Screen::Reader || self.annotation_editing.editor.is_some() {
+        if self.screen != Screen::Reader
+            || self.annotation_editing.editor.is_some()
+            || !self.annotation_selection_allowed()
+        {
             return;
         }
         let Some(selected) = self.annotation_editing.selection.take() else {
@@ -431,6 +448,9 @@ impl Breeze {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
+        if !self.annotation_selection_allowed() {
+            return false;
+        }
         if self.annotation_editing.editor.is_some() {
             self.focus_annotation_editor(window, cx);
             return true;
@@ -464,6 +484,9 @@ impl Breeze {
     }
 
     pub(super) fn begin_annotation_move(&mut self, point: DocPoint) {
+        if !self.annotation_selection_allowed() {
+            return;
+        }
         if let (Some(selected), Some(preview)) = (&self.annotation_editing.selection, &self.preview)
             && !selected.preview.kind.text_markup()
         {
@@ -630,7 +653,8 @@ impl Breeze {
                     .into_any_element(),
             );
         }
-        if let Some(selected) = &self.annotation_editing.selection
+        if self.annotation_selection_allowed()
+            && let Some(selected) = &self.annotation_editing.selection
             && selected.target.matches(&self.books[self.active])
             && selected.preview.page == page
         {

@@ -2,13 +2,19 @@ use super::*;
 use gpui_kit::test::TestWindowExt;
 
 #[gpui_kit::test]
-fn annotation_toolbar_has_no_eraser_and_keeps_note_and_shape_tools(cx: &mut TestAppContext) {
+fn annotation_toolbar_puts_select_first_and_keeps_note_and_shape_tools(cx: &mut TestAppContext) {
     let (handle, view) = crate::ui_tests::app(cx);
     cx.update_window(handle, |_, window, cx| {
         view.update(cx, |view, _| view.books[0].state.mode = Mode::Read);
         window.render_frame(cx);
         // Reading carries the pointer on its mode tab, so it owns no tool.
         assert!(window.within("tools").try_find(("tool", 0usize)).is_none());
+        assert!(
+            window
+                .within("tools")
+                .try_find(("tool", annotation_editing::SELECT_TOOL))
+                .is_none()
+        );
 
         view.update(cx, |view, _| view.books[0].state.mode = Mode::Annotate);
         window.render_frame(cx);
@@ -22,13 +28,12 @@ fn annotation_toolbar_has_no_eraser_and_keeps_note_and_shape_tools(cx: &mut Test
         for index in 0..11usize {
             assert!(window.find(("tool", index)).visible());
         }
-        // The selection pointer moved to the mode tabs, so the group ends at 11.
-        assert!(
-            window
-                .within("tools")
-                .try_find(("tool", annotation_editing::SELECT_TOOL))
-                .is_none()
-        );
+        let select = window.find(("tool", annotation_editing::SELECT_TOOL));
+        assert!(select.visible());
+        assert!(select.bounds().left() < window.find(("tool", 0usize)).bounds().left());
+        window.click(("tool", annotation_editing::SELECT_TOOL), cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).tool, annotation_editing::SELECT_TOOL);
         window.click(("tool", 4usize), cx);
         window.render_frame(cx);
         assert_eq!(view.read(cx).tool, 4);
@@ -47,7 +52,9 @@ fn annotation_tool_group_is_centered_in_its_row(cx: &mut TestAppContext) {
         view.update(cx, |view, _| view.books[0].state.mode = Mode::Annotate);
         window.render_frame(cx);
         let row = window.find("tools").bounds();
-        let first = window.find(("tool", 0usize)).bounds();
+        let first = window
+            .find(("tool", annotation_editing::SELECT_TOOL))
+            .bounds();
         let last = window.find(("tool", 10usize)).bounds();
         let leading = first.left() - row.left();
         let trailing = row.right() - last.right();

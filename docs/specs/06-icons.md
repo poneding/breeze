@@ -38,6 +38,7 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Outline title search / more | `search` / `ellipsis-vertical` | `Search` / `EllipsisVertical` |
 | Expand / collapse all outline branches | `list-chevrons-up-down` / `list-chevrons-down-up` | `ListChevronsUpDown` / `ListChevronsDownUp` |
 | Read mode tab / search | `pointer` / `search` | `Pointer` / `Search` |
+| Select existing annotation (Annotate tool) | `mouse-pointer-2` | `MousePointer2` |
 | Text highlight / area highlight | `highlighter` / `scan` | `Highlighter` / `Scan` |
 | Underline / strikeout | `underline` / `strikethrough` | `Underline` / `Strikethrough` |
 | Pen | `pencil` | `Pencil` |

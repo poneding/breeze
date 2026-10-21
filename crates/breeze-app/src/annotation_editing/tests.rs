@@ -258,8 +258,8 @@ fn shape_resize_handles_commit_once_and_undo(cx: &mut TestAppContext) {
             original.points = vec![DocPoint::new(80., 400.), DocPoint::new(220., 600.)];
             view.update(cx, |view, cx| {
                 view.books[0].annotations.history.items = vec![original.clone()];
-                view.select_annotation(0, window, cx);
                 view.tool = SELECT_TOOL;
+                view.select_annotation(0, window, cx);
             });
             window.render_frame(cx);
             assert!(window.find("annotation-selection-outline").visible());
@@ -393,6 +393,10 @@ fn click_type_enter_creates_one_annotation_and_escape_cancels(cx: &mut TestAppCo
         let items = &view.read(cx).books[0].annotations.history.items;
         assert_eq!(items.len(), 1);
         assert_eq!(items[0].text, "你好，Breeze");
+        assert!(
+            view.read(cx).annotation_editing.selection.is_none(),
+            "adding a note with the note tool must not select it"
+        );
         let saved = serde_json::to_string(items).unwrap();
         assert_eq!(
             serde_json::from_str::<Vec<Annotation>>(&saved).unwrap(),
@@ -420,6 +424,7 @@ fn text_can_be_selected_edited_and_deleted_without_eating_input_keys(cx: &mut Te
             annotation.kind = Kind::Note;
             annotation.text = "Original".into();
             view.books[0].annotations.history.items = vec![annotation];
+            view.tool = SELECT_TOOL;
         });
         window.render_frame(cx);
         window.double_click(("page-annotation-text", 0usize), cx);
@@ -460,6 +465,7 @@ fn selection_slider_is_one_transaction_and_stale_targets_are_rejected(cx: &mut T
     cx.update_window(handle, |_, window, cx| {
         view.update(cx, |view, cx| {
             view.books[0].annotations.history.items = vec![original.clone()];
+            view.tool = SELECT_TOOL;
             view.select_annotation(0, window, cx);
         });
         window.render_frame(cx);
@@ -494,6 +500,7 @@ fn selection_slider_is_one_transaction_and_stale_targets_are_rejected(cx: &mut T
                 .history
                 .items
                 .push(original.clone());
+            view.tool = SELECT_TOOL;
             view.select_annotation(0, window, cx);
             view.books[0]
                 .annotations
@@ -519,7 +526,7 @@ fn line_hit_movement_and_keyboard_delete_are_page_local(cx: &mut TestAppContext)
         });
         window.render_frame(cx);
         let bounds = window.find("page-surface").bounds();
-        let preview = view.read(cx).preview.as_ref().unwrap();
+        let preview = view.read(cx).preview.as_ref().unwrap().clone();
         let p = preview.geometry.display(DocPoint::new(120., 600.));
         let start = bounds.origin
             + point(
@@ -540,6 +547,95 @@ fn line_hit_movement_and_keyboard_delete_are_page_local(cx: &mut TestAppContext)
             view.read(cx).books[0].annotations.history.items,
             vec![line()]
         );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn existing_annotations_are_selected_only_by_the_select_tool(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx);
+    let original = line();
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.books[0].annotations.history.items = vec![original.clone()];
+            view.tool = 7;
+        });
+        window.render_frame(cx);
+        let bounds = window.find("page-surface").bounds();
+        let preview = view.read(cx).preview.as_ref().unwrap().clone();
+        let p = preview.geometry.display(DocPoint::new(120., 600.));
+        let start = bounds.origin
+            + point(
+                px(p.x / preview.points.0 * f32::from(bounds.size.width)),
+                px(p.y / preview.points.1 * f32::from(bounds.size.height)),
+            );
+        window.drag(start, start + point(px(30.), px(20.)), cx);
+        assert_eq!(view.read(cx).books[0].annotations.history.items.len(), 2);
+        assert!(
+            view.read(cx).annotation_editing.selection.is_none(),
+            "a drawing tool must add and leave the existing annotation unselected"
+        );
+
+        view.update(cx, |view, _| {
+            view.books[0].annotations.history.items = vec![original];
+            view.tool = SELECT_TOOL;
+        });
+        window.render_frame(cx);
+        window.click_at(
+            "page-surface",
+            point(
+                px(p.x / preview.points.0 * f32::from(bounds.size.width)),
+                px(p.y / preview.points.1 * f32::from(bounds.size.height)),
+            ),
+            cx,
+        );
+        assert_eq!(
+            view.read(cx)
+                .annotation_editing
+                .selection
+                .as_ref()
+                .map(|selection| selection.target.index),
+            Some(0)
+        );
+
+        view.update(cx, |view, _| {
+            view.annotation_editing.clear();
+            view.books[0].state.mode = Mode::Read;
+        });
+        window.render_frame(cx);
+        window.click_at(
+            "page-surface",
+            point(
+                px(p.x / preview.points.0 * f32::from(bounds.size.width)),
+                px(p.y / preview.points.1 * f32::from(bounds.size.height)),
+            ),
+            cx,
+        );
+        assert!(
+            view.read(cx).annotation_editing.selection.is_none(),
+            "reading mode must never select an annotation element"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn reading_mode_does_not_select_a_text_annotation_overlay(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            let mut note = line();
+            note.kind = Kind::Note;
+            note.points = vec![DocPoint::new(120., 600.)];
+            note.text = "Read-only overlay".into();
+            view.books[0].annotations.history.items = vec![note];
+            view.books[0].state.mode = Mode::Read;
+            view.tool = 0;
+        });
+        window.render_frame(cx);
+        window.click(("page-annotation-text", 0usize), cx);
+        assert!(view.read(cx).annotation_editing.selection.is_none());
+        assert!(view.read(cx).annotation_editing.editor.is_none());
     })
     .unwrap();
 }
@@ -619,6 +715,10 @@ async fn edited_text_and_style_save_to_sidecar_without_changing_source(cx: &mut 
     })
     .unwrap();
     cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        view.update(cx, |view, _| view.tool = SELECT_TOOL);
+        window.render_frame(cx);
+        view.update(cx, |view, cx| view.select_annotation(0, window, cx));
         window.render_frame(cx);
         window.click(("selected-annotation-color", 5usize), cx);
         view.update(cx, |view, cx| view.save_annotations(cx));

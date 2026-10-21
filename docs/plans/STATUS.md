@@ -1,3 +1,32 @@
+## October 21 Explicit annotation selection tool
+
+Reading mode could still select a sidecar annotation, and every Annotate tool
+could hit an existing item instead of drawing over it. The toolbar had hidden
+its stale `SELECT_TOOL` state, so drawing tools were also the only page-level
+route into move, resize, style, text and delete controls.
+
+Annotate now begins with a `mouse-pointer-2` Select button, followed by the
+eleven drawing tools. Select is the only state in which page annotations and
+text-note overlays can be hit, moved, resized, restyled, edited or deleted.
+Choosing any drawing tool clears the current selection and makes every gesture
+creation-only, including a gesture that starts over an existing annotation.
+Reading ignores annotation hit targets so its pointer remains available for
+text selection. Adding a text note with the note tool also no longer leaves the
+new note selected.
+
+Verified in an isolated worktree based on `ecf7fe5` with the annotation files
+ported onto that checkout because unrelated Markdown edits in the working tree
+do not compile. `cargo test --workspace --locked` passes all 247 app tests plus
+the remaining workspace suites, including new Reading, note-overlay,
+drawing-over-existing and Select-tool regressions; `cargo fmt --all -- --
+check` and `cargo clippy --workspace --all-targets --locked -- -D warnings`
+exit 0 in that worktree. Native macOS inspection used an
+isolated `BREEZE_DATA_DIR`: Select appeared first and showed its filled active
+state, a second circle was added over an existing one without selecting either,
+and Reading clicks left no edit controls. Windows and Linux remain unverified;
+the main checkout's workspace-wide checks remain blocked by the unrelated
+Markdown compile error.
+
 ## October 21 Cross-page selection ends with its drag
 
 A long PDF text selection could keep growing after the mouse was released, then

@@ -51,7 +51,10 @@ of the application theme so selection stays visible on light and dark page
 content. The frame and its handles paint as one canvas, with every edge centered
 on a device pixel; element borders on the page transform's fractional
 coordinates gave the four sides visibly different weights.
-The Select annotation button uses Kit's filled primary variant while active.
+The Select annotation button is the leftmost Annotate tool and uses Kit's filled
+primary variant while active. Existing annotations respond to page pointer hits
+only when Select is active; Reading and every drawing tool ignore those hits so
+Reading can select text and drawing tools can add another annotation.
 Selected ellipses, rectangles, and area highlights expose eight resize handles:
 side handles change one dimension; corner handles change both. Handle targets
 remain 16 logical pixels wide regardless of document zoom. Resizing follows the

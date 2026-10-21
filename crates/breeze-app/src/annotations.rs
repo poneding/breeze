@@ -1086,6 +1086,9 @@ impl Breeze {
                         .on_mouse_down(
                             MouseButton::Left,
                             cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                                if !this.annotation_selection_allowed() {
+                                    return;
+                                }
                                 cx.stop_propagation();
                                 let book = &this.books[this.active];
                                 if book.source != source

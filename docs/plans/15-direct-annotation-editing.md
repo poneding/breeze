@@ -11,6 +11,19 @@ Draft changes must not silently disappear on navigation or close. Transient sele
 
 Keep the accepted 34/38/32 px chrome and eight fixed colors. Use isolated state and sample copies under `target/` for native inspection. Record completed checks and limitations in [STATUS](STATUS.md), preserving unrelated staged and unstaged work.
 
+## October 21 explicit Select tool
+
+Requested: reading mode must not select annotation elements. In annotation
+mode, put a `mouse-pointer-2` Select tool first in the drawing-tool row.
+Existing annotations can be hit, moved, resized, restyled, edited, or deleted
+only through Select. Every other tool is creation-only, and a gesture over an
+existing annotation must create a new item rather than select the old one.
+
+Keep the Select button's filled active state and accessible label, preserve the
+centered tool row and 34 px toolbar, and cover Reading, text-annotation overlays,
+drawing-over-an-existing-item, and explicit selection with component tests.
+Record native inspection limits and verification in STATUS.
+
 ## October 16 selection and resize follow-up
 
 Requested: stronger selection feedback on white pages; editable width and height

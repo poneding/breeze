@@ -307,6 +307,8 @@ catalog! {
     "Custom shortcuts are not supported yet." => ("暂不支持自定义快捷键。", "暫不支援自訂快捷鍵。"),
     "Quit Breeze" => ("退出 Breeze", "結束 Breeze"),
     "Switch tabs" => ("切换标签", "切換分頁"),
+    "Select annotation" => ("选择标注", "選擇標注"),
+    "Select an existing annotation to edit, move, resize or delete" => ("选择已有标注以编辑、移动、调整大小或删除", "選擇既有標注以編輯、移動、調整大小或刪除"),
     "Delete selected annotation" => ("删除选中批注", "刪除選中批注"),
     "Cancel editing" => ("取消编辑", "取消編輯"),
     "Offered under Open With · Choose the default in the system" => ("已在“打开方式”中提供 · 默认应用请在系统中选择", "已在「打開方式」中提供 · 預設應用程式請在系統中選擇"),
