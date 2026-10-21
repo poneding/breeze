@@ -863,10 +863,12 @@ impl Breeze {
     }
 
     /// Reports the selection the release just committed. A press that never
-    /// moved selects nothing.
+    /// moved selects nothing. The drag's live pointer and gesture end here even
+    /// when the release was delivered at the window level rather than to the
+    /// page that started it: late page loads and later pointer moves must never
+    /// extend a committed selection.
     fn commit_text_selection(&mut self, cx: &mut Context<Self>) {
-        self.selection_scroll = None;
-        self.autoscroll = None;
+        self.finish_text_selection_drag();
         if self.text_selection.is_none() {
             return;
         }
@@ -881,6 +883,15 @@ impl Breeze {
             );
         }
         cx.notify();
+    }
+
+    /// Ends the pointer-driven part of a selection while retaining the selected
+    /// range and its highlights.
+    fn finish_text_selection_drag(&mut self) {
+        self.gesture.clear();
+        self.selection_pointer = None;
+        self.selection_scroll = None;
+        self.autoscroll = None;
     }
 
     /// The selection rectangles to paint on the page being drawn, if any.

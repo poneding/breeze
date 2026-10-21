@@ -1263,18 +1263,32 @@ impl Breeze {
                             // the viewport, so a drag released over the toolbar still
                             // commits and its edge scroll always stops.
                             window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
-                                if phase != DispatchPhase::Bubble {
+                                if phase != DispatchPhase::Capture {
                                     return;
                                 }
                                 let position = event.position;
+                                let dragging = event.dragging();
                                 select_view.update(cx, |this, cx| {
+                                    if !dragging {
+                                        // A release can be delivered without the page
+                                        // surface that owns its mouse-up handler, for
+                                        // example after the start page is virtualized
+                                        // away. A non-dragging move is the next reliable
+                                        // signal that the old selection must be frozen.
+                                        if !this.gesture.is_empty() {
+                                            this.end_text_selection(cx);
+                                        }
+                                        return;
+                                    }
                                     if this.update_text_selection(position, cx) {
                                         cx.notify();
                                     }
                                 });
                             });
-                            window.on_mouse_event(move |_: &MouseUpEvent, phase, _, cx| {
-                                if phase != DispatchPhase::Bubble {
+                            window.on_mouse_event(move |event: &MouseUpEvent, phase, _, cx| {
+                                if phase != DispatchPhase::Capture
+                                    || event.button != MouseButton::Left
+                                {
                                     return;
                                 }
                                 end_view.update(cx, |this, cx| this.end_text_selection(cx));
@@ -1282,9 +1296,20 @@ impl Breeze {
                             window.on_mouse_event(
                                 move |event: &ScrollWheelEvent, phase, window, cx| {
                                     // Capture before either the virtual list or the single-page scroller.
-                                    if phase == DispatchPhase::Capture
-                                        && hitbox.should_handle_scroll(window)
-                                        && event.modifiers.secondary()
+                                    if phase != DispatchPhase::Capture
+                                        || !hitbox.should_handle_scroll(window)
+                                    {
+                                        return;
+                                    }
+                                    // Wheel scrolling is not part of a drag. Finalizing
+                                    // first prevents a missed outside-window release from
+                                    // leaving the edge-scroll task extending the range.
+                                    view.update(cx, |this, cx| {
+                                        if !this.gesture.is_empty() {
+                                            this.end_text_selection(cx);
+                                        }
+                                    });
+                                    if event.modifiers.secondary()
                                         && !event.modifiers.alt
                                         && !event.modifiers.shift
                                     {

@@ -1,3 +1,25 @@
+## October 21 Cross-page selection ends with its drag
+
+A long PDF text selection could keep growing after the mouse was released, then
+lose its range when the next right click arrived. The window-level mouse-up
+listener missed releases delivered after the page that owned the drag was
+virtualized away. Its move handler also accepted hover events, so those later
+events could re-extend the stale selection before the page-up path committed it.
+
+A committed selection now always clears the drag gesture, pointer and edge
+scroll while retaining the selected range and highlights. Left-button release
+is handled in the capture phase, and any wheel scroll first finalizes a stale
+drag instead of letting its auto-scroll continue over newly revealed pages.
+
+Verified with `cargo test --workspace --locked` (246 app tests plus the remaining
+workspace suites) and `cargo clippy --workspace --all-targets --locked -- -D
+warnings`. A native macOS run used an isolated `BREEZE_DATA_DIR` and a 388-page
+PDF; real drag input, release and scrolling were inspected. The checkout-wide
+`cargo fmt --all -- --check` remains blocked by unrelated unformatted
+`markdown_style.rs`; the three touched Rust files pass `rustfmt`. The range
+remained intact through a native wheel scroll; Windows and Linux remain
+unverified.
+
 ## October 20 Native Markdown reading blocks
 
 The user's second pass over the reference note produced eight concrete rendering

@@ -20,6 +20,23 @@ fn pointer_press(window: &mut Window, position: gpui_kit::Point<gpui_kit::Pixels
     window.render_frame(cx);
 }
 
+fn pointer_drag_move(
+    window: &mut Window,
+    position: gpui_kit::Point<gpui_kit::Pixels>,
+    cx: &mut App,
+) {
+    window.dispatch_event(
+        MouseMoveEvent {
+            position,
+            pressed_button: Some(MouseButton::Left),
+            modifiers: Default::default(),
+        }
+        .to_platform_input(),
+        cx,
+    );
+    window.render_frame(cx);
+}
+
 fn pointer_release(window: &mut Window, position: gpui_kit::Point<gpui_kit::Pixels>, cx: &mut App) {
     window.dispatch_event(
         MouseUpEvent {
@@ -4325,6 +4342,72 @@ fn text_selection_crosses_page_surfaces_in_reading_order(cx: &mut TestAppContext
     .unwrap();
 }
 
+/// A long drag can end while the page that started it is no longer mounted.
+/// Wheel scrolling must finalize that gesture and retain the range; a later
+/// pointer move must not extend it.
+#[gpui_kit::test]
+fn scrolling_after_a_release_without_page_mouse_up_freezes_the_selection(cx: &mut TestAppContext) {
+    let (handle, view) = spread_pages(cx);
+    cx.update_window(handle, |_, window, cx| {
+        let left = window
+            .within(("page-frame", 0usize))
+            .find("page-surface")
+            .bounds();
+        let right = window
+            .within(("page-frame", 1usize))
+            .find("page-surface")
+            .bounds();
+        let start = left.origin + point(px(40.), px(300.));
+        let end = right.origin + point(px(200.), px(160.));
+        pointer_press(window, start, cx);
+        pointer_drag_move(window, end, cx);
+
+        let selected = view.read(cx).selected_text.clone();
+        assert!(
+            selected.contains("Keep the details that help you think")
+                && selected.contains("Space to think"),
+            "the drag spans both pages before its release: {selected:?}"
+        );
+        // The window receives this as a wheel scroll without a matching page
+        // mouse-up, which is what happens after a release outside the page.
+        window.scroll("document-viewport", ScrollDelta::Lines(point(0., -2.)), cx);
+        view.update(cx, |view, _| {
+            assert!(
+                view.gesture.is_empty(),
+                "wheel scrolling finalizes the stale drag"
+            );
+            assert!(
+                view.selection_pointer.is_none(),
+                "a committed selection keeps no live extension pointer"
+            );
+            assert_eq!(
+                view.selected_text, selected,
+                "scrolling must not extend the committed range"
+            );
+        });
+
+        window.simulate_mouse_move(end, cx);
+        assert_eq!(
+            view.read(cx).selected_text,
+            selected,
+            "a hover move after release must not extend the range"
+        );
+        window
+            .within(("page-frame", 1usize))
+            .right_click("page-surface", cx);
+        let snapshot = view.read(cx);
+        assert_eq!(
+            snapshot.selected_text, selected,
+            "a right click must not discard the committed range"
+        );
+        assert!(
+            !snapshot.selection.is_empty(),
+            "the highlights remain after a right click"
+        );
+    })
+    .unwrap();
+}
+
 #[gpui_kit::test]
 fn dragging_back_selects_the_same_text_as_dragging_forward(cx: &mut TestAppContext) {
     let (handle, view) = spread_pages(cx);
@@ -4476,7 +4559,7 @@ fn holding_a_drag_past_the_edge_scrolls_and_keeps_selecting(cx: &mut TestAppCont
         // Past the bottom edge, in the status bar: outside the viewport.
         let past_edge = point(viewport.center().x, viewport.bottom() + px(20.));
         pointer_press(window, start, cx);
-        window.simulate_mouse_move(past_edge, cx);
+        pointer_drag_move(window, past_edge, cx);
         view.update(cx, |view, _| {
             assert!(
                 view.text_selection.is_some(),
@@ -4524,6 +4607,14 @@ fn holding_a_drag_past_the_edge_scrolls_and_keeps_selecting(cx: &mut TestAppCont
                 "no auto-scroll survives the release"
             );
             assert!(view.selection_scroll.is_none());
+            assert!(
+                view.gesture.is_empty(),
+                "the release ends the drag even when it lands outside the page surface"
+            );
+            assert!(
+                view.selection_pointer.is_none(),
+                "a completed selection retains no live pointer to extend from"
+            );
             assert!(
                 !view.selected_text.is_empty(),
                 "the release keeps what was selected"
