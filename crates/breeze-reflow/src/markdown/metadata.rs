@@ -31,6 +31,10 @@ pub struct Metadata {
     pub headings: Vec<Heading>,
     /// Source offset of each top-level block, in TextView block order.
     pub block_starts: Vec<usize>,
+    /// Full source range of each top-level block.
+    pub block_ranges: Vec<Range<usize>>,
+    /// Link and image definitions used to resolve reference-style images.
+    pub image_definitions: HashMap<String, (String, Option<String>)>,
     pub source_bytes: usize,
     pub characters: usize,
     pub fingerprint: String,
@@ -53,16 +57,27 @@ impl Metadata {
 
         let mut headings = Vec::new();
         let mut block_starts = Vec::new();
+        let mut block_ranges = Vec::new();
+        let mut image_definitions = HashMap::new();
         let mut anchors = HashMap::<String, usize>::new();
         for (block, node) in root.children().into_iter().flatten().enumerate() {
             let span = ast::span(node).context("A Markdown block has no position")?;
             block_starts.push(span.start);
+            block_ranges.push(span.clone());
+            if let Node::Definition(definition) = node {
+                image_definitions.insert(
+                    definition.identifier.clone(),
+                    (definition.url.clone(), definition.title.clone()),
+                );
+            }
             collect_headings(node, block, source.len(), &mut headings, &mut anchors)?;
         }
 
         Ok(Self {
             headings,
             block_starts,
+            block_ranges,
+            image_definitions,
             source_bytes: source.len(),
             characters: ast::block_text(&root).chars().count(),
             fingerprint: fingerprint(source.as_bytes()),
@@ -176,6 +191,7 @@ mod tests {
         let source = "# Title\n\nbody\n\n## Section\n\nmore\n";
         let metadata = Metadata::parse(source).unwrap();
         assert_eq!(metadata.block_starts, vec![0, 9, 15, 27]);
+        assert_eq!(metadata.block_ranges[1], 9..13);
         assert_eq!(metadata.headings.len(), 2);
         assert_eq!(metadata.headings[1].title, "Section");
         assert_eq!(metadata.headings[1].level, 2);

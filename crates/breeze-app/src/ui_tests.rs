@@ -3290,6 +3290,76 @@ fn markdown_reading_previews_the_unsaved_draft(cx: &mut TestAppContext) {
     .unwrap();
 }
 
+/// TextView supplies all Markdown rendering, while Breeze adds the content
+/// inset and hides Kit's scrollbar overlay without intercepting scroll events.
+#[gpui_kit::test]
+fn markdown_text_view_padding_scrollbar_and_toc_navigation(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("toc.md");
+    let mut source = String::from("[TOC]\n\n");
+    for index in 0..16 {
+        source.push_str(&format!(
+            "## Section {index}\n\nParagraph {index} content.\n\n"
+        ));
+    }
+    std::fs::write(&path, source).unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "toc.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+        let document = window.find("markdown-document").bounds();
+        let viewport = window.find("markdown-text-viewport").bounds();
+        assert!(
+            viewport.top() >= document.top() + px(12.),
+            "{viewport:?} {document:?}"
+        );
+        assert!(
+            viewport.left() >= document.left() + px(12.),
+            "{viewport:?} {document:?}"
+        );
+        assert!(
+            viewport.right() <= document.right() - px(12.),
+            "{viewport:?} {document:?}"
+        );
+        assert!(
+            viewport.bottom() <= document.bottom() - px(12.),
+            "{viewport:?} {document:?}"
+        );
+        assert!(window.find("markdown-scrollbar-cover").visible());
+
+        let markdown = view.read(cx).reflow.markdown.clone().unwrap();
+        let before = markdown
+            .state
+            .read(cx)
+            .list_state()
+            .scroll_px_offset_for_scrollbar();
+        window.click(("markdown-toc-entry", 10usize), cx);
+        for _ in 0..3 {
+            window.render_frame(cx);
+        }
+        let after = markdown
+            .state
+            .read(cx)
+            .list_state()
+            .scroll_px_offset_for_scrollbar();
+        assert!(
+            after.y < before.y,
+            "TOC did not reveal its target: {before:?} -> {after:?}"
+        );
+        assert!(view.read(cx).books[0].reflow.markdown_offset > 0);
+    })
+    .unwrap();
+}
+
 /// Kit's TextView is the only Markdown renderer: tables, tasks, code, images
 /// and ordinary prose all belong to one document state.
 #[gpui_kit::test]

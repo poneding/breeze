@@ -16,6 +16,8 @@ const IMAGE_BUDGET: usize = 32 * 1024 * 1024;
 const IMAGE_COUNT: usize = 64;
 const MAX_IMAGE_BYTES: usize = 16 * 1024 * 1024;
 
+type CachedLogicalImage = (Arc<RenderImage>, Option<(f32, f32)>);
+
 enum Loaded {
     Image(Arc<RenderImage>),
     Failed,
@@ -25,6 +27,7 @@ struct Entry {
     uri: String,
     loaded: Loaded,
     bytes: usize,
+    logical_size: Option<(f32, f32)>,
 }
 
 #[derive(Default)]
@@ -43,17 +46,18 @@ impl Breeze {
         &mut self,
         cx: &mut Context<Self>,
         key: String,
-        result: anyhow::Result<Pixels>,
+        result: anyhow::Result<(Pixels, Option<(f32, f32)>)>,
     ) {
         self.reflow.images.loading.remove(&key);
         let entry = match result {
-            Ok(pixels) => match texture(pixels) {
+            Ok((pixels, logical_size)) => match texture(pixels) {
                 Ok(image) => {
                     let size = image.size(0);
                     Entry {
                         uri: key,
                         bytes: usize::from(size.width) * usize::from(size.height) * 4,
                         loaded: Loaded::Image(image),
+                        logical_size,
                     }
                 }
                 Err(error) => {
@@ -62,6 +66,7 @@ impl Breeze {
                         uri: key,
                         bytes: 0,
                         loaded: Loaded::Failed,
+                        logical_size: None,
                     }
                 }
             },
@@ -71,10 +76,15 @@ impl Breeze {
                     uri: key,
                     bytes: 0,
                     loaded: Loaded::Failed,
+                    logical_size: None,
                 }
             }
         };
         self.reflow.images.insert(cx, entry);
+        if let Some(markdown) = &self.reflow.markdown {
+            let state = markdown.state.clone();
+            state.update(cx, |state, cx| state.invalidate_inline_layout(cx));
+        }
         cx.notify();
     }
 }
@@ -98,6 +108,17 @@ impl Images {
             .find(|entry| entry.uri == uri)
             .and_then(|entry| match &entry.loaded {
                 Loaded::Image(image) => Some(image.clone()),
+                Loaded::Failed => None,
+            })
+    }
+
+    /// The decoded image and its logical display size, if available.
+    pub fn cached_with_logical_size(&self, uri: &str) -> Option<CachedLogicalImage> {
+        self.entries
+            .iter()
+            .find(|entry| entry.uri == uri)
+            .and_then(|entry| match &entry.loaded {
+                Loaded::Image(image) => Some((image.clone(), entry.logical_size)),
                 Loaded::Failed => None,
             })
     }
@@ -201,7 +222,7 @@ fn is_remote(uri: &str) -> bool {
 }
 
 /// Decode a local or remote image, including SVG.
-fn decode(document: Option<&Path>, uri: &str) -> Result<Pixels> {
+fn decode(document: Option<&Path>, uri: &str) -> Result<(Pixels, Option<(f32, f32)>)> {
     let bytes = if is_remote(uri) {
         fetch_remote(uri)?
     } else {
@@ -220,9 +241,10 @@ fn decode(document: Option<&Path>, uri: &str) -> Result<Pixels> {
         bytes
     };
     if looks_like_svg(&bytes) {
-        rasterize_svg(&bytes, 1.0)
+        let logical_size = svg_logical_size(&bytes)?;
+        Ok((rasterize_svg(&bytes, 2.0)?, Some(logical_size)))
     } else {
-        decode_raster(bytes)
+        Ok((decode_raster(bytes)?, None))
     }
 }
 
@@ -255,6 +277,15 @@ fn looks_like_svg(bytes: &[u8]) -> bool {
     let text = String::from_utf8_lossy(head);
     let text = text.trim_start();
     text.starts_with("<svg") || text.starts_with("<?xml") && text.contains("<svg")
+}
+
+fn svg_logical_size(bytes: &[u8]) -> Result<(f32, f32)> {
+    let mut options = resvg::usvg::Options::default();
+    options.fontdb_mut().load_system_fonts();
+    let tree = resvg::usvg::Tree::from_data(bytes, &options)?;
+    let size = tree.size();
+    anyhow::ensure!(size.width() > 0. && size.height() > 0., "empty SVG");
+    Ok((size.width(), size.height()))
 }
 
 /// Rasterize an SVG for the shared TextView image path.
@@ -362,9 +393,9 @@ mod tests {
         });
         let uri = format!("http://{address}/badge.svg");
         let bytes = fetch_remote(&uri).expect("the SVG is fetched");
-        let pixels = rasterize_svg(&bytes, 1.0).expect("the SVG is rasterized");
-        assert_eq!((pixels.width, pixels.height), (40, 16));
-        assert_eq!(pixels.bgra.len(), 40 * 16 * 4);
+        let pixels = rasterize_svg(&bytes, 2.0).expect("the SVG is rasterized");
+        assert_eq!((pixels.width, pixels.height), (80, 32));
+        assert_eq!(pixels.bgra.len(), 80 * 32 * 4);
         server.join().unwrap();
     }
 }

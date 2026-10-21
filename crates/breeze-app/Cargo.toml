@@ -9,7 +9,22 @@ serde.workspace = true
 serde_json.workspace = true
 breeze-storage.workspace = true
 anyhow.workspace = true
-gpui-kit = { workspace = true, features = ["tree-sitter-markdown"] }
+gpui-kit = { workspace = true, features = [
+    "tree-sitter-markdown",
+    "tree-sitter-rust",
+    "tree-sitter-javascript",
+    "tree-sitter-typescript",
+    "tree-sitter-python",
+    "tree-sitter-bash",
+    "tree-sitter-c",
+    "tree-sitter-cpp",
+    "tree-sitter-go",
+    "tree-sitter-java",
+    "tree-sitter-html",
+    "tree-sitter-css",
+    "tree-sitter-yaml",
+    "tree-sitter-toml",
+] }
 # GPUI's stroke options use these cap/join types; reuse its pinned path crate.
 lyon_path = "=1.0.19"
 breeze-core.workspace = true

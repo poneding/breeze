@@ -44,8 +44,30 @@ model with metadata only and retains no render tree.
 | Display math | `MathBlockPlugin`, rendered as a centred RaTeX image |
 | Mermaid/flow/seq fences | `MermaidBlockPlugin`, rendered through `mermaid-rs-renderer` |
 
-All other Markdown rendering is Kit's. Code blocks use Kit's native card and
-`code_block_actions` for copy.
+All other Markdown rendering is Kit's. Code blocks use Kit's native card,
+tree-sitter language highlighting and `code_block_actions` for copy. Breeze
+enables the common language grammars through the Kit feature flags.
+
+The reader also adds a 24 px content inset, so full-width reading does not touch
+the window chrome. Kit's native scrollbar is visually covered by a non-input
+overlay at the right edge; wheel, keyboard and programmatic scrolling remain
+unchanged. Images are rendered through a Breeze `MarkdownPlugin` so SVG assets
+can be rasterized at 2x, retain their logical size and invalidate the TextView
+layout when loading completes. Mermaid's generated white root rectangle is
+removed before rasterization, avoiding a spurious grey/white page behind the
+diagram.
+
+## Follow-up fixes (October 21, 2026)
+
+- TOC and outline navigation reveal the complete heading or top-level block
+  source range. The previous single marker byte was ignored by Kit's rendered
+  source mapping.
+- Relative and reference-style images resolve through one shared image cache;
+  nested image rows are no longer forced into a full-width inline flow.
+- The scrollbar cover is `markdown-scrollbar-cover`; the content inset is
+  `markdown-document` plus `markdown-text-viewport`.
+- A regression test covers TOC reveal, padding and the hidden scrollbar. A
+  component test asserts that Kit installed its code highlighter.
 
 ## Search and navigation
 

@@ -351,6 +351,57 @@ impl MarkdownPlugin for MermaidBlockPlugin {
     }
 }
 
+#[derive(Clone, Debug)]
+struct MarkdownImage {
+    url: String,
+    alt: String,
+}
+
+#[derive(Clone)]
+struct ImagePlugin {
+    view: WeakEntity<Breeze>,
+    definitions: Arc<HashMap<String, (String, Option<String>)>>,
+}
+
+impl MarkdownPlugin for ImagePlugin {
+    fn name(&self) -> &str {
+        "breeze-image"
+    }
+
+    fn parse(&self, node: &mdast::Node, _: &MarkdownParseContext<'_>) -> Option<MarkdownNode> {
+        let image = match node {
+            mdast::Node::Image(image) => MarkdownImage {
+                url: image.url.clone(),
+                alt: image.alt.clone(),
+            },
+            mdast::Node::ImageReference(image) => {
+                let (url, _) = self.definitions.get(&image.identifier)?;
+                MarkdownImage {
+                    url: url.clone(),
+                    alt: image.alt.clone(),
+                }
+            }
+            _ => return None,
+        };
+        Some(MarkdownNode::new(self.name(), image.clone()).text(image.alt))
+    }
+
+    fn render_inline(
+        &self,
+        node: &MarkdownNode,
+        _: &gpui_kit::component::text::InlineRenderContext,
+        _: &mut Window,
+        cx: &mut App,
+    ) -> Option<InlineElement> {
+        let image = node.data::<MarkdownImage>()?.clone();
+        self.view
+            .update(cx, |this, cx| this.markdown_rendered_image(&image, cx))
+            .ok()
+            .flatten()
+            .map(InlineElement::new)
+    }
+}
+
 #[derive(Clone)]
 struct InlineMathPlugin {
     view: WeakEntity<Breeze>,
@@ -403,6 +454,10 @@ impl Breeze {
         MarkdownExtensions::default()
             .frontmatter()
             .plugin(FrontmatterPlugin::new())
+            .plugin(ImagePlugin {
+                view: view.clone(),
+                definitions: Arc::new(metadata.image_definitions.clone()),
+            })
             .plugin(TocPlugin {
                 headings: Arc::new(metadata.headings.clone()),
                 view: view.clone(),
@@ -433,16 +488,21 @@ impl Breeze {
         if rendered.source() != markdown.source.as_ref() {
             return;
         }
-        let Some(range) = source_render_range(rendered.source(), offset)
-            .and_then(|range| rendered.range_for_source(range))
-        else {
+        let block = markdown.metadata.block_at_offset(offset);
+        let source_range = markdown
+            .metadata
+            .headings
+            .iter()
+            .find(|heading| heading.source.contains(&offset))
+            .map(|heading| heading.source.clone())
+            .or_else(|| markdown.metadata.block_ranges.get(block).cloned());
+        let Some(range) = source_range.and_then(|range| rendered.range_for_source(range)) else {
             return;
         };
         let _ = markdown
             .state
             .update(cx, |state, cx| state.reveal_range(range, cx));
         markdown.pending_reveal = None;
-        let block = markdown.metadata.block_at_offset(offset);
         self.reflow.active_block = block;
     }
 
@@ -487,6 +547,36 @@ impl Breeze {
         markdown.state.update(cx, |state, cx| {
             let _ = state.set_range_highlights(highlights, cx);
         });
+    }
+
+    fn markdown_rendered_image(
+        &mut self,
+        image: &MarkdownImage,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let source = self.books[self.active].source.clone();
+        self.request_image(cx, &source, &image.url);
+        let (render_image, logical_size) =
+            self.reflow.images.cached_with_logical_size(&image.url)?;
+        let size = render_image.size(0);
+        let (width, height) = logical_size.unwrap_or_else(|| {
+            (
+                usize::from(size.width) as f32,
+                usize::from(size.height) as f32,
+            )
+        });
+        use std::hash::{Hash as _, Hasher as _};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        image.url.hash(&mut hasher);
+        Some(
+            img(render_image)
+                .id(("markdown-image", hasher.finish()))
+                .object_fit(ObjectFit::Contain)
+                .max_w(relative(1.))
+                .w(px(width))
+                .h(px(height))
+                .into_any_element(),
+        )
     }
 
     fn markdown_math_block(
@@ -586,6 +676,7 @@ impl Breeze {
             .entry(key)
             .or_insert_with(|| {
                 let svg = mermaid_rs_renderer::render(source).ok()?;
+                let svg = strip_mermaid_background(&svg);
                 let image = crate::reflow_images::svg_image(svg.as_bytes(), scale).ok()?;
                 let size = image.size(0);
                 Some((
@@ -2453,6 +2544,7 @@ impl Breeze {
                                     .id("markdown-document")
                                     .test_support()
                                     .size_full()
+                                    .p_4()
                                     .on_prepaint({
                                         let scroll_state = state.clone();
                                         let scroll_view = cx.entity().downgrade();
@@ -2470,43 +2562,64 @@ impl Breeze {
                                         }
                                     })
                                     .child(
-                                        TextView::new(&state)
-                                            .scrollable(true)
-                                            .style(markdown_style::text_style(cx, body))
-                                            .markdown_extensions(extensions)
-                                            .image_source(move |uri| {
-                                                reflow_images::source(
-                                                    image_view.clone(),
-                                                    source.clone(),
-                                                    uri.to_string(),
-                                                )
-                                            })
-                                            .on_link_click(move |href, _, _, cx| {
-                                                let _ = view.update(cx, |this, cx| {
-                                                    this.follow_reflow_link(href.as_ref(), cx)
-                                                });
-                                            })
-                                            .code_block_actions(move |code, _, _cx| {
-                                                use std::hash::{Hash as _, Hasher as _};
-                                                let mut hasher =
-                                                    std::collections::hash_map::DefaultHasher::new(
-                                                    );
-                                                code.code().hash(&mut hasher);
-                                                let text = code.code().to_string();
-                                                Button::new(("markdown-code-copy", hasher.finish()))
-                                                    .ghost()
-                                                    .small()
-                                                    .icon(IconName::Copy)
-                                                    .accessibility_label(tr!("Copy code"))
-                                                    .tooltip(tr!("Copy code"))
-                                                    .on_click(move |_, _, cx| {
-                                                        cx.write_to_clipboard(
-                                                            gpui_kit::ClipboardItem::new_string(
-                                                                text.clone(),
-                                                            ),
-                                                        );
+                                        div()
+                                            .id("markdown-text-viewport")
+                                            .test_support()
+                                            .relative()
+                                            .size_full()
+                                            .min_h_0()
+                                            .pr_4()
+                                            .child(
+                                                TextView::new(&state)
+                                                    .scrollable(true)
+                                                    .style(markdown_style::text_style(cx, body))
+                                                    .markdown_extensions(extensions)
+                                                    .image_source(move |uri| {
+                                                        reflow_images::source(
+                                                            image_view.clone(),
+                                                            source.clone(),
+                                                            uri.to_string(),
+                                                        )
                                                     })
-                                            }),
+                                                    .on_link_click(move |href, _, _, cx| {
+                                                        let _ = view.update(cx, |this, cx| {
+                                                            this.follow_reflow_link(href.as_ref(), cx)
+                                                        });
+                                                    })
+                                                    .code_block_actions(move |code, _, _cx| {
+                                                        use std::hash::{Hash as _, Hasher as _};
+                                                        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                                                        code.code().hash(&mut hasher);
+                                                        let text = code.code().to_string();
+                                                        Button::new(("markdown-code-copy", hasher.finish()))
+                                                            .ghost()
+                                                            .small()
+                                                            .icon(IconName::Copy)
+                                                            .accessibility_label(tr!("Copy code"))
+                                                            .tooltip(tr!("Copy code"))
+                                                            .on_click(move |_, _, cx| {
+                                                                cx.write_to_clipboard(
+                                                                    gpui_kit::ClipboardItem::new_string(
+                                                                        text.clone(),
+                                                                    ),
+                                                                );
+                                                            })
+                                                    }),
+                                            )
+                                            // TextView owns its scrollbar without a visibility
+                                            // override. Cover only its 16 px overlay track,
+                                            // leaving wheel and keyboard scrolling intact.
+                                            .child(
+                                                div()
+                                                    .id("markdown-scrollbar-cover")
+                                                    .test_support()
+                                                    .absolute()
+                                                    .top_0()
+                                                    .right_0()
+                                                    .bottom_0()
+                                                    .w(px(16.))
+                                                    .bg(p.bg),
+                                            ),
                                     ),
                             ),
                     ),
@@ -2559,19 +2672,21 @@ fn reflow_search_result_text(title: &str, href: &str, snippet: &str) -> String {
     }
 }
 
-fn source_render_range(source: &str, offset: usize) -> Option<std::ops::Range<usize>> {
-    if source.is_empty() {
-        return None;
+fn strip_mermaid_background(svg: &str) -> String {
+    let Some(start) = svg.find("<rect x=\"0\" y=\"0\"") else {
+        return svg.to_owned();
+    };
+    let Some(end) = svg[start..].find('>').map(|offset| start + offset + 1) else {
+        return svg.to_owned();
+    };
+    if svg[start..end].contains("fill=\"#FFFFFF\"") {
+        let mut out = String::with_capacity(svg.len() - (end - start));
+        out.push_str(&svg[..start]);
+        out.push_str(&svg[end..]);
+        out
+    } else {
+        svg.to_owned()
     }
-    let mut start = offset.min(source.len().saturating_sub(1));
-    while !source.is_char_boundary(start) {
-        start = start.saturating_sub(1);
-    }
-    let mut end = (start + 1).min(source.len());
-    while !source.is_char_boundary(end) {
-        end = (end + 1).min(source.len());
-    }
-    (start < end).then_some(start..end)
 }
 
 fn search_markdown_text(text: &str, query: &str) -> Vec<ReflowSearchHit> {
@@ -2826,6 +2941,7 @@ fn visible_active_outline(visible: &[usize], active: Option<usize>) -> Option<us
 mod tests {
     use super::{
         ReflowTextSelection, contained_page_bounds, grouped_characters, reflow_search_result_text,
+        strip_mermaid_background,
     };
     use crate::{Mode, Source, texture};
     use breeze_reflow::epub::{TextGlyph, TextLayer, TextLine};
@@ -2860,6 +2976,14 @@ mod tests {
             });
         }
         layer
+    }
+
+    #[test]
+    fn mermaid_root_background_is_removed_without_removing_nodes() {
+        let svg = r##"<svg width="10" height="10"><rect x="0" y="0" width="10" height="10" fill="#FFFFFF"/><rect x="2" y="2" width="6" height="6" fill="#F8FAFC"/></svg>"##;
+        let stripped = strip_mermaid_background(svg);
+        assert!(!stripped.contains("fill=\"#FFFFFF\""));
+        assert!(stripped.contains("fill=\"#F8FAFC\""));
     }
 
     #[test]

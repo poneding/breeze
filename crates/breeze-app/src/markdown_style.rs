@@ -101,6 +101,17 @@ mod tests {
         assert!(code_size(32.) > code_size(18.));
     }
 
+    #[gpui_kit::test]
+    fn component_installs_native_code_highlighting(cx: &mut TestAppContext) {
+        let _ = crate::ui_tests::app(cx);
+        let installed = cx
+            .update(|cx| gpui_kit::base::TextViewDefaults::global(cx).has_code_block_highlighter());
+        assert!(
+            installed,
+            "GPUI Kit did not install its TextView code highlighter"
+        );
+    }
+
     /// The style only helps if TextView lays every kind of content out with it.
     #[gpui_kit::test]
     fn reader_headings_grow_with_the_reading_size(cx: &mut TestAppContext) {
