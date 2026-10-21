@@ -1,3 +1,25 @@
+## October 21 Markdown rendering unified on GPUI Kit TextView
+
+The user directed removal of Breeze's own Markdown rendering path. The reader
+now creates one scrollable, selectable `TextViewState::markdown` for the entire
+document. Kit owns Markdown parsing, block virtualization, layout, selection,
+links, tables, task checkboxes, images and code cards.
+
+Breeze's mdast-to-HTML projection and per-block `ListState` renderer were
+deleted, along with the native table, task-list, code-card and image-row
+renderers. TOC, front matter, inline/display math and Mermaid remain as GPUI Kit
+`MarkdownPlugin` extensions. A bounded metadata scan now supplies outline rows,
+source offsets, block starts and character counts without retaining a render
+tree.
+
+`cargo fmt --all -- --check`, `cargo test --workspace --locked` and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. New tests
+assert one `markdown-document` and no `markdown-block` renderer, exercise Kit's
+tables/tasks/code/images, plugin constructs, search, outline jumps and scroll
+progress. Native visual inspection confirmed the unified surface on macOS;
+Windows and Linux runtime acceptance remain pending. See
+[work package 31](31-markdown-text-view-unification.md).
+
 ## October 21 Explicit annotation selection tool
 
 Reading mode could still select a sidecar annotation, and every Annotate tool

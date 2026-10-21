@@ -78,3 +78,7 @@ These work-package documents were written before the corresponding code changes.
 16. [29 — Markdown reading constructs](29-markdown-reading-constructs.md):
     front matter, TOC, rules, sup/sub, emoji, aligned tables, task checks,
     formulas, Mermaid and remote/SVG images in the reading surface.
+
+17. [31 — Single Markdown TextView](31-markdown-text-view-unification.md):
+    remove Breeze's Markdown HTML and block renderers, use one scrollable GPUI
+    Kit TextView, and retain TOC/formula/Mermaid as Kit Markdown plugins.
