@@ -18,7 +18,10 @@ pub mod semantic;
 
 pub use ast::MAX_PARSE_BYTES;
 pub use buffer::SourceBuffer;
-pub use document::{Block, Document, Heading, RenderKind};
+pub use document::{
+    Block, CodeInfo, ColumnAlign, Document, Heading, ImageRef, RenderKind, RenderPayload,
+    TableData, TaskItem,
+};
 pub use edit::{EditKind, EditLimits, EditSession, Replacement, Snapshot};
 pub use pipeline::{Pipeline, Request, Result_, project};
 pub use positions::{Affinity, Position, Selection};

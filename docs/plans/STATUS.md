@@ -1,3 +1,35 @@
+## October 20 Native Markdown reading blocks
+
+The user's second pass over the reference note produced eight concrete rendering
+issues. The fixes are in [specification 15](../specs/15-markdown-rs-parser.md#reading-constructs-october-20-2026)
+and [work package 29](29-markdown-reading-constructs.md).
+
+- Image-only paragraphs now render as a centred, borderless row. Several badges
+  share one line and scale down together instead of wrapping; local, remote and
+  SVG images use the same bounded loader.
+- Source line breaks inside a paragraph render as line breaks (`<br>`), so a
+  wrapped source line is a wrapped reading line.
+- The TOC nests subheadings inside their parent's list item, producing the
+  reader's list indentation.
+- `---` and `===` separators draw a 1.5 px divider in the muted foreground,
+  and spaced forms such as `= = =` are recognized. A separator that the parser
+  reads as a setext heading remains a heading.
+- Task rows are native: a 16 px checkbox with a 4 px corner radius and the
+  item's inline content, indented by nesting level.
+- Tables are native grids with one inline text view per cell and GFM column
+  alignment applied to the text; selection backgrounds now follow the aligned
+  text, and every cell renders.
+- Code blocks are native cards: language on the left (muted), a copy button and
+  an ellipsis menu on the right. The menu toggles line numbers and wrapping;
+  the body uses the reader's monospace code size.
+
+Verified with `cargo fmt --all -- --check`, `cargo test --workspace --locked`
+(410 passed) and `cargo clippy --workspace --all-targets --locked -- -D
+warnings`. New component tests cover the native block ids and heights, the rule
+height, nested TOC, soft breaks and the code controls. Native visual inspection
+was not performed because this session's model cannot view images; Windows and
+Linux remain unverified.
+
 ## October 20 Markdown reading constructs
 
 The user's reference note exposed thirteen reading gaps. The reader now

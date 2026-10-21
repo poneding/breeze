@@ -180,22 +180,26 @@ reader that can draw each one:
 | Construct | Reading behavior |
 |---|---|
 | Front matter | A `---` YAML block becomes a native metadata card; its fences do not render. `title: …` and other lines are shown as key/value rows. |
-| Table of contents | `[TOC]`, `[[toc]]`, `[[_TOC_]]`, `{{toc}}` and `<toc>` become a generated heading list with anchor links. The list is filled after every heading is known, so it may precede them. |
-| Rules | `---` thematic breaks and a paragraph line of only `===`/`---`/`***` (three or more) become a native divider. CommonMark alone treats `===` as a paragraph. |
+| Table of contents | `[TOC]`, `[[toc]]`, `[[_TOC_]]`, `{{toc}}` and `<toc>` become a generated heading list with anchor links. The list is nested by heading level and filled after every heading is known, so it may precede them. |
+| Rules | `---` thematic breaks and a paragraph line of only `===`/`---`/`***` (three or more, spaces allowed) become a native 1.5 px divider drawn in the muted foreground. CommonMark alone treats `===` as a paragraph. |
 | Superscript/subscript | `<sup>…</sup>` and `<sub>…</sub>` runs map to Unicode superscript/subscript characters where they exist (`O<sup>2</sup>` → `O²`, `X<sub>2</sub>` → `X₂`). Characters without a Unicode counterpart keep their baseline. |
 | Abbreviations | A paragraph made only of `*[ABBR]: expansion` lines is a declaration and is not rendered. Usages remain plain text; Kit's HTML reader has no `<abbr>` styling or tooltip. |
-| Tables | Table blocks are handed to Kit's Markdown reader, which applies GFM column alignment and keeps every cell (including inline code such as `help()`). |
-| Task lists | Task-list blocks use Kit's Markdown reader, which draws checkboxes from the GFM state. |
-| Emoji | A bounded GitHub shortcode table replaces known `:name:` runs in ordinary text; unknown names stay literal. Code spans are untouched. |
+| Tables | Table blocks are drawn as a native grid: one inline text view per cell, GFM column alignment applied to the cell text, and borders in the reader's palette. Selection rectangles therefore follow the aligned text instead of the column start, and every cell renders (including inline code such as `help()`). |
+| Task lists | Task rows are drawn natively with a 16 px rounded checkbox (4 px radius) and the item's inline content; nested items indent by level. |
+| Emoji | A bounded GitHub shortcode table replaces known `:name:` runs in ordinary text; unknown names stay literal. Code spans are untouched. Source line breaks become reading line breaks. |
 | Formulas | A `$$…$$` block is typeset with RaTeX (embedded KaTeX fonts) into an image. Inline `$…$` shows its TeX in a code run; inline typesetting is still open. |
 | Mermaid | A ```mermaid fence is rendered natively by `mermaid-rs-renderer` to SVG, then rasterized with the system fonts. Unsupported diagram syntax falls back to the source code card. |
-| Images | Local files, remote `http(s)` images and SVG badges are supported. Remote fetches are bounded (10 s, 16 MiB, five redirects); SVGs are rasterized at their intrinsic size with system fonts for badge text. |
+| Code blocks | A native card shows the fence language (muted) on the left, a copy button and an ellipsis menu on the right. The menu toggles line numbers and soft wrapping; the body uses the monospace face at the reader's code size. |
+| Images | An image-only paragraph becomes a centred, borderless row; multiple badges stay on one line, scaling down together to the reading measure. Local files, remote `http(s)` images and SVG badges are supported. Remote fetches are bounded (10 s, 16 MiB, five redirects); SVGs use system fonts for badge text. |
 
 These are reading-only projections: editing remains source text, and an
 unsupported construct never disappears from the draft.
 
 Open limitations: abbreviation tooltips, inline formula typesetting, a dark
-Mermaid palette, and diagrams beyond the native renderer's syntax set.
+Mermaid palette, diagrams beyond the native renderer's syntax set, and no
+syntax highlighting in the native code card. Source lines that a parser reads as
+a setext heading (a title line immediately followed by `---`/`===`) remain
+headings, not rules; a separator needs its own paragraph.
 
 ## Resource limits
 

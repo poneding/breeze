@@ -4,10 +4,14 @@
 //! the HTML projection the rich-text view draws, the plain text used for search
 //! and the character count, and — for blocks containing code — the source slice
 //! GPUI Kit's Markdown view needs for a real code card.
-use super::{MAX_BLOCKS, MAX_DEPTH, MAX_RENDER_BYTES, MAX_SOURCE_BYTES, ast, render};
+use super::{
+    MAX_BLOCKS, MAX_DEPTH, MAX_RENDER_BYTES, MAX_SOURCE_BYTES,
+    ast::{self, References},
+    render,
+};
 use crate::{fingerprint, read_bounded};
 use anyhow::{Context, Result, ensure};
-use markdown::mdast::Node;
+use markdown::mdast::{self, Node};
 use std::{
     collections::HashMap,
     ops::Range,
@@ -29,8 +33,64 @@ pub enum RenderKind {
     Toc,
     /// A display formula. Breeze shows the TeX source; it does not typeset it.
     Math,
-    /// A ```mermaid fence, drawn as source because no diagram engine is built in.
+    /// A ```mermaid fence, drawn as a diagram when the native renderer can parse it.
     Mermaid,
+    /// A paragraph made only of images, drawn as a centred row.
+    Images,
+    /// A list whose items carry GFM task state, drawn with rounded checkboxes.
+    Tasks,
+    /// A GFM table, drawn as a native grid so alignment and selection agree.
+    Table,
+    /// A fenced or indented code block, drawn with its own header and controls.
+    Code,
+}
+
+/// One image reference in an image-only paragraph.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ImageRef {
+    pub url: String,
+    pub alt: String,
+}
+
+/// One task row, with its inline content rendered to HTML.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TaskItem {
+    pub checked: bool,
+    pub depth: usize,
+    pub html: String,
+}
+
+/// A table cell's inline HTML and the column alignment.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ColumnAlign {
+    #[default]
+    Left,
+    Center,
+    Right,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TableData {
+    pub aligns: Vec<ColumnAlign>,
+    pub head: Vec<String>,
+    pub rows: Vec<Vec<String>>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CodeInfo {
+    pub language: Option<String>,
+    pub text: String,
+}
+
+/// The structured content a native reading block needs.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum RenderPayload {
+    #[default]
+    None,
+    Images(Vec<ImageRef>),
+    Tasks(Vec<TaskItem>),
+    Table(TableData),
+    Code(CodeInfo),
 }
 
 #[derive(Clone, Debug)]
@@ -48,6 +108,8 @@ pub struct Block {
     pub markdown: Option<Arc<str>>,
     /// The block's reading shape, for blocks the reader draws natively.
     pub kind: RenderKind,
+    /// Native content: image references, task rows, table cells or code.
+    pub payload: RenderPayload,
 }
 
 #[derive(Clone, Debug)]
@@ -109,7 +171,7 @@ impl Document {
                 "A Markdown block points past the source"
             );
             let block = document.blocks.len();
-            let kind = classify(node, source, &source_range);
+            let (kind, payload) = shape(node, source, &source_range, &references);
             let mut html = String::new();
             if kind == RenderKind::Toc {
                 toc_blocks.push(block);
@@ -117,7 +179,7 @@ impl Document {
                 render::html(node, source, &references, &mut html);
             }
             let text = ast::block_text(node);
-            render_bytes += html.len() + text.len();
+            render_bytes += html.len() + text.len() + payload_bytes(&payload);
             ensure!(
                 render_bytes <= MAX_RENDER_BYTES,
                 "Markdown exceeds the 64 MiB render-text budget"
@@ -139,6 +201,7 @@ impl Document {
                 html: html.into(),
                 text: text.into(),
                 kind,
+                payload,
             });
         }
         // A table of contents may precede the headings it lists, so its HTML is
@@ -251,24 +314,197 @@ fn collect_headings(
     }
 }
 
-/// Classify a top-level block for the reading surface.
-fn classify(node: &Node, source: &str, span: &Range<usize>) -> RenderKind {
+/// Classify a top-level block and build what a native renderer needs.
+fn shape(
+    node: &Node,
+    source: &str,
+    span: &Range<usize>,
+    references: &References,
+) -> (RenderKind, RenderPayload) {
     match node {
-        Node::ThematicBreak(_) => RenderKind::Rule,
-        Node::Yaml(_) | Node::Toml(_) => RenderKind::FrontMatter,
-        Node::Math(_) => RenderKind::Math,
-        Node::Code(code) if code.lang.as_deref() == Some("mermaid") => RenderKind::Mermaid,
-        Node::Paragraph(_) => {
+        Node::ThematicBreak(_) => (RenderKind::Rule, RenderPayload::None),
+        Node::Yaml(_) | Node::Toml(_) => (RenderKind::FrontMatter, RenderPayload::None),
+        Node::Math(_) => (RenderKind::Math, RenderPayload::None),
+        Node::Code(code) => {
+            let info = CodeInfo {
+                language: code.lang.clone(),
+                text: code.value.clone(),
+            };
+            let kind = if code.lang.as_deref() == Some("mermaid") {
+                RenderKind::Mermaid
+            } else {
+                RenderKind::Code
+            };
+            (kind, RenderPayload::Code(info))
+        }
+        Node::Table(table) => (
+            RenderKind::Table,
+            RenderPayload::Table(table_data(table, source, references)),
+        ),
+        Node::List(list) => match task_items(list, source, references) {
+            Some(items) if !items.is_empty() => (RenderKind::Tasks, RenderPayload::Tasks(items)),
+            _ => (RenderKind::Prose, RenderPayload::None),
+        },
+        Node::Paragraph(paragraph) => {
             let text = source.get(span.clone()).unwrap_or_default().trim();
             if is_rule_line(text) {
-                return RenderKind::Rule;
+                return (RenderKind::Rule, RenderPayload::None);
             }
             if is_toc_marker(text) {
-                return RenderKind::Toc;
+                return (RenderKind::Toc, RenderPayload::None);
             }
-            RenderKind::Prose
+            match image_refs(&paragraph.children, references) {
+                Some(images) if !images.is_empty() => {
+                    (RenderKind::Images, RenderPayload::Images(images))
+                }
+                _ => (RenderKind::Prose, RenderPayload::None),
+            }
         }
-        _ => RenderKind::Prose,
+        _ => (RenderKind::Prose, RenderPayload::None),
+    }
+}
+
+/// The images in a paragraph when every other child is whitespace.
+fn image_refs(children: &[Node], references: &References) -> Option<Vec<ImageRef>> {
+    let mut images = Vec::new();
+    let mut only_images = true;
+    collect_images(children, references, &mut images, &mut only_images);
+    only_images.then_some(images)
+}
+
+fn collect_images(
+    children: &[Node],
+    references: &References,
+    out: &mut Vec<ImageRef>,
+    only_images: &mut bool,
+) {
+    for child in children {
+        match child {
+            Node::Image(image) => out.push(ImageRef {
+                url: image.url.clone(),
+                alt: image.alt.clone(),
+            }),
+            Node::ImageReference(image) => match references.definition(&image.identifier) {
+                Some(definition) => out.push(ImageRef {
+                    url: definition.url.clone(),
+                    alt: image.alt.clone(),
+                }),
+                None => *only_images = false,
+            },
+            Node::Link(link) => collect_images(&link.children, references, out, only_images),
+            Node::Text(text) => {
+                if !text.value.trim().is_empty() {
+                    *only_images = false;
+                }
+            }
+            Node::Break(_) => {}
+            _ => *only_images = false,
+        }
+    }
+}
+
+/// The task rows of a list, including nested tasks, or `None` for an ordinary
+/// list. Non-task items in a mixed list become unchecked rows.
+fn task_items(list: &mdast::List, source: &str, references: &References) -> Option<Vec<TaskItem>> {
+    fn walk(
+        list: &mdast::List,
+        source: &str,
+        references: &References,
+        depth: usize,
+        out: &mut Vec<TaskItem>,
+        any_task: &mut bool,
+    ) {
+        for item in &list.children {
+            let Node::ListItem(item) = item else {
+                continue;
+            };
+            if item.checked.is_some() {
+                *any_task = true;
+            }
+            let mut html = String::new();
+            for (index, child) in item.children.iter().enumerate() {
+                match child {
+                    Node::Paragraph(paragraph) => {
+                        if index > 0 {
+                            html.push_str("<br>");
+                        }
+                        html.push_str(&render::inline_html(
+                            &paragraph.children,
+                            source,
+                            references,
+                        ));
+                    }
+                    Node::List(list) => walk(list, source, references, depth + 1, out, any_task),
+                    _ => {}
+                }
+            }
+            out.push(TaskItem {
+                checked: item.checked.unwrap_or(false),
+                depth,
+                html,
+            });
+        }
+    }
+    let mut items = Vec::new();
+    let mut any_task = false;
+    walk(list, source, references, 0, &mut items, &mut any_task);
+    any_task.then_some(items)
+}
+
+/// A GFM table as aligned header and body cells of inline HTML.
+fn table_data(table: &mdast::Table, source: &str, references: &References) -> TableData {
+    let aligns = table
+        .align
+        .iter()
+        .map(|align| match align {
+            mdast::AlignKind::Center => ColumnAlign::Center,
+            mdast::AlignKind::Right => ColumnAlign::Right,
+            _ => ColumnAlign::Left,
+        })
+        .collect();
+    let mut rows: Vec<Vec<String>> = Vec::new();
+    for row in &table.children {
+        let Node::TableRow(row) = row else {
+            continue;
+        };
+        let cells = row
+            .children
+            .iter()
+            .map(|cell| {
+                let Node::TableCell(cell) = cell else {
+                    return String::new();
+                };
+                render::inline_html(&cell.children, source, references)
+            })
+            .collect();
+        rows.push(cells);
+    }
+    let head = if rows.is_empty() {
+        Vec::new()
+    } else {
+        rows.remove(0)
+    };
+    TableData { aligns, head, rows }
+}
+
+/// The bytes a native payload adds to the retained reading model.
+fn payload_bytes(payload: &RenderPayload) -> usize {
+    match payload {
+        RenderPayload::None => 0,
+        RenderPayload::Images(images) => images
+            .iter()
+            .map(|image| image.url.len() + image.alt.len())
+            .sum(),
+        RenderPayload::Tasks(tasks) => tasks.iter().map(|task| task.html.len()).sum(),
+        RenderPayload::Table(table) => {
+            table.head.iter().map(String::len).sum::<usize>()
+                + table
+                    .rows
+                    .iter()
+                    .flat_map(|row| row.iter().map(String::len))
+                    .sum::<usize>()
+        }
+        RenderPayload::Code(code) => code.text.len() + code.language.as_deref().map_or(0, str::len),
     }
 }
 
@@ -276,12 +512,12 @@ fn classify(node: &Node, source: &str, span: &Range<usize>) -> RenderKind {
 /// thematic break; `===` is a paragraph in CommonMark but a rule in most
 /// hand-written notes.
 fn is_rule_line(text: &str) -> bool {
-    let mut characters = text.chars();
+    let mut characters = text.chars().filter(|character| !character.is_whitespace());
     let Some(first) = characters.next() else {
         return false;
     };
     matches!(first, '=' | '-' | '*' | '_')
-        && text.len() >= 3
+        && text.chars().filter(|c| !c.is_whitespace()).count() >= 3
         && characters.all(|character| character == first)
 }
 
@@ -316,18 +552,40 @@ fn is_abbreviation_block(node: &Node, source: &str) -> bool {
 /// A flat, link-only table of contents. Headings stay in document order; the
 /// destination matters more than nesting for a reading aid.
 fn toc_html(headings: &[Heading]) -> String {
-    let mut out = String::from("<nav><ul>");
+    let mut out = String::from("<nav>");
+    // One open list per heading level, so a subheading sits inside its
+    // parent's list item and inherits the reader's list indentation.
+    let mut levels: Vec<u8> = Vec::new();
     for heading in headings {
         if heading.title.is_empty() {
             continue;
+        }
+        let level = heading.level.clamp(1, 6) as u8;
+        while let Some(&top) = levels.last() {
+            if top > level {
+                out.push_str("</li></ul>");
+                levels.pop();
+            } else if top == level {
+                out.push_str("</li>");
+                break;
+            } else {
+                break;
+            }
+        }
+        if levels.last().is_none_or(|top| *top < level) {
+            out.push_str("<ul>");
+            levels.push(level);
         }
         out.push_str("<li><a href=\"#");
         render::escape_attribute(&heading.anchor, &mut out);
         out.push_str("\">");
         render::escape_text(&heading.title, &mut out);
-        out.push_str("</a></li>");
+        out.push_str("</a>");
     }
-    out.push_str("</ul></nav>");
+    while levels.pop().is_some() {
+        out.push_str("</li></ul>");
+    }
+    out.push_str("</nav>");
     out
 }
 
@@ -426,16 +684,19 @@ mod tests {
         let source = "| A | B |\n|:-:|--:|\n| `help()` | `destroy()` |\n\n- [x] done\n\n$x^2$\n\n$$\nE = mc^2\n$$\n\n```mermaid\ngraph TD\nA-->B\n```\n";
         let document = Document::parse(source).unwrap();
         let table = &document.blocks[0];
-        assert_eq!(table.kind, RenderKind::Prose);
+        assert_eq!(table.kind, RenderKind::Table);
         assert!(
-            table.markdown.is_some(),
-            "a table must use the Markdown reader for alignment"
+            matches!(&table.payload, RenderPayload::Table(data) if data.head.len() == 2 && data.rows.len() == 1),
+            "{:?}",
+            table.payload
         );
         assert!(table.html.contains("help()"), "{}", table.html);
         let tasks = &document.blocks[1];
+        assert_eq!(tasks.kind, RenderKind::Tasks);
         assert!(
-            tasks.markdown.is_some(),
-            "a task list must use the Markdown reader for checkboxes"
+            matches!(&tasks.payload, RenderPayload::Tasks(items) if items.len() == 1 && items[0].checked),
+            "{:?}",
+            tasks.payload
         );
         let math = document
             .blocks

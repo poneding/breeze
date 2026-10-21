@@ -92,6 +92,28 @@ impl Images {
         }
     }
 
+    /// The decoded image for `uri`, if it has landed.
+    pub fn cached(&self, uri: &str) -> Option<Arc<RenderImage>> {
+        self.entries
+            .iter()
+            .find(|entry| entry.uri == uri)
+            .and_then(|entry| match &entry.loaded {
+                Loaded::Image(image) => Some(image.clone()),
+                Loaded::Failed => None,
+            })
+    }
+
+    /// A terminal failure, as opposed to a load still in flight.
+    pub fn failed(&self, uri: &str) -> bool {
+        self.entries
+            .iter()
+            .any(|entry| entry.uri == uri && matches!(entry.loaded, Loaded::Failed))
+    }
+
+    fn loaded_or_failed(&self, uri: &str) -> bool {
+        self.entries.iter().any(|entry| entry.uri == uri)
+    }
+
     fn insert(&mut self, cx: &mut App, entry: Entry) {
         let bytes = entry.bytes;
         while self.entries.len() >= IMAGE_COUNT
@@ -114,71 +136,57 @@ pub(super) fn source(view: WeakEntity<Breeze>, document: Source, uri: String) ->
             if this.reflow.source.as_ref() != Some(&document) {
                 return None;
             }
-            if let Some(entry) = this
-                .reflow
-                .images
-                .entries
-                .iter()
-                .find(|entry| entry.uri == uri)
-            {
-                return match &entry.loaded {
-                    Loaded::Image(image) => Some(Ok(image.clone())),
-                    // Nothing is laid out for a failed image; returning an error
-                    // without a fallback is how the text view renders nothing.
-                    Loaded::Failed => Some(Err(ImageCacheError::Other(Arc::new(anyhow::anyhow!(
-                        tr!("Image unavailable")
-                    ))))),
-                };
+            this.request_image(cx, &document, &uri);
+            if let Some(image) = this.reflow.images.cached(&uri) {
+                return Some(Ok(image));
             }
-            // Another image is already loading; report "not yet" so the text
-            // view asks again instead of caching a failure it never saw.
-            if this.reflow.images.loading.contains(&uri) {
-                return None;
+            if this.reflow.images.failed(&uri) {
+                // Nothing is laid out for a failed image; returning an error
+                // without a fallback is how the text view renders nothing.
+                return Some(Err(ImageCacheError::Other(Arc::new(anyhow::anyhow!(tr!(
+                    "Image unavailable"
+                ))))));
             }
-            let Source::File(path) = &document else {
-                if !is_remote(&uri) {
-                    return None;
-                }
-                let source = document.clone();
-                this.reflow.images.loading.insert(uri.clone());
-                let requested = uri.clone();
-                let key = uri.clone();
-                let work = cx.background_spawn(async move { decode(None, &requested) });
-                cx.spawn(async move |this, cx| {
-                    let result = work.await;
-                    let _ = this.update(cx, |this, cx| {
-                        if this.reflow.source.as_ref() != Some(&source) {
-                            return;
-                        }
-                        this.finish_image(cx, key, result);
-                    });
-                })
-                .detach();
-                return None;
-            };
-            let path = path.clone();
-            let source = document.clone();
-            this.reflow.images.loading.insert(uri.clone());
-            // The loader is called from a `Fn` closure, so the spawned tasks
-            // take their own owned copies of the URI.
-            let requested = uri.clone();
-            let key = uri.clone();
-            let work = cx.background_spawn(async move { decode(Some(&path), &requested) });
-            cx.spawn(async move |this, cx| {
-                let result = work.await;
-                let _ = this.update(cx, |this, cx| {
-                    if this.reflow.source.as_ref() != Some(&source) {
-                        return;
-                    }
-                    this.finish_image(cx, key, result);
-                });
-            })
-            .detach();
+            // Still loading: report "not yet" so the text view asks again
+            // instead of caching a failure it never saw.
             None
         })
         .ok()
         .flatten()
     }))
+}
+
+impl Breeze {
+    /// Start loading `uri` for the current document unless it is known.
+    ///
+    /// Native blocks and the rich-text image source share this path, so one
+    /// URI is fetched and decoded once.
+    pub(super) fn request_image(&mut self, cx: &mut Context<Self>, document: &Source, uri: &str) {
+        if self.reflow.images.loaded_or_failed(uri) || self.reflow.images.loading.contains(uri) {
+            return;
+        }
+        let remote = is_remote(uri);
+        let path = match document {
+            Source::File(path) => Some(path.clone()),
+            _ if remote => None,
+            _ => return,
+        };
+        self.reflow.images.loading.insert(uri.to_owned());
+        let source = document.clone();
+        let requested = uri.to_owned();
+        let key = uri.to_owned();
+        let work = cx.background_spawn(async move { decode(path.as_deref(), &requested) });
+        cx.spawn(async move |this, cx| {
+            let result = work.await;
+            let _ = this.update(cx, |this, cx| {
+                if this.reflow.source.as_ref() != Some(&source) {
+                    return;
+                }
+                this.finish_image(cx, key, result);
+            });
+        })
+        .detach();
+    }
 }
 
 impl Images {

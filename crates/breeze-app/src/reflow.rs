@@ -5,6 +5,7 @@ use crate::*;
 const MARKDOWN_MAX_WIDTH: f32 = 760.;
 use breeze_reflow::{EpubWorker, epub, markdown};
 use gpui_kit::base::{TextView, TextViewState};
+use gpui_kit::component::Icon;
 use gpui_kit::component::{
     ElementExt, h_resizable,
     menu::{DropdownMenu, PopupMenuItem},
@@ -18,6 +19,22 @@ struct TextBlock {
     index: usize,
     state: Entity<TextViewState>,
     _subscription: Subscription,
+}
+
+/// How one native code block presents its body.
+#[derive(Clone, Copy, Debug)]
+struct CodeSettings {
+    numbers: bool,
+    wrap: bool,
+}
+
+impl Default for CodeSettings {
+    fn default() -> Self {
+        Self {
+            numbers: false,
+            wrap: true,
+        }
+    }
 }
 
 /// One row of the navigation panel. EPUB chapters and Markdown headings share
@@ -96,6 +113,12 @@ pub(super) struct ReflowView {
     math_cache: MathCache,
     /// Rendered Mermaid diagrams, keyed by their source and the app theme.
     mermaid_cache: MermaidCache,
+    /// Inline states for native task rows, keyed by block.
+    task_states: HashMap<usize, Vec<Entity<TextViewState>>>,
+    /// Per-cell inline states for native tables, keyed by block.
+    table_states: HashMap<usize, Vec<Vec<Entity<TextViewState>>>>,
+    /// Per-code-block presentation choices.
+    code_settings: HashMap<usize, CodeSettings>,
     /// Selection over the current EPUB frame, plus the rectangles to paint.
     text_selection: Option<ReflowTextSelection>,
     selection: Vec<(usize, Vec<[f32; 4]>)>,
@@ -145,6 +168,9 @@ impl Default for ReflowView {
             images: Default::default(),
             math_cache: HashMap::new(),
             mermaid_cache: HashMap::new(),
+            task_states: HashMap::new(),
+            table_states: HashMap::new(),
+            code_settings: HashMap::new(),
             text_selection: None,
             selection: Vec::new(),
             selection_active: false,
@@ -195,6 +221,9 @@ impl ReflowView {
         self.images.clear(cx);
         self.math_cache.clear();
         self.mermaid_cache.clear();
+        self.task_states.clear();
+        self.table_states.clear();
+        self.code_settings.clear();
         let page_images = std::mem::take(&mut self.page_images);
         if !page_images.is_empty() {
             cx.defer(move |cx| {
@@ -434,16 +463,13 @@ impl Breeze {
                         )
                         .child(div().flex_1())
                     })
-                    .child(
-                        self.command(
-                            "document-panel-toggle",
-                            IconName::PanelRight,
-                            tr!("Document sidebar"),
-                            &ToggleDocumentPanel,
-                            cx,
-                        )
-                        .selected(true),
-                    ),
+                    .child(self.command(
+                        "document-panel-toggle",
+                        IconName::PanelRight,
+                        tr!("Document sidebar"),
+                        &ToggleDocumentPanel,
+                        cx,
+                    )),
             )
             .child(if self.search_open {
                 self.reflow_search_results(cx).into_any_element()
@@ -1420,16 +1446,13 @@ impl Breeze {
                             .flex_1()
                             .min_w_0()
                             .justify_start()
-                            .child(
-                                self.command(
-                                    "collapse",
-                                    IconName::PanelLeft,
-                                    tr!("Navigation panel"),
-                                    &ToggleSidebar,
-                                    cx,
-                                )
-                                .selected(true),
-                            ),
+                            .child(self.command(
+                                "collapse",
+                                IconName::PanelLeft,
+                                tr!("Navigation panel"),
+                                &ToggleSidebar,
+                                cx,
+                            )),
                     )
                     .child(
                         TabBar::new("reflow-nav-tabs")
@@ -2062,7 +2085,12 @@ impl Breeze {
                         .test_support()
                         .w_full()
                         .py_2()
-                        .child(div().h(px(1.)).w_full().bg(theme.border))
+                        .child(
+                            div()
+                                .h(px(1.5))
+                                .w_full()
+                                .bg(theme.muted_foreground.opacity(0.4)),
+                        )
                         .into_any_element(),
                 );
             }
@@ -2171,6 +2199,393 @@ impl Breeze {
                     );
                 }
                 // Unsupported syntax falls through to the Markdown source card.
+            }
+            markdown::RenderKind::Images => {
+                let images = match &block.payload {
+                    markdown::RenderPayload::Images(images) => images.clone(),
+                    _ => Vec::new(),
+                };
+                let document_source = self.books[self.active].source.clone();
+                let mut loaded: Vec<(String, Option<Arc<RenderImage>>)> = Vec::new();
+                for image in &images {
+                    self.request_image(cx, &document_source, &image.url);
+                    loaded.push((image.alt.clone(), self.reflow.images.cached(&image.url)));
+                }
+                let gaps = 8.0 * loaded.len().saturating_sub(1) as f32;
+                let natural: f32 = loaded
+                    .iter()
+                    .map(|(_, image)| {
+                        image
+                            .as_ref()
+                            .map_or(48.0, |image| usize::from(image.size(0).width) as f32)
+                    })
+                    .sum();
+                // Badges share one line. Shrink the row to the reading measure
+                // instead of wrapping one badge per line.
+                let scale = if natural + gaps > 640. {
+                    (640. - gaps).max(80.) / natural.max(1.)
+                } else {
+                    1.0
+                };
+                let mut row = div()
+                    .id(("markdown-images", index))
+                    .test_support()
+                    .w_full()
+                    .flex()
+                    .justify_center()
+                    .items_center()
+                    .gap_2()
+                    .py_1();
+                for (alt, image) in loaded {
+                    match image {
+                        Some(image) => {
+                            let size = image.size(0);
+                            let width = usize::from(size.width) as f32 * scale;
+                            let height = usize::from(size.height) as f32 * scale;
+                            row = row.child(img(image).w(px(width)).h(px(height)));
+                        }
+                        None => {
+                            row = row.child(
+                                div()
+                                    .h(px(20.))
+                                    .min_w(px(40.))
+                                    .rounded_sm()
+                                    .bg(theme.muted.opacity(0.35))
+                                    .child(if alt.is_empty() { String::new() } else { alt }),
+                            );
+                        }
+                    }
+                }
+                return frame(row.into_any_element());
+            }
+            markdown::RenderKind::Tasks => {
+                let items = match &block.payload {
+                    markdown::RenderPayload::Tasks(items) => items.clone(),
+                    _ => Vec::new(),
+                };
+                let mut created = false;
+                let states = match self.reflow.task_states.get(&index) {
+                    Some(states) => states.clone(),
+                    None => {
+                        created = true;
+                        let states: Vec<Entity<TextViewState>> = items
+                            .iter()
+                            .map(|item| {
+                                let html = item.html.clone();
+                                cx.new(|cx| TextViewState::html(&html, cx).selectable(true))
+                            })
+                            .collect();
+                        self.reflow.task_states.insert(index, states.clone());
+                        states
+                    }
+                };
+                if created {
+                    let list = self.reflow.list.clone();
+                    let view = cx.entity().downgrade();
+                    cx.defer(move |cx| {
+                        list.remeasure_items(index..index + 1);
+                        let _ = view.update(cx, |_, cx| cx.notify());
+                    });
+                }
+                let view = cx.entity().downgrade();
+                let mut rows = div()
+                    .id(("markdown-tasks", index))
+                    .test_support()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap_1();
+                for (item, state) in items.iter().zip(states) {
+                    let checkbox = div()
+                        .mt(px(2.))
+                        .size(px(16.))
+                        .flex_none()
+                        .rounded(px(4.))
+                        .border_1()
+                        .border_color(if item.checked {
+                            theme.primary
+                        } else {
+                            theme.muted_foreground.opacity(0.5)
+                        })
+                        .when(item.checked, |checkbox| {
+                            checkbox
+                                .bg(theme.primary)
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .child(
+                                    Icon::new(IconName::Check)
+                                        .small()
+                                        .text_color(theme.primary_foreground),
+                                )
+                        });
+                    let link = view.clone();
+                    rows = rows.child(
+                        div()
+                            .flex()
+                            .items_start()
+                            .gap_2()
+                            .ml(px(16. * item.depth as f32))
+                            .child(checkbox)
+                            .child(
+                                div().flex_1().min_w_0().child(
+                                    TextView::new(&state)
+                                        .style(markdown_style::text_style(cx, body))
+                                        .selectable(true)
+                                        .on_link_click(move |href, _, _, cx| {
+                                            let _ = link.update(cx, |this, cx| {
+                                                this.follow_reflow_link(href.as_ref(), cx)
+                                            });
+                                        }),
+                                ),
+                            ),
+                    );
+                }
+                return frame(rows.into_any_element());
+            }
+            markdown::RenderKind::Table => {
+                let data = match &block.payload {
+                    markdown::RenderPayload::Table(data) => data.clone(),
+                    _ => markdown::TableData::default(),
+                };
+                let mut created = false;
+                let states = match self.reflow.table_states.get(&index) {
+                    Some(states) => states.clone(),
+                    None => {
+                        created = true;
+                        let mut states: Vec<Vec<Entity<TextViewState>>> = Vec::new();
+                        for cells in std::iter::once(&data.head).chain(data.rows.iter()) {
+                            let mut row = Vec::new();
+                            for html in cells {
+                                let html = html.clone();
+                                row.push(
+                                    cx.new(|cx| TextViewState::html(&html, cx).selectable(true)),
+                                );
+                            }
+                            states.push(row);
+                        }
+                        self.reflow.table_states.insert(index, states.clone());
+                        states
+                    }
+                };
+                if created {
+                    let list = self.reflow.list.clone();
+                    let view = cx.entity().downgrade();
+                    cx.defer(move |cx| {
+                        list.remeasure_items(index..index + 1);
+                        let _ = view.update(cx, |_, cx| cx.notify());
+                    });
+                }
+                let view = cx.entity().downgrade();
+                let images = cx.entity().downgrade();
+                let document_source = self.books[self.active].source.clone();
+                let mut table = div()
+                    .id(("markdown-table", index))
+                    .test_support()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .border_1()
+                    .border_color(theme.border)
+                    .rounded_md()
+                    .overflow_hidden();
+                for (row_index, row_states) in states.iter().enumerate() {
+                    let last_row = row_index + 1 == states.len();
+                    let mut row = div()
+                        .flex()
+                        .w_full()
+                        .when(row_index == 0, |row| row.bg(theme.muted.opacity(0.45)));
+                    let last_cell = row_states.len().saturating_sub(1);
+                    for (column, state) in row_states.iter().enumerate() {
+                        let align = data
+                            .aligns
+                            .get(column)
+                            .copied()
+                            .unwrap_or(markdown::ColumnAlign::Left);
+                        let text_align = match align {
+                            markdown::ColumnAlign::Left => TextAlign::Left,
+                            markdown::ColumnAlign::Center => TextAlign::Center,
+                            markdown::ColumnAlign::Right => TextAlign::Right,
+                        };
+                        let link = view.clone();
+                        let image_source = images.clone();
+                        let source = document_source.clone();
+                        let cell = div()
+                            .flex_1()
+                            .min_w_0()
+                            .p_2()
+                            .when(column < last_cell, |cell| {
+                                cell.border_r_1().border_color(theme.border)
+                            })
+                            .when(!last_row, |cell| {
+                                cell.border_b_1().border_color(theme.border)
+                            })
+                            .text_align(text_align)
+                            .child(
+                                TextView::new(state)
+                                    .style(markdown_style::text_style(cx, body))
+                                    .selectable(true)
+                                    .text_align(text_align)
+                                    .image_source(move |uri| {
+                                        reflow_images::source(
+                                            image_source.clone(),
+                                            source.clone(),
+                                            uri.to_string(),
+                                        )
+                                    })
+                                    .on_link_click(move |href, _, _, cx| {
+                                        let _ = link.update(cx, |this, cx| {
+                                            this.follow_reflow_link(href.as_ref(), cx)
+                                        });
+                                    }),
+                            );
+                        row = row.child(cell);
+                    }
+                    table = table.child(row);
+                }
+                return frame(table.into_any_element());
+            }
+            markdown::RenderKind::Code => {
+                let info = match &block.payload {
+                    markdown::RenderPayload::Code(info) => info.clone(),
+                    _ => markdown::CodeInfo::default(),
+                };
+                let settings = self
+                    .reflow
+                    .code_settings
+                    .get(&index)
+                    .copied()
+                    .unwrap_or_default();
+                let language = info.language.clone().unwrap_or_else(|| "text".to_string());
+                let copy = info.text.clone();
+                let menu_view = cx.entity();
+                let menu_settings = settings;
+                let menu = Button::new(("markdown-code-menu", index))
+                    .ghost()
+                    .small()
+                    .icon(IconName::EllipsisVertical)
+                    .accessibility_label(tr!("Code options"))
+                    .tooltip(tr!("Code options"))
+                    .dropdown_menu(move |menu, window, _| {
+                        let numbers_view = menu_view.clone();
+                        let wrap_view = menu_view.clone();
+                        menu.item(
+                            PopupMenuItem::new(tr!("Show line numbers"))
+                                .checked(menu_settings.numbers)
+                                .on_click(window.listener_for(
+                                    &numbers_view,
+                                    move |this, _, _, cx| {
+                                        let settings =
+                                            this.reflow.code_settings.entry(index).or_default();
+                                        settings.numbers = !settings.numbers;
+                                        this.reflow.list.remeasure_items(index..index + 1);
+                                        cx.notify();
+                                    },
+                                )),
+                        )
+                        .item(
+                            PopupMenuItem::new(tr!("Wrap lines"))
+                                .checked(menu_settings.wrap)
+                                .on_click(window.listener_for(
+                                    &wrap_view,
+                                    move |this, _, _, cx| {
+                                        let settings =
+                                            this.reflow.code_settings.entry(index).or_default();
+                                        settings.wrap = !settings.wrap;
+                                        this.reflow.list.remeasure_items(index..index + 1);
+                                        cx.notify();
+                                    },
+                                )),
+                        )
+                    });
+                let header = div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .px_3()
+                    .py_1()
+                    .child(
+                        div()
+                            .text_size(px(11.))
+                            .text_color(theme.muted_foreground)
+                            .child(language),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                Button::new(("markdown-code-copy", index))
+                                    .ghost()
+                                    .small()
+                                    .icon(IconName::Copy)
+                                    .accessibility_label(tr!("Copy code"))
+                                    .tooltip(tr!("Copy code"))
+                                    .on_click(cx.listener(move |_, _, _, cx| {
+                                        cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(
+                                            copy.clone(),
+                                        ));
+                                    })),
+                            )
+                            .child(menu),
+                    );
+                let code_size = markdown_style::code_size(body);
+                let mono = font(theme.mono_font_family.clone());
+                let mut body_view = div()
+                    .id(("markdown-code-body", index))
+                    .w_full()
+                    .px_3()
+                    .py_2();
+                if !settings.wrap {
+                    body_view = body_view.overflow_x_scroll();
+                }
+                let mut lines = div().flex().flex_col();
+                let width = info.text.lines().count().to_string().len();
+                for (number, line) in info.text.split('\n').enumerate() {
+                    let mut row = div().flex().items_start();
+                    if settings.numbers {
+                        row = row.child(
+                            div()
+                                .w(px(30.))
+                                .flex_none()
+                                .text_size(px(code_size))
+                                .font(mono.clone())
+                                .text_color(theme.muted_foreground)
+                                .child(format!("{:>width$}", number + 1)),
+                        );
+                    }
+                    let text = if line.is_empty() {
+                        " ".to_string()
+                    } else {
+                        line.to_string()
+                    };
+                    row = row.child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .font(mono.clone())
+                            .text_size(px(code_size))
+                            .text_color(theme.foreground)
+                            .when(!settings.wrap, |line| line.whitespace_nowrap())
+                            .child(text),
+                    );
+                    lines = lines.child(row);
+                }
+                body_view = body_view.child(lines);
+                let block_view = div()
+                    .id(("markdown-code", index))
+                    .test_support()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(theme.border)
+                    .bg(theme.muted.opacity(0.35))
+                    .child(header)
+                    .child(body_view);
+                return frame(block_view.into_any_element());
             }
             _ => {}
         }

@@ -14,6 +14,7 @@ owns the behavior table and limits.
 |---|---|---|---|
 | R1 Blocks | Front matter cards, generated TOC, native rules, table/task routing to Kit's Markdown reader, formula and Mermaid image blocks | `breeze-reflow` construct tests; the extended-construct component test | Complete (October 20) |
 | R2 Inline and images | Sup/sub Unicode mapping, emoji shortcodes, abbreviation declarations, remote/SVG image loading with bounds | component text assertions; SVG and loopback-fetch unit tests | Complete (October 20) |
+| R4 Native block polish | Centred borderless image rows, nested TOC, visible rules, rounded task boxes, native aligned tables, code header with copy and line-number/wrap menu, soft source breaks | native-block component test; rule height; TOC nesting; 410-test workspace suite | Complete (October 20) |
 | R3 Verification | Workspace checks, Release build, native smoke run; record the remaining limitations | `fmt`, `test --workspace`, `clippy -D warnings`, STATUS record | Complete except native visual inspection (October 20) |
 
 ## Decisions
@@ -38,7 +39,8 @@ owns the behavior table and limits.
 ## Open items
 
 Abbreviation tooltips and inline formula typesetting need an inline renderer
-that Kit's HTML subset does not provide. A dark Mermaid palette and diagram
-syntax beyond `mermaid-rs-renderer`'s supported set are follow-ups. Native
-visual inspection was not performed because the session's model cannot view
-images; Windows and Linux remain unverified.
+that Kit's HTML subset does not provide. A dark Mermaid palette, syntax
+highlighting in the native code card, and diagram syntax beyond
+`mermaid-rs-renderer`'s supported set are follow-ups. Native visual inspection
+was not performed because the session's model cannot view images; Windows and
+Linux remain unverified.

@@ -177,6 +177,13 @@ fn alignment(kind: &AlignKind) -> Option<&'static str> {
     }
 }
 
+/// Render only inline children, for a table cell or a task row.
+pub(crate) fn inline_html(nodes: &[Node], source: &str, references: &References) -> String {
+    let mut out = String::new();
+    inlines(nodes, source, references, &mut out);
+    out
+}
+
 fn inlines(nodes: &[Node], source: &str, references: &References, out: &mut String) {
     let mut script: Option<Script> = None;
     for node in nodes {
@@ -186,7 +193,15 @@ fn inlines(nodes: &[Node], source: &str, references: &References, out: &mut Stri
                     Some(script) => script_text(&text.value, script),
                     None => emojify(&text.value),
                 };
-                escape(&value, out);
+                // A source line break is a reading line break here: the note
+                // was written with deliberate lines, and HTML would otherwise
+                // collapse them into spaces.
+                for (index, part) in value.split('\n').enumerate() {
+                    if index > 0 {
+                        out.push_str("<br>");
+                    }
+                    escape(part, out);
+                }
             }
             Node::Html(html) => {
                 match html.value.trim().to_ascii_lowercase().as_str() {

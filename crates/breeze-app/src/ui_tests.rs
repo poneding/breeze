@@ -3234,6 +3234,93 @@ fn markdown_reading_previews_the_unsaved_draft(cx: &mut TestAppContext) {
     .unwrap();
 }
 
+/// Native reading blocks (table, tasks, code, images) fit in one viewport and
+/// expose their controls; the extended test above covers the top-of-page shapes.
+#[gpui_kit::test]
+fn markdown_native_blocks_render(cx: &mut TestAppContext) {
+    use breeze_reflow::markdown::RenderKind;
+
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(
+        directory.path().join("badge.svg"),
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="80" height="20"><rect width="80" height="20" fill="#2f855a"/><text x="8" y="14" fill="white" font-size="12">build</text></svg>"##,
+    )
+    .unwrap();
+    let path = directory.path().join("native.md");
+    std::fs::write(
+        &path,
+        "| 左 | 中 | 右 |\n|:--|:-:|--:|\n| `help()` | `destroy()` | 1 |\n\n- [x] 已完成\n- [ ] 未完成\n\n```rust\nfn main() {}\n```\n\n![badge](badge.svg)\n",
+    )
+    .unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "native.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    for _ in 0..4 {
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| window.render_frame(cx))
+            .unwrap();
+    }
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let document = view
+            .read(cx)
+            .reflow
+            .markdown
+            .clone()
+            .expect("the document did not load");
+        let index = |kind: RenderKind| {
+            document
+                .blocks
+                .iter()
+                .position(|block| block.kind == kind)
+                .unwrap_or_else(|| panic!("no {kind:?} block"))
+        };
+        for (id, kind) in [
+            ("markdown-table", RenderKind::Table),
+            ("markdown-tasks", RenderKind::Tasks),
+            ("markdown-code", RenderKind::Code),
+        ] {
+            let element = window
+                .try_find((id, index(kind)))
+                .unwrap_or_else(|| panic!("{id} is missing"));
+            assert!(
+                element.bounds().size.height > px(16.),
+                "{id} has no height: {:?}",
+                element.bounds()
+            );
+        }
+        assert!(
+            window
+                .try_find(("markdown-code-menu", index(RenderKind::Code)))
+                .is_some()
+        );
+        assert!(
+            window
+                .try_find(("markdown-code-copy", index(RenderKind::Code)))
+                .is_some()
+        );
+        assert!(
+            window
+                .try_find(("markdown-images", index(RenderKind::Images)))
+                .is_some()
+        );
+        assert_eq!(
+            view.read(cx).reflow.images.failures,
+            0,
+            "the SVG badge was reported as unavailable: {:?}",
+            view.read(cx).reflow.images.last_failure
+        );
+    })
+    .unwrap();
+}
+
 /// The reading surface renders the constructs a hand-written note uses:
 /// front matter, a TOC, rules, sup/sub, emoji, aligned tables, task checks,
 /// formulas, mermaid source and SVG badges.
@@ -3251,7 +3338,7 @@ fn markdown_reading_renders_the_extended_constructs(cx: &mut TestAppContext) {
     let path = directory.path().join("extended.md");
     std::fs::write(
         &path,
-        "---\ntitle: 格式测试\n---\n\n# 标题\n\n[TOC]\n\n---\n\n===\n\nX<sub>2</sub> O<sup>2</sup> :smile:\n\n| 左 | 中 | 右 |\n|:--|:-:|--:|\n| `help()` | `destroy()` | 1 |\n\n- [x] 已完成\n- [ ] 未完成\n\n$x^2$\n\n$$\nE = mc^2\n$$\n\n```mermaid\ngraph TD\nA-->B\n```\n\n![badge](badge.svg)\n",
+        "---\ntitle: 格式测试\n---\n\n# 标题\n\n## 子标题\n\n[TOC]\n\n---\n\n===\n\nsoft one\nsoft two\n\nX<sub>2</sub> O<sup>2</sup> :smile:\n\n| 左 | 中 | 右 |\n|:--|:-:|--:|\n| `help()` | `destroy()` | 1 |\n\n- [x] 已完成\n- [ ] 未完成\n\n$x^2$\n\n$$\nE = mc^2\n$$\n\n```rust\nfn main() {}\n```\n\n```mermaid\ngraph TD\nA-->B\n```\n\n![badge](badge.svg)\n",
     )
     .unwrap();
     let (handle, view) = app(cx);
@@ -3291,11 +3378,13 @@ fn markdown_reading_renders_the_extended_constructs(cx: &mut TestAppContext) {
                     .is_some(),
                 "the front matter card is missing"
             );
+            let rule = window
+                .try_find(("markdown-rule", index(RenderKind::Rule)))
+                .expect("the rule is missing");
             assert!(
-                window
-                    .try_find(("markdown-rule", index(RenderKind::Rule)))
-                    .is_some(),
-                "the rule is missing"
+                rule.bounds().size.height > px(8.),
+                "the rule has no visible height: {:?}",
+                rule.bounds()
             );
             assert!(
                 window
@@ -3311,12 +3400,27 @@ fn markdown_reading_renders_the_extended_constructs(cx: &mut TestAppContext) {
             document
         })
         .unwrap();
+    let soft = document
+        .blocks
+        .iter()
+        .find(|block| block.html.contains("soft one"))
+        .expect("the soft-break paragraph");
+    assert!(
+        soft.html.contains("soft one<br>soft two"),
+        "a source line break stayed a space: {}",
+        soft.html
+    );
     let toc = &document.blocks[document
         .blocks
         .iter()
         .position(|block| block.kind == RenderKind::Toc)
         .unwrap()];
     assert!(toc.html.contains("href=\"#标题\""), "{}", toc.html);
+    assert!(
+        toc.html.contains("<ul><li><a href=\"#子标题\""),
+        "a subheading is not nested in the TOC: {}",
+        toc.html
+    );
 
     // The table and the task list go through the Markdown reader, which
     // carries alignment and checkbox state that the HTML reader cannot.
