@@ -25,7 +25,7 @@ Live and source modes are two projections of the same model. The native surface
 owns a document-wide input handler; independently editable paragraph widgets
 and separate mode-specific undo stacks are outside this design.
 
-Keep `gpui-kit = 0.7.1` and the checked `gpui-pre 0.3.8` resolution. Use Kit for
+Keep `gpui-kit = 0.8.0` and the checked `gpui-pre 0.3.9` resolution. Use Kit for
 buttons, tooltips, menus, inputs in dialogs and shared application chrome.
 Implement the document surface with GPUI shaping/layout and
 `EntityInputHandler`. The published interface includes text/range replacement,
@@ -319,7 +319,7 @@ relaxed silently. Implementation status belongs in `docs/plans/STATUS.md`.
 
 ## Primary API references
 
-- **R1:** [GPUI 0.3.8 EntityInputHandler](https://docs.rs/gpui-pre/0.3.8/gpui/trait.EntityInputHandler.html);
+- **R1:** [GPUI 0.3.9 EntityInputHandler](https://docs.rs/gpui-pre/0.3.9/gpui/trait.EntityInputHandler.html);
   the matching local registry `src/input.rs` was inspected.
 - **R2:** [Ropey 2.0.0-beta.1 Rope](https://docs.rs/ropey/2.0.0-beta.1/ropey/struct.Rope.html);
   the matching source documents shared snapshots and UTF-16 metrics.

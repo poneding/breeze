@@ -1,9 +1,9 @@
 # GPUI Kit theme collection
 
 `gpui-kit/` contains unchanged theme JSON files from the official
-[GPUI Kit theme gallery](https://github.com/longbridge/gpui-kit/tree/0c830f4d257e69fdd17200650533ab4ca9a40cc0/themes),
-pinned to commit `0c830f4d257e69fdd17200650533ab4ca9a40cc0`. This is the source
-commit recorded by the published `gpui-component 0.7.0` dependency in
+[GPUI Kit theme gallery](https://github.com/longbridge/gpui-kit/tree/1676826d9d49b90f4d7b6808b69924f58796f6f1/themes),
+pinned to commit `1676826d9d49b90f4d7b6808b69924f58796f6f1`. This is the source
+commit recorded by the published `gpui-component 0.8.0` dependency in
 `.cargo_vcs_info.json`.
 
 The 21 files define 36 named themes (11 light, 25 dark). Kit itself supplies

@@ -13,7 +13,7 @@ Local-first · Native Rust and GPUI Kit · No WebView
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
 [![Rust 1.97+](https://img.shields.io/badge/rust-1.97%2B-orange.svg?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#quick-start)
-[![Built with GPUI Kit](https://img.shields.io/badge/GPUI%20Kit-0.7.1-1f6feb.svg)](https://crates.io/crates/gpui-kit)
+[![Built with GPUI Kit](https://img.shields.io/badge/GPUI%20Kit-0.8.0-1f6feb.svg)](https://crates.io/crates/gpui-kit)
 
 </div>
 

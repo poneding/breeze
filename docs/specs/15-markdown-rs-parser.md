@@ -21,7 +21,7 @@ as the implementation reference. The user then chose:
 
 Use `markdown = 1.0.0` (wooorm's markdown-rs) with `ParseOptions::gfm()` as the
 only Markdown parser in the application. Remove `pulldown-cmark`. The version
-is already resolved in `Cargo.lock` through `gpui-base 0.7.1`; pin it exactly in
+is already resolved in `Cargo.lock` through `gpui-base 0.8.0`; pin it exactly in
 `breeze-reflow` and keep the lockfile committed.
 
 markdown-rs produces an mdast tree in which every node carries a byte-accurate
@@ -152,7 +152,7 @@ source editor: GPUI Kit's code editor with the tree-sitter Markdown grammar.
 The reading view is the rendered preview. Evidence for that choice:
 
 - The only published GPUI WYSIWYG component, `zorite-editor 0.11.2` (MIT),
-  compiles against this project's `gpui-pre 0.3.8`, but measured 0.86 s for the
+  compiled against the then-current `gpui-pre 0.3.8`, but measured 0.86 s for the
   first 64 KiB frame in a debug harness and did not finish the first 1 MiB frame
   within 60 s in a Release build. `zorite-markdown` lays out a whole document
   and has the same scale problem. Velotype is a complete application, not a

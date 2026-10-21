@@ -2,7 +2,7 @@
 
 ## Current source
 
-The prototype uses **Lucide SVG icons bundled with `gpui-kit-assets` 0.7.0**, accessed through `gpui_kit::assets::IconName` and rendered with Kit components. `AllAssets` embeds the catalog locally; icons are not emoji, PNG assets, or runtime network downloads.
+The prototype uses **Lucide SVG icons bundled with `gpui-kit-assets` 0.8.0**, accessed through `gpui_kit::assets::IconName` and rendered with Kit components. `AllAssets` embeds the catalog locally; icons are not emoji, PNG assets, or runtime network downloads.
 
 The bundled package includes Lucide icons and a small set of retained Kit-specific icons. Keep the [Lucide ISC notice](../../assets/licenses/LICENSE-LUCIDE.txt) with redistributed assets. Once selection is stable, Kit's `icon_assets!` mechanism can reduce the embedded catalog without replacing the icon system. This optimization is not implemented yet.
 

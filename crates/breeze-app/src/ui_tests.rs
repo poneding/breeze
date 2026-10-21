@@ -2079,6 +2079,17 @@ fn modified_wheel_zooms_without_scrolling_and_plain_wheel_still_scrolls(cx: &mut
         );
         assert_eq!(view.read(cx).books[0].state.zoom, Zoom::Percent(75));
         assert_eq!(view.read(cx).reading.pages_scroll.offset(), before);
+        // 0.8's test helper carries the window's current modifiers into a
+        // synthetic wheel event. Release the zoom modifier before testing a
+        // plain wheel, as the platform would after the user lets go.
+        window.dispatch_event(
+            ModifiersChangedEvent {
+                modifiers: Default::default(),
+                capslock: window.capslock(),
+            }
+            .to_platform_input(),
+            cx,
+        );
         window.render_frame(cx);
         let before = view.read(cx).reading.pages_scroll.offset();
         window.scroll("document-viewport", ScrollDelta::Lines(point(0., -6.)), cx);

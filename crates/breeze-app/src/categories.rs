@@ -4,7 +4,6 @@ use breeze_core::library::{Category, CategoryColor, validate_name};
 use gpui_kit::component::{
     ElementExt, Icon,
     button::ButtonCustomVariant,
-    dialog::Confirm,
     menu::{DropdownMenu, PopupMenuItem},
     popover::Popover,
 };
@@ -368,11 +367,14 @@ impl Breeze {
             .test_support()
             .w(px(232.))
             .gap_2()
-            // The Popover binds Enter to Confirm and consumes it before the input's
-            // own submit, so the form confirms here. An invalid name leaves the
-            // editor open with its message instead of dismissing it unsaved.
-            .on_action(cx.listener(|this, _: &Confirm, _, cx| {
-                if this.category_form {
+            // Popover 0.8 reserves Enter for the focused control. Kit's input
+            // action is shadowed by that content-level binding, so the form
+            // handles a plain Enter while leaving character input to the IME.
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, _, cx| {
+                if event.keystroke.key == "enter"
+                    && !event.keystroke.modifiers.modified()
+                    && !event.prefer_character_input
+                {
                     cx.stop_propagation();
                     this.save_category(cx);
                 }

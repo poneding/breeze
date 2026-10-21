@@ -127,7 +127,7 @@ fn matched_rows(group: &SelectGroup<ThemePreference>, query: &str) -> Option<Vec
     (!rows.is_empty() || group.title.to_lowercase().contains(&query.to_lowercase())).then_some(rows)
 }
 
-// These are unchanged official gallery assets, pinned alongside Kit 0.7.0.
+// These are unchanged official gallery assets, pinned alongside Kit 0.8.0.
 // Core Kit initialization alone registers only Default Light and Default Dark.
 macro_rules! gallery {
     ($($name:literal),+ $(,)?) => {

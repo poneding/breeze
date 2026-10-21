@@ -59,8 +59,8 @@ should change its contents.
 
 ## What exists in Breeze
 
-The checked working tree contains `gpui-kit = 0.7.1`, resolving to `gpui-pre
-0.3.8`, and `pulldown-cmark = 0.13.4`. Read the actual manifest/lockfile rather
+The checked working tree contains `gpui-kit = 0.8.0`, resolving to `gpui-pre
+0.3.9`, and `markdown = 1.0.0`. Read the actual manifest/lockfile rather
 than older specification version summaries.
 
 - [`breeze-reflow/src/markdown.rs`](../../crates/breeze-reflow/src/markdown.rs)
@@ -115,7 +115,7 @@ rendering a WebView implementation [S5].
 
 ### GPUI Kit capabilities and gaps
 
-Inspection of the pinned 0.7.1 package shows shared editing state, native input
+Inspection of the pinned 0.8.0 package shows shared editing state, native input
 handling, selection, undo, soft wrapping, source-editor display mapping, text
 decorations, and atomic inline tokens [S6]. These can reduce work, but none
 establishes a complete Markdown live editor:
@@ -306,11 +306,11 @@ checkouts are disposable research data under `target/`, not workspace members.
 - **S5:** [Velotype at the inspected revision](https://github.com/manyougz/velotype/tree/a61c71955c6104fc5d647088b5957da6d59149ca):
   `README.md`, `Cargo.toml`, `LICENSE`, `src/editor/document.rs`, `src/ime.rs`,
   and `src/export/pdf.rs`.
-- **S6:** [GPUI Kit source corresponding to package 0.7.1](https://github.com/longbridge/gpui-kit/tree/87d10ae5e1299d1be18670a37570c5402f952e34):
+- **S6:** [GPUI Kit source corresponding to package 0.8.0](https://github.com/longbridge/gpui-kit/tree/1676826d9d49b90f4d7b6808b69924f58796f6f1):
   the published `gpui-base` package's `src/input/README.md`,
   `editor/display_map/README.md`, `editor/decorations.rs`,
   `base/inline_tokens.rs`, and `base/state.rs` under `src/input` were inspected.
-- **S7:** [Resolved GPUI 0.3.8 HighlightStyle](https://docs.rs/gpui-pre/0.3.8/gpui/struct.HighlightStyle.html).
+- **S7:** [Resolved GPUI 0.3.9 HighlightStyle](https://docs.rs/gpui-pre/0.3.9/gpui/struct.HighlightStyle.html).
 - **S8:** [pulldown-cmark 0.13.4 Parser](https://docs.rs/pulldown-cmark/0.13.4/pulldown_cmark/struct.Parser.html),
   together with the published package README and `src/parse.rs`.
 - **S9:** [Comrak parser and formatter](https://github.com/kivikakk/comrak).

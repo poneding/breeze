@@ -13,19 +13,16 @@ fn language_select_changes_chrome_and_preserves_content(cx: &mut TestAppContext)
             view.read(cx).language_select.read(cx).selected_value(),
             Some(&i18n::LanguageItem::Choice(i18n::LanguagePreference::Auto))
         );
-        window.click("language-select", cx);
-        window.render_frame(cx);
-        // The Languages label is a row but not a choice.
-        window.press("down", cx);
-        window.press("enter", cx);
     })
     .unwrap();
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
+        // Detection already resolves to Simplified Chinese in tests.
         assert_eq!(view.read(cx).language, 0);
         assert_eq!(window.find("home-settings").label(), Some("设置"));
         window.click("language-select", cx);
         window.render_frame(cx);
+        // Detection, the Languages label, then English.
         window.press("down", cx);
         window.press("down", cx);
         window.press("enter", cx);

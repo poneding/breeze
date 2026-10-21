@@ -24,8 +24,8 @@ sha2 = "0.11"
 tempfile = "3"
 dirs = "7.0.0"
 breeze-storage = { path = "crates/breeze-storage" }
-gpui-kit = "=0.7.1"
-lopdf = { version = "=0.45.0", default-features = false }
+gpui-kit = "=0.8.0"
+lopdf = { version = "=0.46.0", default-features = false }
 mupdf = { version = "=0.8.0", default-features = false, features = [
     "base14-fonts",
     "system-fonts",

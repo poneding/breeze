@@ -4,7 +4,7 @@
 //! size and h3-h6 end up smaller than the body text they introduce.
 //! `TextViewStyle` is the only public lever for those sizes, and
 //! gpui-component installs its themed style privately (`text::
-//! base_text_view_style` in 0.7.1), so this module rebuilds that same mapping
+//! base_text_view_style` in 0.8.0), so this module rebuilds that same mapping
 //! and changes only the scale. Keep it in step with the pinned Kit release.
 use crate::*;
 use gpui_kit::base::text::TextViewStyle;

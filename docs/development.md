@@ -176,8 +176,8 @@ request; it does not download, install, sign, or publish binaries.
 
 ## Dependency constraints
 
-GPUI Kit is pinned to 0.7.1, the reader engine is `mupdf` 0.8.0 over MuPDF C/C++,
-and the annotation writer (`lopdf`) is 0.45.0. `pdf_oxide` and its `office_oxide`
+GPUI Kit is pinned to 0.8.0, the reader engine is `mupdf` 0.8.0 over MuPDF C/C++,
+and the annotation writer (`lopdf`) is 0.46.0. `pdf_oxide` and its `office_oxide`
 pairing are gone from the workspace and the lockfile; consult
 [work package 22](plans/22-mupdf-migration.md) for the remaining migration and
 release gates. Use MuPDF only through the `mupdf` safe API inside `breeze-pdf`;
