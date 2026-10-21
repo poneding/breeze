@@ -1,6 +1,7 @@
 # Markdown parser and projection rebuild
 
-Design accepted: October 20, 2026. Status: **implementation in progress**. This
+Design accepted: October 20, 2026. Rendering simplified October 21, 2026.
+Status: **implemented for native macOS; Windows and Linux pending**. This
 document supersedes the parser choice in
 [design 14](14-markdown-editor-design.md) D1/D4; the source, history, input,
 save and authoring contracts there remain in force.
@@ -122,8 +123,7 @@ Reading, editing and the source view never use a second Markdown parser.
 | Module | Responsibility |
 |---|---|
 | `markdown/ast.rs` | Parse admission and limits, mdast helpers, link-definition and footnote resolution, plain-text and source-segment extraction. |
-| `markdown/render.rs` | mdast → the HTML subset GPUI Kit's rich text renders. It resolves document-wide references; it never rewrites the source. |
-| `markdown/document.rs` | Reading model: top-level blocks with source ranges, headings with anchored block indices, plain text for search and the character count. |
+| `markdown/metadata.rs` | Lightweight reading metadata: headings, top-level block starts, character count, fingerprint and relative-image resolution. It retains no HTML or render tree. |
 | `markdown/semantic.rs` | Editor semantics: one `LineKind` per source line (block kind, quote depth, hidden setext underline, block marker range) and styled inline `Span`s. |
 | `markdown/projection.rs` | Display mapping: hidden or substituted markers, source↔display correspondence, reveal rules, live/source modes. Consumes the semantic layer; its line-local scanner remains only as the provisional projection used before a worker result arrives. |
 
@@ -132,18 +132,27 @@ pipeline unchanged. They are parser-independent and already verified.
 
 ### Reading path
 
-GPUI Kit's Markdown view already parses with markdown-rs, but the reader cannot
-hand it a whole document: it would lay out every block, and Breeze virtualizes
-per top-level block. It also cannot use Kit's HTML path for fenced code, because
-that renderer has no `<pre>` code card. Reading therefore keeps two projections
-of the same AST:
+The user directed a complete renderer replacement on October 21, 2026: the
+reading surface is one GPUI Kit `TextViewState::markdown` for the whole
+document. Kit owns Markdown parsing, top-level block virtualization, selection,
+links, tables, task checkboxes, images, code cards and scrolling. Breeze keeps
+only a bounded metadata scan for outline rows, progress offsets and character
+counts; it does not build an HTML projection or lay out per-block text views.
 
-- A block whose subtree contains a code block is handed to Kit's Markdown view
-  as its own source slice, keeping list/fence context and the code card.
-- Every other block is rendered to HTML from mdast, with document-wide link
-  references, footnote numbering, tables, images and raw HTML honoured.
+Project-specific constructs are registered through Kit's `MarkdownPlugin`
+interface:
 
-This split is a rendering-widget limitation, not a second semantic parser.
+| Plugin | Node | Rendering |
+|---|---|---|
+| `FrontmatterPlugin` | YAML front matter | Kit's metadata description list |
+| `TocPlugin` | `[TOC]` placeholders | Native heading links that reveal source ranges |
+| `InlineMathPlugin` | inline math | RaTeX inline image with text fallback |
+| `MathBlockPlugin` | display math and math fences | Centred RaTeX image with TeX fallback |
+| `MermaidBlockPlugin` | `mermaid`, `flow`, `seq` fences | Native Mermaid renderer, rasterized through the shared image path |
+
+The former mdast-to-HTML projection and per-block reading model were removed.
+Markdown editing remains GPUI Kit's tree-sitter source editor and does not use
+the reading renderer.
 
 ## Editing surface (October 20, 2026)
 
@@ -163,52 +172,37 @@ The reading view is the rendered preview. Evidence for that choice:
   2 MiB editing fixture in the application suite.
 - Editing therefore shows Markdown source with highlighting; the reader is the
   preview. The `Live formatting` / `Markdown source` toolbar pair is removed.
-- The mdast semantic/projection modules in `breeze-reflow` are no longer used by
-  the application. They remain tested while a later cleanup decides whether to
-  retire them; the reading model (`Document`, HTML projection) and the parser
-  are still the application's rendering path.
+- The mdast semantic/projection modules in `breeze-reflow` are not used by the
+  reading renderer. The source editor is GPUI Kit's editor; the parser and
+  lightweight metadata scan remain the application-owned Markdown inputs.
 - The reading parse ceiling does not apply to editing: a larger file is read and
   edited as source, while the reader still reports its limit.
 
-## Reading constructs (October 20, 2026)
+## Reading constructs (October 21, 2026)
 
-The reading surface now draws the constructs a hand-written Markdown note uses,
-not only CommonMark paragraphs. The user reported thirteen gaps against a
-reference note; the implementation classifies blocks and chooses the widest
-reader that can draw each one:
+Kit's TextView renders ordinary prose, headings, block quotes, lists, GFM
+tables, task lists, fenced/indented code, links, images and raw HTML. Breeze's
+plugins add the five constructs listed under the reading path above. The
+reader no longer draws a separate native grid for tables or a separate card per
+code block; those are the TextView's own layouts.
 
-| Construct | Reading behavior |
-|---|---|
-| Front matter | A `---` YAML block becomes a native metadata card; its fences do not render. `title: …` and other lines are shown as key/value rows. |
-| Table of contents | `[TOC]`, `[[toc]]`, `[[_TOC_]]`, `{{toc}}` and `<toc>` become a generated heading list with anchor links. The list is nested by heading level and filled after every heading is known, so it may precede them. |
-| Rules | `---` thematic breaks and a paragraph line of only `===`/`---`/`***` (three or more, spaces allowed) become a native 1.5 px divider drawn in the muted foreground. CommonMark alone treats `===` as a paragraph. |
-| Superscript/subscript | `<sup>…</sup>` and `<sub>…</sub>` runs map to Unicode superscript/subscript characters where they exist (`O<sup>2</sup>` → `O²`, `X<sub>2</sub>` → `X₂`). Characters without a Unicode counterpart keep their baseline. |
-| Abbreviations | A paragraph made only of `*[ABBR]: expansion` lines is a declaration and is not rendered. Usages remain plain text; Kit's HTML reader has no `<abbr>` styling or tooltip. |
-| Tables | Table blocks are drawn as a native grid: one inline text view per cell, GFM column alignment applied to the cell text, and borders in the reader's palette. Selection rectangles therefore follow the aligned text instead of the column start, and every cell renders (including inline code such as `help()`). |
-| Task lists | Task rows are drawn natively with a 16 px rounded checkbox (4 px radius) and the item's inline content; nested items indent by level. |
-| Emoji | A bounded GitHub shortcode table replaces known `:name:` runs in ordinary text; unknown names stay literal. Code spans are untouched. Source line breaks become reading line breaks. |
-| Formulas | A `$$…$$` block is typeset with RaTeX (embedded KaTeX fonts) into an image. Inline `$…$` shows its TeX in a code run; inline typesetting is still open. |
-| Mermaid | A ```mermaid fence is rendered natively by `mermaid-rs-renderer` to SVG, then rasterized with the system fonts. Unsupported diagram syntax falls back to the source code card. |
-| Code blocks | A native card shows the fence language (muted) on the left, a copy button and an ellipsis menu on the right. The menu toggles line numbers and soft wrapping; the body uses the monospace face at the reader's code size. |
-| Images | An image-only paragraph becomes a centred, borderless row; multiple badges stay on one line, scaling down together to the reading measure. Local files, remote `http(s)` images and SVG badges are supported. Remote fetches are bounded (10 s, 16 MiB, five redirects); SVGs use system fonts for badge text. |
+Image references use the same bounded loader for local files, remote `http(s)`
+URLs and SVG badges. Relative paths are decoded from Markdown URI syntax before
+the file is opened. A failed image is reported in the document information
+panel and never becomes the document-wide status notice.
 
-These are reading-only projections: editing remains source text, and an
-unsupported construct never disappears from the draft.
-
-Open limitations: abbreviation tooltips, inline formula typesetting, a dark
-Mermaid palette, diagrams beyond the native renderer's syntax set, and no
-syntax highlighting in the native code card. Source lines that a parser reads as
-a setext heading (a title line immediately followed by `---`/`===`) remain
-headings, not rules; a separator needs its own paragraph.
+Editing remains source text and never rewrites unsupported constructs. A source
+file above the reading parse ceiling remains editable while the reading surface
+shows the explicit limit notice.
 
 ## Resource limits
 
 | Limit | Value | Behavior |
 |---|---|---|
 | Editing/source session | 16 MiB | Unchanged; buffer and history are parser-independent. |
-| One Markdown parse/layout | 2 MiB | The reading model refuses larger input with an explicit error. Container chains above 64 leading markers on a line are refused before parsing. Editing uses Kit's editor and does not parse the whole document. |
+| One Markdown metadata/render parse | 2 MiB | Breeze refuses a larger reading input with an explicit error. Container chains above 64 leading markers on a line are refused before parsing. Editing uses Kit's editor and does not parse the whole document. |
 | Reading a larger file | — | The reader reports the limit and keeps the Edit control; the editor opens directly in Source mode with a notice. |
-| Inline spans / blocks / depth / render text | 200 000 / 100 000 / 64 / 64 MiB | Unchanged hostile-input bounds, now measured on the mdast tree. |
+| Inline spans / blocks / depth | 200 000 / 100 000 / 64 | Hostile-input bounds measured on the metadata mdast tree. TextView applies its own internal block and parse limits. |
 
 The 2 MiB ceiling is an accepted reduction from the previous 16 MiB *rendering*
 limit, chosen by the user on October 20, 2026. The source session limit does not

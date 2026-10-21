@@ -181,6 +181,7 @@ impl References {
     }
 
     /// The 1-based label a footnote reference and its definition display.
+    #[cfg(test)]
     pub fn note(&self, identifier: &str) -> Option<usize> {
         self.notes.get(identifier).copied()
     }
@@ -196,21 +197,6 @@ pub fn preorder(root: &Node) -> impl Iterator<Item = &Node> {
         }
         Some(node)
     })
-}
-
-/// Whether any code block is nested in `node`.
-pub fn contains_code(node: &Node) -> bool {
-    preorder(node).any(|node| matches!(node, Node::Code(_)))
-}
-
-/// Whether a GFM table is nested in `node`.
-pub fn contains_table(node: &Node) -> bool {
-    preorder(node).any(|node| matches!(node, Node::Table(_)))
-}
-
-/// Whether a task-list item is nested in `node`.
-pub fn contains_task(node: &Node) -> bool {
-    preorder(node).any(|node| matches!(node, Node::ListItem(item) if item.checked.is_some()))
 }
 
 /// The rendered text of one block, as the reader counts and searches it.
@@ -378,8 +364,5 @@ mod tests {
             .map(block_text)
             .collect();
         assert_eq!(text, "one\n\ntwo\n\n");
-        let nested = root("- item\n  ```\n  x\n  ```\n");
-        assert!(contains_code(&nested));
-        assert!(!contains_code(&root("plain\n")));
     }
 }

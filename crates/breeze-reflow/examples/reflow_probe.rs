@@ -4,7 +4,7 @@ mod common;
 use breeze_core::document::EpubLocation;
 use breeze_reflow::{
     epub::{Book, Request},
-    markdown::Document,
+    markdown::Metadata,
 };
 use std::time::Instant;
 
@@ -128,10 +128,10 @@ fn main() -> anyhow::Result<()> {
     let mut parse = Vec::new();
     for _ in 0..20 {
         let start = Instant::now();
-        let doc = Document::parse(&source)?;
-        std::hint::black_box(doc);
+        let metadata = Metadata::parse(&source)?;
+        std::hint::black_box(metadata.headings.len());
         parse.push(start.elapsed().as_secs_f64() * 1000.);
     }
-    report("warm Markdown parse+block HTML", parse);
+    report("warm Markdown metadata scan", parse);
     Ok(())
 }

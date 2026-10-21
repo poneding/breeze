@@ -169,8 +169,16 @@ fn vertical_arrows_scroll_markdown_and_preserve_search_input(cx: &mut TestAppCon
         window.render_frame(cx);
         window.render_frame(cx);
         assert!(view.read(cx).reflow.markdown.is_some());
+        let state = view
+            .read(cx)
+            .reflow
+            .markdown
+            .as_ref()
+            .expect("the Markdown state")
+            .state
+            .clone();
         let position = |cx: &App| {
-            let top = view.read(cx).reflow.list.logical_scroll_top();
+            let top = state.read(cx).list_state().logical_scroll_top();
             (top.item_ix, top.offset_in_item)
         };
         let start = position(cx);
@@ -197,7 +205,7 @@ fn vertical_arrows_scroll_markdown_and_preserve_search_input(cx: &mut TestAppCon
         assert_eq!(view.read(cx).search_input.read(cx).value().as_ref(), "text");
 
         window.focus(&view.read(cx).focus.clone(), cx);
-        view.read(cx).reflow.list.scroll_to_end();
+        state.read(cx).list_state().scroll_to_end();
         window.render_frame(cx);
         let end = position(cx);
         window.press("down", cx);

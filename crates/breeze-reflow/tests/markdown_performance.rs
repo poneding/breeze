@@ -5,7 +5,7 @@
 //! times: they say how much of the input budget one snapshot would consume if
 //! it ran on the UI thread, which is what decides whether a provisional path
 //! must exist at all.
-use breeze_reflow::markdown::{Document, MAX_PARSE_BYTES, Projection, ProjectionMode, Semantic};
+use breeze_reflow::markdown::{MAX_PARSE_BYTES, Metadata, Projection, ProjectionMode, Semantic};
 use std::time::{Duration, Instant};
 
 /// A document with the shapes real Markdown actually contains.
@@ -51,7 +51,7 @@ fn parse_and_projection_cost_by_document_size() {
         "source",
         "lines",
         "semantic p50/p95",
-        "reading p50/p95",
+        "metadata p50/p95",
         "projection p50/p95",
         "provisional p50/p95"
     );
@@ -66,8 +66,8 @@ fn parse_and_projection_cost_by_document_size() {
             std::hint::black_box(semantic.lines.len());
         });
         let (reading_p50, reading_p95) = measure(samples, || {
-            let document = Document::parse(&source).unwrap();
-            std::hint::black_box(document.blocks.len());
+            let metadata = Metadata::parse(&source).unwrap();
+            std::hint::black_box(metadata.headings.len());
         });
         let semantic = Semantic::parse(&source).unwrap();
         let (build_p50, build_p95) = measure(samples, || {
@@ -106,7 +106,7 @@ fn parse_and_projection_cost_by_document_size() {
     // The accepted ceiling refuses larger input before any parse work.
     let oversized = corpus(MAX_PARSE_BYTES + 4096);
     assert!(Semantic::parse(&oversized).is_err());
-    assert!(Document::parse(&oversized).is_err());
+    assert!(Metadata::parse(&oversized).is_err());
     println!(
         "{} MiB parse ceiling: refused",
         MAX_PARSE_BYTES / 1024 / 1024

@@ -5,36 +5,35 @@ use crate::*;
 const MARKDOWN_MAX_WIDTH: f32 = 760.;
 use breeze_reflow::{EpubWorker, epub, markdown};
 use gpui_kit::base::{TextView, TextViewState};
-use gpui_kit::component::Icon;
 use gpui_kit::component::{
     ElementExt, h_resizable,
     menu::{DropdownMenu, PopupMenuItem},
     resizable_panel,
     tab::{Tab, TabBar},
+    text::{
+        FrontmatterPlugin, InlineElement, MarkdownExtensions, MarkdownNode, MarkdownParseContext,
+        MarkdownPlugin, RangeHighlight, markdown_ast as mdast,
+    },
     tooltip::Tooltip,
 };
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
-struct TextBlock {
-    index: usize,
-    state: Entity<TextViewState>,
-    _subscription: Subscription,
+/// The single TextView-backed Markdown reading surface.
+#[derive(Clone)]
+pub(super) struct MarkdownView {
+    pub source: Arc<str>,
+    pub metadata: Arc<markdown::Metadata>,
+    pub state: Entity<TextViewState>,
+    pub extensions: MarkdownExtensions,
+    /// A source offset the state must reveal once Kit's parser commits it.
+    pending_reveal: Option<usize>,
 }
 
-/// How one native code block presents its body.
-#[derive(Clone, Copy, Debug)]
-struct CodeSettings {
-    numbers: bool,
-    wrap: bool,
-}
-
-impl Default for CodeSettings {
-    fn default() -> Self {
-        Self {
-            numbers: false,
-            wrap: true,
-        }
-    }
+#[derive(Clone, Debug)]
+pub(super) struct ReflowSearchHit {
+    pub rendered: std::ops::Range<usize>,
+    pub href: String,
+    pub text: String,
 }
 
 /// One row of the navigation panel. EPUB chapters and Markdown headings share
@@ -46,6 +45,7 @@ pub(super) struct OutlineEntry {
     pub depth: usize,
     pub href: String,
     pub block: usize,
+    pub source_offset: usize,
 }
 
 /// The navigation-outline title search. Mirrors the PDF reader's
@@ -90,35 +90,29 @@ impl ReflowTextSelection {
 
 /// A rasterized formula or diagram: the image plus its logical size.
 type RenderedImage = Option<(Arc<RenderImage>, f32, f32)>;
-type MathCache = HashMap<(String, u8, [u8; 3]), RenderedImage>;
-type MermaidCache = HashMap<(String, bool), RenderedImage>;
+type MathCache = HashMap<(String, u8, [u8; 3], u32), RenderedImage>;
+type MermaidCache = HashMap<(String, bool, u32), RenderedImage>;
 
 pub(super) struct ReflowView {
     pub source: Option<Source>,
-    pub markdown: Option<Arc<markdown::Document>>,
+    pub markdown: Option<MarkdownView>,
     pub frame: Option<epub::Frame>,
     pub(super) page_images: Vec<Arc<RenderImage>>,
     worker: Option<EpubWorker>,
-    blocks: VecDeque<TextBlock>,
-    pub list: ListState,
     task: Option<Task<()>>,
     request: Option<epub::Request>,
     viewport: (f32, f32, f32),
     /// Render generation, so a stale worker result can be discarded.
     pub epoch: u64,
     queued: bool,
-    pub hits: Vec<(String, usize, String)>,
+    pub hits: Vec<ReflowSearchHit>,
     pub images: reflow_images::Images,
     /// Typeset display formulas, keyed by TeX, font size and text colour.
     math_cache: MathCache,
+    /// Rasterize small inline formulas at a fixed preview DPR, keyed by source.
+    inline_math_cache: HashMap<(String, u8, [u8; 3]), Option<Arc<RenderImage>>>,
     /// Rendered Mermaid diagrams, keyed by their source and the app theme.
     mermaid_cache: MermaidCache,
-    /// Inline states for native task rows, keyed by block.
-    task_states: HashMap<usize, Vec<Entity<TextViewState>>>,
-    /// Per-cell inline states for native tables, keyed by block.
-    table_states: HashMap<usize, Vec<Vec<Entity<TextViewState>>>>,
-    /// Per-code-block presentation choices.
-    code_settings: HashMap<usize, CodeSettings>,
     /// Selection over the current EPUB frame, plus the rectangles to paint.
     text_selection: Option<ReflowTextSelection>,
     selection: Vec<(usize, Vec<[f32; 4]>)>,
@@ -132,20 +126,13 @@ pub(super) struct ReflowView {
     pub outline_folds: HashSet<usize>,
     pub outline_scroll: UniformListScrollHandle,
     outline_search: Option<OutlineSearch>,
-    /// Block index at the top of the Markdown view, kept from the list's own
-    /// scroll reports so rendering never re-borrows the list.
+    /// Top-level TextView block at the top of the Markdown view.
     pub active_block: usize,
+    /// Last TextView scroll offset reflected in Markdown progress.
+    markdown_scroll_offset: f32,
     /// Wheel distance not yet worth a page turn, in logical pixels.
     scroll_accum: f32,
     /// Page steps the reader has asked for that have not been issued yet.
-    ///
-    /// A step can only be resolved against a landed frame, because chapter
-    /// boundaries live in the layout. Without this queue a second click while the
-    /// first was still rendering rebuilt the same request from the previous
-    /// position and was dropped, so clicking Next twice moved one page. Steps are
-    /// issued one at a time rather than as one large delta, so a burst of clicks
-    /// lands on every page instead of depending on the engine to cross several
-    /// chapters at once.
     pending_turn: i16,
 }
 
@@ -157,8 +144,6 @@ impl Default for ReflowView {
             frame: None,
             page_images: Vec::new(),
             worker: None,
-            blocks: VecDeque::new(),
-            list: ListState::new(0, ListAlignment::Top, px(256.)),
             task: None,
             request: None,
             viewport: (600., 800., 1.),
@@ -167,10 +152,8 @@ impl Default for ReflowView {
             hits: Vec::new(),
             images: Default::default(),
             math_cache: HashMap::new(),
+            inline_math_cache: HashMap::new(),
             mermaid_cache: HashMap::new(),
-            task_states: HashMap::new(),
-            table_states: HashMap::new(),
-            code_settings: HashMap::new(),
             text_selection: None,
             selection: Vec::new(),
             selection_active: false,
@@ -181,6 +164,7 @@ impl Default for ReflowView {
             outline_scroll: UniformListScrollHandle::new(),
             outline_search: None,
             active_block: 0,
+            markdown_scroll_offset: 0.,
             scroll_accum: 0.,
             pending_turn: 0,
         }
@@ -203,7 +187,6 @@ impl ReflowView {
         self.source = None;
         self.markdown = None;
         self.frame = None;
-        self.blocks.clear();
         self.hits.clear();
         self.text_selection = None;
         self.selection.clear();
@@ -215,15 +198,14 @@ impl ReflowView {
         self.outline_scroll = UniformListScrollHandle::new();
         self.outline_search = None;
         self.active_block = 0;
+        self.markdown_scroll_offset = 0.;
         self.scroll_accum = 0.;
         self.pending_turn = 0;
         self.worker = None;
         self.images.clear(cx);
         self.math_cache.clear();
+        self.inline_math_cache.clear();
         self.mermaid_cache.clear();
-        self.task_states.clear();
-        self.table_states.clear();
-        self.code_settings.clear();
         let page_images = std::mem::take(&mut self.page_images);
         if !page_images.is_empty() {
             cx.defer(move |cx| {
@@ -231,6 +213,404 @@ impl ReflowView {
                     cx.drop_image(image, None);
                 }
             });
+        }
+    }
+}
+
+#[derive(Clone)]
+struct TocPlugin {
+    headings: Arc<Vec<markdown::Heading>>,
+    view: WeakEntity<Breeze>,
+}
+
+impl MarkdownPlugin for TocPlugin {
+    fn is_block(&self) -> bool {
+        true
+    }
+
+    fn name(&self) -> &str {
+        "breeze-toc"
+    }
+
+    fn parse(&self, node: &mdast::Node, cx: &MarkdownParseContext<'_>) -> Option<MarkdownNode> {
+        let source = cx.node_source(node)?.trim();
+        toc_placeholder(source).then(|| {
+            MarkdownNode::new(self.name(), ())
+                .text(source)
+                .markdown(source)
+        })
+    }
+
+    fn render(&self, _: &MarkdownNode, _: &mut Window, cx: &mut App) -> impl IntoElement {
+        let theme = Theme::global(cx).clone();
+        let mut list = div().w_full().flex().flex_col().gap_1();
+        for (index, heading) in self.headings.iter().enumerate() {
+            let view = self.view.clone();
+            let offset = heading.source.start;
+            list = list.child(
+                div()
+                    .id(("markdown-toc-entry", index))
+                    .test_support()
+                    .ml(px(12. * heading.level.saturating_sub(1) as f32))
+                    .text_color(theme.link)
+                    .cursor_pointer()
+                    .child(heading.title.clone())
+                    .on_click(move |_, _, cx| {
+                        let _ = view.update(cx, |this, cx| this.jump_markdown_source(offset, cx));
+                    }),
+            );
+        }
+        list.into_any_element()
+    }
+}
+
+#[derive(Clone)]
+struct MathBlockPlugin {
+    view: WeakEntity<Breeze>,
+}
+
+impl MarkdownPlugin for MathBlockPlugin {
+    fn is_block(&self) -> bool {
+        true
+    }
+
+    fn name(&self) -> &str {
+        "breeze-math-block"
+    }
+
+    fn parse(&self, node: &mdast::Node, _: &MarkdownParseContext<'_>) -> Option<MarkdownNode> {
+        let tex = match node {
+            mdast::Node::Math(math) => math.value.clone(),
+            mdast::Node::Paragraph(paragraph) => {
+                let [mdast::Node::InlineMath(math)] = paragraph.children.as_slice() else {
+                    return None;
+                };
+                math.value.clone()
+            }
+            mdast::Node::Code(code)
+                if matches!(
+                    code.lang.as_deref(),
+                    Some("math" | "katex" | "latex" | "tex")
+                ) =>
+            {
+                code.value.clone()
+            }
+            _ => return None,
+        };
+        Some(MarkdownNode::new(self.name(), tex.clone()).text(tex))
+    }
+
+    fn render(&self, node: &MarkdownNode, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let tex = node.data::<String>().cloned().unwrap_or_default();
+        let view = self.view.clone();
+        view.update(cx, |this, cx| this.markdown_math_block(&tex, window, cx))
+            .ok()
+            .unwrap_or_else(|| div().child(tex).into_any_element())
+    }
+}
+
+#[derive(Clone)]
+struct MermaidBlockPlugin {
+    view: WeakEntity<Breeze>,
+}
+
+impl MarkdownPlugin for MermaidBlockPlugin {
+    fn is_block(&self) -> bool {
+        true
+    }
+
+    fn name(&self) -> &str {
+        "breeze-mermaid"
+    }
+
+    fn parse(&self, node: &mdast::Node, _: &MarkdownParseContext<'_>) -> Option<MarkdownNode> {
+        let mdast::Node::Code(code) = node else {
+            return None;
+        };
+        let language = code.lang.as_deref()?.to_ascii_lowercase();
+        if !matches!(language.as_str(), "mermaid" | "flow" | "seq") {
+            return None;
+        }
+        let source = mermaid_source(&language, &code.value);
+        Some(MarkdownNode::new(self.name(), source.clone()).text(code.value.clone()))
+    }
+
+    fn render(&self, node: &MarkdownNode, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let source = node.data::<String>().cloned().unwrap_or_default();
+        let view = self.view.clone();
+        view.update(cx, |this, cx| {
+            this.markdown_mermaid_block(&source, window, cx)
+        })
+        .ok()
+        .unwrap_or_else(|| {
+            div()
+                .text_color(Theme::global(cx).danger)
+                .child(tr!("Unsupported or invalid diagram syntax"))
+                .into_any_element()
+        })
+    }
+}
+
+#[derive(Clone)]
+struct InlineMathPlugin {
+    view: WeakEntity<Breeze>,
+}
+
+impl MarkdownPlugin for InlineMathPlugin {
+    fn name(&self) -> &str {
+        "breeze-inline-math"
+    }
+
+    fn parse(&self, node: &mdast::Node, _: &MarkdownParseContext<'_>) -> Option<MarkdownNode> {
+        let mdast::Node::InlineMath(math) = node else {
+            return None;
+        };
+        Some(MarkdownNode::new(self.name(), math.value.clone()).text(format!("${}$", math.value)))
+    }
+
+    fn render_inline(
+        &self,
+        node: &MarkdownNode,
+        context: &gpui_kit::component::text::InlineRenderContext,
+        _: &mut Window,
+        cx: &mut App,
+    ) -> Option<InlineElement> {
+        let tex = node.data::<String>()?.clone();
+        let color = context.text_style().color;
+        let size = context.font_size();
+        self.view
+            .update(cx, |this, _cx| this.markdown_inline_math(&tex, size, color))
+            .ok()
+            .flatten()
+            .map(|element| InlineElement::new(element).with_baseline(size * 0.8))
+    }
+}
+
+fn toc_placeholder(source: &str) -> bool {
+    matches!(
+        source.to_ascii_lowercase().as_str(),
+        "[toc]" | "[[toc]]" | "[[_toc_]]" | "{{toc}}" | "<toc>"
+    )
+}
+
+impl Breeze {
+    fn markdown_extensions(
+        &self,
+        cx: &mut Context<Self>,
+        metadata: &markdown::Metadata,
+    ) -> MarkdownExtensions {
+        let view = cx.entity().downgrade();
+        MarkdownExtensions::default()
+            .frontmatter()
+            .plugin(FrontmatterPlugin::new())
+            .plugin(TocPlugin {
+                headings: Arc::new(metadata.headings.clone()),
+                view: view.clone(),
+            })
+            .plugin(MathBlockPlugin { view: view.clone() })
+            .plugin(InlineMathPlugin { view: view.clone() })
+            .plugin(MermaidBlockPlugin { view })
+            .parser_revision(
+                metadata
+                    .fingerprint
+                    .as_bytes()
+                    .iter()
+                    .fold(0u64, |hash, byte| {
+                        hash.wrapping_mul(1099511628211)
+                            .wrapping_add(u64::from(*byte))
+                    }),
+            )
+    }
+
+    fn restore_pending_markdown(&mut self, cx: &mut Context<Self>) {
+        let Some(markdown) = self.reflow.markdown.as_mut() else {
+            return;
+        };
+        let Some(offset) = markdown.pending_reveal else {
+            return;
+        };
+        let rendered = markdown.state.read(cx).rendered_text();
+        if rendered.source() != markdown.source.as_ref() {
+            return;
+        }
+        let Some(range) = source_render_range(rendered.source(), offset)
+            .and_then(|range| rendered.range_for_source(range))
+        else {
+            return;
+        };
+        let _ = markdown
+            .state
+            .update(cx, |state, cx| state.reveal_range(range, cx));
+        markdown.pending_reveal = None;
+        let block = markdown.metadata.block_at_offset(offset);
+        self.reflow.active_block = block;
+    }
+
+    fn jump_markdown_source(&mut self, offset: usize, cx: &mut Context<Self>) {
+        let Some(markdown) = self.reflow.markdown.as_mut() else {
+            return;
+        };
+        let block = markdown.metadata.block_at_offset(offset);
+        let source_bytes = markdown.metadata.source_bytes.max(1);
+        markdown.pending_reveal = Some(offset);
+        self.reflow.active_block = block;
+        let position = &mut self.books[self.active].reflow;
+        position.markdown_offset = offset.min(source_bytes.saturating_sub(1));
+        position.progress = offset as f32 / source_bytes as f32;
+        self.restore_pending_markdown(cx);
+        cx.notify();
+    }
+
+    fn jump_markdown_range(&mut self, range: std::ops::Range<usize>, cx: &mut Context<Self>) {
+        let Some(markdown) = self.reflow.markdown.as_ref() else {
+            return;
+        };
+        let state = markdown.state.clone();
+        state.update(cx, |state, cx| {
+            let _ = state.reveal_range(range, cx);
+        });
+        cx.notify();
+    }
+
+    fn apply_markdown_search_highlights(&mut self, cx: &mut Context<Self>) {
+        let Some(markdown) = self.reflow.markdown.as_ref() else {
+            return;
+        };
+        let color = Theme::global(cx).warning.opacity(0.28);
+        let highlights = self
+            .reflow
+            .hits
+            .iter()
+            .filter(|hit| !hit.rendered.is_empty())
+            .map(|hit| RangeHighlight::new(hit.rendered.clone(), color))
+            .collect::<Vec<_>>();
+        markdown.state.update(cx, |state, cx| {
+            let _ = state.set_range_highlights(highlights, cx);
+        });
+    }
+
+    fn markdown_math_block(
+        &mut self,
+        tex: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = Theme::global(cx).clone();
+        let body = f32::from(self.books[self.active].reflow.font_size);
+        let color = theme.foreground.to_rgb();
+        let rgb = [
+            (color.r * 255.0).round() as u8,
+            (color.g * 255.0).round() as u8,
+            (color.b * 255.0).round() as u8,
+        ];
+        let scale = window.scale_factor().max(1.0);
+        let key = (
+            tex.to_owned(),
+            self.books[self.active].reflow.font_size,
+            rgb,
+            scale.to_bits(),
+        );
+        let rendered = self
+            .reflow
+            .math_cache
+            .entry(key)
+            .or_insert_with(|| {
+                ratex_gpui::render::render_latex(tex, body, scale, theme.foreground)
+                    .map(|formula| (formula.image, formula.width, formula.height))
+            })
+            .clone();
+        let formula = match rendered {
+            Some((image, width, height)) => {
+                img(image).w(px(width)).h(px(height)).into_any_element()
+            }
+            None => div()
+                .text_size(px(body + 2.))
+                .font_family(theme.font_family)
+                .child(tex.to_owned())
+                .into_any_element(),
+        };
+        div()
+            .id("markdown-math")
+            .test_support()
+            .w_full()
+            .flex()
+            .justify_center()
+            .py_2()
+            .child(formula)
+            .into_any_element()
+    }
+
+    fn markdown_inline_math(
+        &mut self,
+        tex: &str,
+        size: gpui_kit::Pixels,
+        color: gpui_kit::Hsla,
+    ) -> Option<AnyElement> {
+        let rgb = color.to_rgb();
+        let rgb = [
+            (rgb.r * 255.0).round() as u8,
+            (rgb.g * 255.0).round() as u8,
+            (rgb.b * 255.0).round() as u8,
+        ];
+        let key = (tex.to_owned(), f32::from(size).round() as u8, rgb);
+        let image = self
+            .reflow
+            .inline_math_cache
+            .entry(key)
+            .or_insert_with(|| {
+                ratex_gpui::render::render_latex(tex, f32::from(size), 2.0, color)
+                    .map(|formula| formula.image)
+            })
+            .clone()?;
+        let image_size = image.size(0);
+        Some(
+            img(image)
+                .w(px(usize::from(image_size.width) as f32 / 2.))
+                .h(px(usize::from(image_size.height) as f32 / 2.))
+                .into_any_element(),
+        )
+    }
+
+    fn markdown_mermaid_block(
+        &mut self,
+        source: &str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = Theme::global(cx).clone();
+        let scale = window.scale_factor().max(1.0);
+        let key = (source.to_owned(), theme.is_dark(), scale.to_bits());
+        let rendered = self
+            .reflow
+            .mermaid_cache
+            .entry(key)
+            .or_insert_with(|| {
+                let svg = mermaid_rs_renderer::render(source).ok()?;
+                let image = crate::reflow_images::svg_image(svg.as_bytes(), scale).ok()?;
+                let size = image.size(0);
+                Some((
+                    image,
+                    usize::from(size.width) as f32 / scale,
+                    usize::from(size.height) as f32 / scale,
+                ))
+            })
+            .clone();
+        match rendered {
+            Some((image, width, height)) => div()
+                .id("markdown-mermaid")
+                .test_support()
+                .w_full()
+                .flex()
+                .justify_center()
+                .py_2()
+                .child(img(image).w(px(width)).h(px(height)))
+                .into_any_element(),
+            None => div()
+                .id("markdown-mermaid")
+                .test_support()
+                .text_color(theme.danger)
+                .child(tr!("Unsupported or invalid diagram syntax"))
+                .into_any_element(),
         }
     }
 }
@@ -250,7 +630,15 @@ impl Breeze {
         self.search_cancel = Some(cancel.clone());
         self.search_busy = true;
         self.search_notice = tr!("Searching…").into();
-        let document = self.reflow.markdown.clone();
+
+        let markdown_text = self.reflow.markdown.as_ref().map(|markdown| {
+            let rendered = markdown.state.read(cx).rendered_text().as_str().to_owned();
+            if rendered.is_empty() {
+                markdown.source.to_string()
+            } else {
+                rendered
+            }
+        });
         let Source::File(path) = self.books[self.active].source.clone() else {
             return;
         };
@@ -259,33 +647,30 @@ impl Breeze {
             .frame
             .as_ref()
             .map(|frame| frame.metadata.fingerprint.clone());
+        let search_query = query.clone();
         let work = cx.background_spawn(async move {
-            if let Some(document) = document {
-                Ok(document
-                    .search(&query)
-                    .into_iter()
-                    .map(|(block, text)| (String::new(), block, text))
-                    .collect::<Vec<_>>())
+            if let Some(text) = markdown_text {
+                Ok::<_, anyhow::Error>(search_markdown_text(&text, &search_query))
             } else {
-                let (revision, hits) = epub::search(&path, &query, &cancel)?;
+                let (revision, hits) = epub::search(&path, &search_query, &cancel)?;
                 anyhow::ensure!(
                     fingerprint.as_ref() == Some(&revision),
                     "The EPUB changed; reopen it before searching"
                 );
-                Ok::<_, anyhow::Error>(
-                    hits.into_iter()
-                        .map(|hit| {
-                            let text =
-                                reflow_search_result_text(&hit.title, &hit.href, &hit.snippet);
-                            (hit.href, 0, text)
-                        })
-                        .collect(),
-                )
+                Ok(hits
+                    .into_iter()
+                    .map(|hit| ReflowSearchHit {
+                        rendered: 0..0,
+                        text: reflow_search_result_text(&hit.title, &hit.href, &hit.snippet),
+                        href: hit.href,
+                    })
+                    .collect())
             }
         });
-        cx.spawn(async move |this, cx| {
+        let view = cx.entity().downgrade();
+        cx.spawn(async move |_, cx| {
             let result = work.await;
-            let _ = this.update(cx, |this, cx| {
+            let _ = view.update(cx, |this, cx| {
                 if this.search_generation != generation {
                     return;
                 }
@@ -295,6 +680,7 @@ impl Breeze {
                     Ok(hits) => {
                         this.search_notice = tf!("{} matching sections", hits.len());
                         this.reflow.hits = hits;
+                        this.apply_markdown_search_highlights(cx);
                     }
                     Err(error) => this.search_notice = format!("{error:#}"),
                 }
@@ -319,44 +705,26 @@ impl Breeze {
                     .flex_1()
                     .min_h_0()
                     .overflow_y_scroll()
-                    .children(self.reflow.hits.iter().enumerate().map(
-                        |(index, (href, block, text))| {
-                            let (href, block) = (href.clone(), *block);
-                            Button::new(("search-result", index))
-                                .ghost()
-                                .small()
-                                .w_full()
-                                .justify_start()
-                                .accessibility_label(text.clone())
-                                .tooltip(text.clone())
-                                .child(
-                                    div()
-                                        .w_full()
-                                        .text_left()
-                                        .text_ellipsis()
-                                        .child(text.clone()),
-                                )
-                                .on_click(cx.listener(move |this, _, _, cx| {
-                                    if this.books[this.active].format()
-                                        == Some(DocumentFormat::Epub)
-                                    {
-                                        this.books[this.active].reflow.epub =
-                                            breeze_core::document::EpubLocation {
-                                                href: href.clone(),
-                                                progression: 0.,
-                                            };
-                                        this.request_epub(
-                                            0,
-                                            0.,
-                                            Some(this.search_input.read(cx).value().to_string()),
-                                            cx,
-                                        );
-                                    } else {
-                                        this.jump_reflow(String::new(), block, cx);
-                                    }
-                                }))
-                        },
-                    )),
+                    .children(self.reflow.hits.iter().enumerate().map(|(index, hit)| {
+                        let rendered = hit.rendered.clone();
+                        let href = hit.href.clone();
+                        let text = hit.text.clone();
+                        Button::new(("search-result", index))
+                            .ghost()
+                            .small()
+                            .w_full()
+                            .justify_start()
+                            .accessibility_label(text.clone())
+                            .tooltip(text.clone())
+                            .child(div().w_full().text_left().text_ellipsis().child(text))
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                if this.books[this.active].format() == Some(DocumentFormat::Epub) {
+                                    this.jump_reflow(href.clone(), 0, cx);
+                                } else {
+                                    this.jump_markdown_range(rendered.clone(), cx);
+                                }
+                            }))
+                    })),
             )
     }
 
@@ -392,10 +760,10 @@ impl Breeze {
                         frame.metadata.chapters.len().to_string(),
                     ))
             })
-            .when_some(self.reflow.markdown.as_ref(), |info, document| {
+            .when_some(self.reflow.markdown.as_ref(), |info, markdown| {
                 info.child(field(
                     tr!("Text"),
-                    tf!("{} characters", document.characters),
+                    tf!("{} characters", markdown.metadata.characters),
                 ))
             })
             .child(field(
@@ -497,14 +865,11 @@ impl Breeze {
         match self.books[self.active].format() {
             Some(DocumentFormat::Markdown) => {
                 // A draft is the reader's source whenever an editing session
-                // exists: switching back shows the preview of what was typed,
-                // not the file on disk.
+                // exists: switching back previews what was typed.
                 let draft = self.books[self.active]
                     .markdown_edit
                     .as_ref()
                     .map(|editor| editor.read(cx).source_text(cx));
-                // Refuse the parse before reading or spawning: above the
-                // ceiling the document stays available in the source view.
                 if draft
                     .as_ref()
                     .is_some_and(|source| source.len() > markdown::MAX_PARSE_BYTES)
@@ -532,10 +897,12 @@ impl Breeze {
                 let generation = self.generation;
                 let work = cx.background_spawn(async move {
                     match draft {
-                        Some(source) => markdown::Document::parse(&source),
-                        None => markdown::Document::open(&path),
+                        Some(source) => {
+                            markdown::Metadata::parse(&source).map(|metadata| (source, metadata))
+                        }
+                        None => markdown::Metadata::open(&path)
+                            .and_then(|metadata| Ok((std::fs::read_to_string(&path)?, metadata))),
                     }
-                    .map(Arc::new)
                 });
                 self.reflow.task = Some(cx.spawn(async move |this, cx| {
                     let result = work.await;
@@ -545,22 +912,19 @@ impl Breeze {
                         }
                         this.loading = false;
                         match result {
-                            Ok(document) => {
-                                let list = ListState::new(
-                                    document.blocks.len(),
-                                    ListAlignment::Top,
-                                    px(256.),
-                                )
-                                .with_uniform_item_height(px(72.));
-                                let position = &this.books[this.active].reflow;
-                                let restored = document.block_at_offset(position.markdown_offset);
-                                list.scroll_to(ListOffset {
-                                    item_ix: restored,
-                                    offset_in_item: px(position.scroll_offset),
+                            Ok((source, metadata)) => {
+                                let metadata = Arc::new(metadata);
+                                let extensions = this.markdown_extensions(cx, &metadata);
+                                let state = cx.new(|cx| {
+                                    TextViewState::markdown(&source, cx)
+                                        .selectable(true)
+                                        .scrollable(true)
                                 });
+                                let position = this.books[this.active].reflow.markdown_offset;
+                                let restored = metadata.block_at_offset(position);
                                 this.reflow.active_block = restored;
                                 this.reflow.outline = Arc::new(
-                                    document
+                                    metadata
                                         .headings
                                         .iter()
                                         .map(|heading| OutlineEntry {
@@ -568,24 +932,28 @@ impl Breeze {
                                             depth: heading.level.saturating_sub(1),
                                             href: heading.anchor.clone(),
                                             block: heading.block,
+                                            source_offset: heading.source.start,
                                         })
                                         .collect(),
                                 );
-                                let view = cx.entity().downgrade();
-                                list.set_scroll_handler(move |event, _, cx| {
-                                    // Kit dispatches this handler while the list's own
-                                    // state is mutably borrowed for the scroll, so it
-                                    // reports the event instead of asking the list
-                                    // where it is; reading the list here panics with a
-                                    // second borrow.
-                                    let first = event.visible_range.start;
-                                    let at_end = event.visible_range.end >= event.count;
-                                    let _ = view.update(cx, |this, cx| {
-                                        this.record_markdown_position(first, at_end, cx)
-                                    });
+
+                                let observer = cx.observe(&state, move |this, state, cx| {
+                                    if this.reflow.markdown.as_ref().is_some_and(|markdown| {
+                                        markdown.state.entity_id() == state.entity_id()
+                                    }) {
+                                        this.remember_markdown_position(cx);
+                                        this.restore_pending_markdown(cx);
+                                    }
                                 });
-                                this.reflow.list = list;
-                                this.reflow.markdown = Some(document);
+                                this._subscriptions.push(observer);
+                                this.reflow.markdown = Some(MarkdownView {
+                                    source: Arc::from(source),
+                                    metadata,
+                                    state,
+                                    extensions,
+                                    pending_reveal: Some(position),
+                                });
+                                this.restore_pending_markdown(cx);
                             }
                             Err(error) => this.message = format!("{error:#}"),
                         }
@@ -727,6 +1095,7 @@ impl Breeze {
                                             depth: entry.depth,
                                             href: entry.href.clone(),
                                             block: 0,
+                                            source_offset: 0,
                                         })
                                         .collect(),
                                 );
@@ -756,37 +1125,38 @@ impl Breeze {
     /// the list mutably borrows its own state, so any list query here panics
     /// with `RefCell already mutably borrowed`. The caller passes the reported
     /// block instead.
-    fn record_markdown_position(&mut self, block: usize, at_end: bool, cx: &mut Context<Self>) {
+    fn record_markdown_progress(
+        &mut self,
+        source_offset: usize,
+        source_bytes: usize,
+        at_end: bool,
+        cx: &mut Context<Self>,
+    ) {
         if self
             .books
             .get(self.active)
-            .is_none_or(|b| b.format() != Some(DocumentFormat::Markdown))
+            .is_none_or(|book| book.format() != Some(DocumentFormat::Markdown))
         {
             return;
         }
-        let Some(document) = &self.reflow.markdown else {
+        let Some(markdown) = &self.reflow.markdown else {
             return;
         };
-        if document.blocks.is_empty() {
-            return;
-        }
-        let index = block.min(document.blocks.len() - 1);
-        self.reflow.active_block = index;
-        let source_start = document.blocks[index].source.start;
+        self.reflow.active_block = markdown.metadata.block_at_offset(source_offset);
         let position = &mut self.books[self.active].reflow;
-        position.markdown_offset = source_start;
+        position.markdown_offset = source_offset.min(source_bytes.saturating_sub(1));
         position.scroll_offset = 0.;
         position.progress = if at_end {
             1.
         } else {
-            source_start as f32 / document.source_bytes.max(1) as f32
+            source_offset as f32 / source_bytes.max(1) as f32
         };
         cx.notify();
     }
 
     /// Remember the current position after a command moved the list.
     ///
-    /// Commands run outside Kit's scroll dispatch, so this may read the list.
+    /// Commands run outside Kit's scroll dispatch, so they may read the list.
     /// Prepare the next page while the reader looks at this one, so a turn
     /// hands over a raster that already exists.
     fn prefetch_epub(&mut self, cx: &mut Context<Self>) {
@@ -799,9 +1169,6 @@ impl Breeze {
         let Some(worker) = &self.reflow.worker else {
             return;
         };
-        // Build the prefetch on the page now on screen: the stored request
-        // carries the viewport and text size it was produced with, but its
-        // location is the one the turn started from.
         let mut next = match &self.reflow.request {
             Some(request) => request.clone(),
             None => return,
@@ -815,18 +1182,44 @@ impl Breeze {
         let _ = cx;
     }
 
+    fn record_markdown_scroll(&mut self, offset: f32, cx: &mut Context<Self>) {
+        if (offset - self.reflow.markdown_scroll_offset).abs() < 0.5 {
+            return;
+        }
+        self.reflow.markdown_scroll_offset = offset;
+        self.remember_markdown_position(cx);
+    }
+
     fn remember_markdown_position(&mut self, cx: &mut Context<Self>) {
-        let top = self.reflow.list.logical_scroll_top();
-        let at_end = self.reflow.list.is_scrolled_to_end() == Some(true);
-        self.record_markdown_position(top.item_ix, at_end, cx);
+        let Some(markdown) = &self.reflow.markdown else {
+            return;
+        };
+        let list = markdown.state.read(cx).list_state();
+        let top = list.logical_scroll_top().item_ix;
+        let at_end = list.is_scrolled_to_end() == Some(true);
+        let offset = markdown
+            .metadata
+            .block_starts
+            .get(top)
+            .copied()
+            .unwrap_or_else(|| {
+                let source = markdown.source.len().max(1);
+                (markdown.metadata.source_bytes as f32 * top as f32
+                    / list.item_count().max(1) as f32) as usize
+                    * source
+                    / markdown.metadata.source_bytes.max(1)
+            });
+        self.record_markdown_progress(offset, markdown.metadata.source_bytes, at_end, cx);
     }
 
     pub(super) fn turn_reflow(&mut self, delta: i32, cx: &mut Context<Self>) {
         if self.books[self.active].format() == Some(DocumentFormat::Epub) {
             self.request_epub(delta.signum() as i8, 0., None, cx);
-        } else {
-            self.reflow
-                .list
+        } else if let Some(markdown) = &self.reflow.markdown {
+            markdown
+                .state
+                .read(cx)
+                .list_state()
                 .scroll_by(px(delta as f32 * self.reflow.viewport.1 * 0.85));
             self.remember_markdown_position(cx);
         }
@@ -834,18 +1227,14 @@ impl Breeze {
     }
 
     pub(super) fn scroll_markdown(&mut self, distance: gpui_kit::Pixels, cx: &mut Context<Self>) {
-        if self.reflow.markdown.is_none() {
+        let Some(markdown) = &self.reflow.markdown else {
             return;
-        }
-        let mut offset = self.reflow.list.scroll_px_offset_for_scrollbar();
+        };
+        let list = markdown.state.read(cx).list_state();
+        let mut offset = list.scroll_px_offset_for_scrollbar();
         offset.y -= distance;
-        // Use the list's bounded pixel offset before recording its position.
-        // Unlike scroll_by, this cannot temporarily overshoot the document end.
-        self.reflow.list.set_offset_from_scrollbar(offset);
-        let top = self.reflow.list.logical_scroll_top();
-        let at_end = -self.reflow.list.scroll_px_offset_for_scrollbar().y
-            >= self.reflow.list.max_offset_for_scrollbar().y;
-        self.record_markdown_position(top.item_ix, at_end, cx);
+        list.set_offset_from_scrollbar(offset);
+        self.remember_markdown_position(cx);
     }
 
     /// Two-page EPUB reading.
@@ -873,7 +1262,6 @@ impl Breeze {
         if let Some(editor) = self.books[self.active].markdown_edit.clone() {
             editor.update(cx, |editor, cx| editor.set_font_size(font_size, cx));
         }
-        self.reflow.list.remeasure();
         self.request_epub(0, 0., None, cx);
         cx.notify();
     }
@@ -885,13 +1273,14 @@ impl Breeze {
                 progression: 0.,
             };
             self.request_epub(0, 0., None, cx);
-        } else {
-            self.reflow.active_block = block;
-            self.reflow.list.scroll_to(ListOffset {
-                item_ix: block,
-                offset_in_item: px(0.),
-            });
-            self.remember_markdown_position(cx);
+        } else if let Some(markdown) = &self.reflow.markdown {
+            let offset = markdown
+                .metadata
+                .block_starts
+                .get(block)
+                .copied()
+                .unwrap_or(0);
+            self.jump_markdown_source(offset, cx);
         }
         cx.notify();
     }
@@ -931,28 +1320,31 @@ impl Breeze {
                     .when(self.books[self.active].is_markdown(), |bar| {
                         let editing = self.books[self.active].markdown_editing;
                         bar.child(
-                            Button::new("markdown-edit-toggle")
-                                .ghost()
+                            TabBar::new("markdown-modes")
+                                .segmented()
                                 .small()
-                                .icon(if editing {
-                                    IconName::BookOpenText
-                                } else {
-                                    IconName::Pencil
-                                })
-                                .selected(editing)
-                                .accessibility_label(if editing {
-                                    tr!("Reading view")
-                                } else {
-                                    tr!("Edit document")
-                                })
-                                .tooltip(if editing {
-                                    tr!("Reading view")
-                                } else {
-                                    tr!("Edit document")
-                                })
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.toggle_markdown_editing(window, cx)
-                                })),
+                                .selected_index(usize::from(editing))
+                                .on_click(cx.listener(|this, index, window, cx| {
+                                    if this.books[this.active].markdown_editing != (*index == 1) {
+                                        this.toggle_markdown_editing(window, cx);
+                                    }
+                                }))
+                                .child(
+                                    Tab::new()
+                                        .icon(IconName::BookOpenText)
+                                        .aria_label(tr!("Reading view"))
+                                        .tooltip(|window, cx| {
+                                            Tooltip::new(tr!("Reading view")).build(window, cx)
+                                        }),
+                                )
+                                .child(
+                                    Tab::new()
+                                        .icon(IconName::Pencil)
+                                        .aria_label(tr!("Edit document"))
+                                        .tooltip(|window, cx| {
+                                            Tooltip::new(tr!("Edit document")).build(window, cx)
+                                        }),
+                                ),
                         )
                     })
                     .child(div().flex_1())
@@ -1129,7 +1521,6 @@ impl Breeze {
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     let full = &mut this.books[this.active].reflow.full_width;
                                     *full = !*full;
-                                    this.reflow.list.remeasure();
                                     cx.notify();
                                 })),
                         )
@@ -1239,7 +1630,7 @@ impl Breeze {
                 self.reflow
                     .markdown
                     .as_ref()
-                    .map(|document| document.characters)
+                    .map(|markdown| markdown.metadata.characters)
             })
     }
 
@@ -1407,7 +1798,7 @@ impl Breeze {
         if self.books[self.active].format() == Some(DocumentFormat::Epub) {
             self.jump_reflow(entry.href, 0, cx);
         } else {
-            self.jump_reflow(String::new(), entry.block, cx);
+            self.jump_markdown_source(entry.source_offset, cx);
         }
     }
 
@@ -2012,11 +2403,34 @@ impl Breeze {
                             .child(editor),
                     ),
             );
-        } else if self.reflow.markdown.is_some() {
-            // Markdown reads at a comfortable measure by default. The status bar
-            // toggles the full window width; the text column stays centred when
-            // the maximum applies.
+        } else if let Some(markdown) = self.reflow.markdown.clone() {
+            // One TextView owns the complete Markdown document: parsing,
+            // virtualized block layout, selection, links, tables, tasks, images
+            // and code cards all come from GPUI Kit.
             let full_width = self.books[self.active].reflow.full_width;
+            let body = f32::from(self.books[self.active].reflow.font_size);
+            let view = cx.entity().downgrade();
+            let image_view = cx.entity().downgrade();
+            let source = self.books[self.active].source.clone();
+            let extensions = markdown.extensions.clone();
+            let state = markdown.state.clone();
+            let scroll_view = cx.entity().downgrade();
+            let block_starts = markdown.metadata.block_starts.clone();
+            let source_bytes = markdown.metadata.source_bytes.max(1);
+            state
+                .read(cx)
+                .list_state()
+                .set_scroll_handler(move |event, _, cx| {
+                    let first = event
+                        .visible_range
+                        .start
+                        .min(block_starts.len().saturating_sub(1));
+                    let source_offset = block_starts.get(first).copied().unwrap_or(0);
+                    let at_end = event.visible_range.end >= event.count;
+                    let _ = scroll_view.update(cx, |this, cx| {
+                        this.record_markdown_progress(source_offset, source_bytes, at_end, cx)
+                    });
+                });
             content = content.child(
                 div()
                     .id("markdown-column")
@@ -2032,16 +2446,68 @@ impl Breeze {
                             .h_full()
                             .min_h_0()
                             .w_full()
+                            .text_size(px(body))
                             .when(!full_width, |column| column.max_w(px(MARKDOWN_MAX_WIDTH)))
                             .child(
-                                list(
-                                    self.reflow.list.clone(),
-                                    cx.processor(|this, index: usize, _, cx| {
-                                        this.markdown_block(index, cx)
-                                    }),
-                                )
-                                .with_sizing_behavior(ListSizingBehavior::Auto)
-                                .size_full(),
+                                div()
+                                    .id("markdown-document")
+                                    .test_support()
+                                    .size_full()
+                                    .on_prepaint({
+                                        let scroll_state = state.clone();
+                                        let scroll_view = cx.entity().downgrade();
+                                        move |_, _, cx| {
+                                            let offset = -f32::from(
+                                                scroll_state
+                                                    .read(cx)
+                                                    .list_state()
+                                                    .scroll_px_offset_for_scrollbar()
+                                                    .y,
+                                            );
+                                            let _ = scroll_view.update(cx, |this, cx| {
+                                                this.record_markdown_scroll(offset, cx)
+                                            });
+                                        }
+                                    })
+                                    .child(
+                                        TextView::new(&state)
+                                            .scrollable(true)
+                                            .style(markdown_style::text_style(cx, body))
+                                            .markdown_extensions(extensions)
+                                            .image_source(move |uri| {
+                                                reflow_images::source(
+                                                    image_view.clone(),
+                                                    source.clone(),
+                                                    uri.to_string(),
+                                                )
+                                            })
+                                            .on_link_click(move |href, _, _, cx| {
+                                                let _ = view.update(cx, |this, cx| {
+                                                    this.follow_reflow_link(href.as_ref(), cx)
+                                                });
+                                            })
+                                            .code_block_actions(move |code, _, _cx| {
+                                                use std::hash::{Hash as _, Hasher as _};
+                                                let mut hasher =
+                                                    std::collections::hash_map::DefaultHasher::new(
+                                                    );
+                                                code.code().hash(&mut hasher);
+                                                let text = code.code().to_string();
+                                                Button::new(("markdown-code-copy", hasher.finish()))
+                                                    .ghost()
+                                                    .small()
+                                                    .icon(IconName::Copy)
+                                                    .accessibility_label(tr!("Copy code"))
+                                                    .tooltip(tr!("Copy code"))
+                                                    .on_click(move |_, _, cx| {
+                                                        cx.write_to_clipboard(
+                                                            gpui_kit::ClipboardItem::new_string(
+                                                                text.clone(),
+                                                            ),
+                                                        );
+                                                    })
+                                            }),
+                                    ),
                             ),
                     ),
             );
@@ -2056,619 +2522,17 @@ impl Breeze {
         content.into_any_element()
     }
 
-    fn markdown_block(&mut self, index: usize, cx: &mut Context<Self>) -> AnyElement {
-        let Some(document) = self.reflow.markdown.clone() else {
-            return div().into_any_element();
-        };
-        let Some(block) = document.blocks.get(index) else {
-            return div().into_any_element();
-        };
-        let body = f32::from(self.books[self.active].reflow.font_size);
-        let theme = Theme::global(cx).clone();
-        let frame = |child: AnyElement| {
-            div()
-                .id(("markdown-block", index))
-                .test_support()
-                .w_full()
-                .px_4()
-                .py_1()
-                .min_h(px(20.))
-                .text_size(px(body))
-                .child(child)
-                .into_any_element()
-        };
-        match block.kind {
-            markdown::RenderKind::Rule => {
-                return frame(
-                    div()
-                        .id(("markdown-rule", index))
-                        .test_support()
-                        .w_full()
-                        .py_2()
-                        .child(
-                            div()
-                                .h(px(1.5))
-                                .w_full()
-                                .bg(theme.muted_foreground.opacity(0.4)),
-                        )
-                        .into_any_element(),
-                );
-            }
-            markdown::RenderKind::FrontMatter => {
-                let mut card = div()
-                    .id(("markdown-frontmatter", index))
-                    .test_support()
-                    .w_full()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .px_3()
-                    .py_2()
-                    .rounded_md()
-                    .bg(theme.muted.opacity(0.45))
-                    .border_l_2()
-                    .border_color(theme.primary.opacity(0.5));
-                for line in block.text.lines() {
-                    let (key, value) = line.split_once(':').unwrap_or(("", line));
-                    let mut row = div().flex().gap_2();
-                    if !key.trim().is_empty() {
-                        row = row.child(
-                            div()
-                                .text_color(theme.muted_foreground)
-                                .child(key.trim().to_string()),
-                        );
-                    }
-                    row = row.child(div().child(value.trim().to_string()));
-                    card = card.child(row);
-                }
-                return frame(card.into_any_element());
-            }
-            markdown::RenderKind::Math => {
-                let tex = block.text.trim().to_string();
-                let rgb = {
-                    let colour = theme.foreground.to_rgb();
-                    [
-                        (colour.r * 255.0).round() as u8,
-                        (colour.g * 255.0).round() as u8,
-                        (colour.b * 255.0).round() as u8,
-                    ]
-                };
-                let font_size = self.books[self.active].reflow.font_size;
-                let key = (tex.clone(), font_size, rgb);
-                let rendered = self
-                    .reflow
-                    .math_cache
-                    .entry(key)
-                    .or_insert_with(|| {
-                        ratex_gpui::render::render_latex(&tex, body, 2.0, theme.foreground)
-                            .map(|formula| (formula.image, formula.width, formula.height))
-                    })
-                    .clone();
-                let formula = match rendered {
-                    Some((image, width, height)) => {
-                        img(image).w(px(width)).h(px(height)).into_any_element()
-                    }
-                    // A malformed formula still shows its TeX rather than nothing.
-                    None => div()
-                        .text_size(px(body + 2.))
-                        .font_family(theme.font_family.clone())
-                        .child(tex)
-                        .into_any_element(),
-                };
-                return frame(
-                    div()
-                        .id(("markdown-math", index))
-                        .test_support()
-                        .w_full()
-                        .flex()
-                        .justify_center()
-                        .py_2()
-                        .child(formula)
-                        .into_any_element(),
-                );
-            }
-            markdown::RenderKind::Mermaid => {
-                let source_text = block.text.trim().to_string();
-                let key = (source_text.clone(), theme.is_dark());
-                let rendered = self
-                    .reflow
-                    .mermaid_cache
-                    .entry(key)
-                    .or_insert_with(|| {
-                        let svg = mermaid_rs_renderer::render(&source_text).ok()?;
-                        let image = crate::reflow_images::svg_image(svg.as_bytes(), 2.0).ok()?;
-                        let size = image.size(0);
-                        Some((
-                            image,
-                            usize::from(size.width) as f32 / 2.0,
-                            usize::from(size.height) as f32 / 2.0,
-                        ))
-                    })
-                    .clone();
-                if let Some((image, width, height)) = rendered {
-                    return frame(
-                        div()
-                            .id(("markdown-mermaid", index))
-                            .test_support()
-                            .w_full()
-                            .flex()
-                            .justify_center()
-                            .py_2()
-                            .child(img(image).w(px(width)).h(px(height)))
-                            .into_any_element(),
-                    );
-                }
-                // Unsupported syntax falls through to the Markdown source card.
-            }
-            markdown::RenderKind::Images => {
-                let images = match &block.payload {
-                    markdown::RenderPayload::Images(images) => images.clone(),
-                    _ => Vec::new(),
-                };
-                let document_source = self.books[self.active].source.clone();
-                let mut loaded: Vec<(String, Option<Arc<RenderImage>>)> = Vec::new();
-                for image in &images {
-                    self.request_image(cx, &document_source, &image.url);
-                    loaded.push((image.alt.clone(), self.reflow.images.cached(&image.url)));
-                }
-                let gaps = 8.0 * loaded.len().saturating_sub(1) as f32;
-                let natural: f32 = loaded
-                    .iter()
-                    .map(|(_, image)| {
-                        image
-                            .as_ref()
-                            .map_or(48.0, |image| usize::from(image.size(0).width) as f32)
-                    })
-                    .sum();
-                // Badges share one line. Shrink the row to the reading measure
-                // instead of wrapping one badge per line.
-                let scale = if natural + gaps > 640. {
-                    (640. - gaps).max(80.) / natural.max(1.)
-                } else {
-                    1.0
-                };
-                let mut row = div()
-                    .id(("markdown-images", index))
-                    .test_support()
-                    .w_full()
-                    .flex()
-                    .justify_center()
-                    .items_center()
-                    .gap_2()
-                    .py_1();
-                for (alt, image) in loaded {
-                    match image {
-                        Some(image) => {
-                            let size = image.size(0);
-                            let width = usize::from(size.width) as f32 * scale;
-                            let height = usize::from(size.height) as f32 * scale;
-                            row = row.child(img(image).w(px(width)).h(px(height)));
-                        }
-                        None => {
-                            row = row.child(
-                                div()
-                                    .h(px(20.))
-                                    .min_w(px(40.))
-                                    .rounded_sm()
-                                    .bg(theme.muted.opacity(0.35))
-                                    .child(if alt.is_empty() { String::new() } else { alt }),
-                            );
-                        }
-                    }
-                }
-                return frame(row.into_any_element());
-            }
-            markdown::RenderKind::Tasks => {
-                let items = match &block.payload {
-                    markdown::RenderPayload::Tasks(items) => items.clone(),
-                    _ => Vec::new(),
-                };
-                let mut created = false;
-                let states = match self.reflow.task_states.get(&index) {
-                    Some(states) => states.clone(),
-                    None => {
-                        created = true;
-                        let states: Vec<Entity<TextViewState>> = items
-                            .iter()
-                            .map(|item| {
-                                let html = item.html.clone();
-                                cx.new(|cx| TextViewState::html(&html, cx).selectable(true))
-                            })
-                            .collect();
-                        self.reflow.task_states.insert(index, states.clone());
-                        states
-                    }
-                };
-                if created {
-                    let list = self.reflow.list.clone();
-                    let view = cx.entity().downgrade();
-                    cx.defer(move |cx| {
-                        list.remeasure_items(index..index + 1);
-                        let _ = view.update(cx, |_, cx| cx.notify());
-                    });
-                }
-                let view = cx.entity().downgrade();
-                let mut rows = div()
-                    .id(("markdown-tasks", index))
-                    .test_support()
-                    .w_full()
-                    .flex()
-                    .flex_col()
-                    .gap_1();
-                for (item, state) in items.iter().zip(states) {
-                    let checkbox = div()
-                        .mt(px(2.))
-                        .size(px(16.))
-                        .flex_none()
-                        .rounded(px(4.))
-                        .border_1()
-                        .border_color(if item.checked {
-                            theme.primary
-                        } else {
-                            theme.muted_foreground.opacity(0.5)
-                        })
-                        .when(item.checked, |checkbox| {
-                            checkbox
-                                .bg(theme.primary)
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .child(
-                                    Icon::new(IconName::Check)
-                                        .small()
-                                        .text_color(theme.primary_foreground),
-                                )
-                        });
-                    let link = view.clone();
-                    rows = rows.child(
-                        div()
-                            .flex()
-                            .items_start()
-                            .gap_2()
-                            .ml(px(16. * item.depth as f32))
-                            .child(checkbox)
-                            .child(
-                                div().flex_1().min_w_0().child(
-                                    TextView::new(&state)
-                                        .style(markdown_style::text_style(cx, body))
-                                        .selectable(true)
-                                        .on_link_click(move |href, _, _, cx| {
-                                            let _ = link.update(cx, |this, cx| {
-                                                this.follow_reflow_link(href.as_ref(), cx)
-                                            });
-                                        }),
-                                ),
-                            ),
-                    );
-                }
-                return frame(rows.into_any_element());
-            }
-            markdown::RenderKind::Table => {
-                let data = match &block.payload {
-                    markdown::RenderPayload::Table(data) => data.clone(),
-                    _ => markdown::TableData::default(),
-                };
-                let mut created = false;
-                let states = match self.reflow.table_states.get(&index) {
-                    Some(states) => states.clone(),
-                    None => {
-                        created = true;
-                        let mut states: Vec<Vec<Entity<TextViewState>>> = Vec::new();
-                        for cells in std::iter::once(&data.head).chain(data.rows.iter()) {
-                            let mut row = Vec::new();
-                            for html in cells {
-                                let html = html.clone();
-                                row.push(
-                                    cx.new(|cx| TextViewState::html(&html, cx).selectable(true)),
-                                );
-                            }
-                            states.push(row);
-                        }
-                        self.reflow.table_states.insert(index, states.clone());
-                        states
-                    }
-                };
-                if created {
-                    let list = self.reflow.list.clone();
-                    let view = cx.entity().downgrade();
-                    cx.defer(move |cx| {
-                        list.remeasure_items(index..index + 1);
-                        let _ = view.update(cx, |_, cx| cx.notify());
-                    });
-                }
-                let view = cx.entity().downgrade();
-                let images = cx.entity().downgrade();
-                let document_source = self.books[self.active].source.clone();
-                let mut table = div()
-                    .id(("markdown-table", index))
-                    .test_support()
-                    .w_full()
-                    .flex()
-                    .flex_col()
-                    .border_1()
-                    .border_color(theme.border)
-                    .rounded_md()
-                    .overflow_hidden();
-                for (row_index, row_states) in states.iter().enumerate() {
-                    let last_row = row_index + 1 == states.len();
-                    let mut row = div()
-                        .flex()
-                        .w_full()
-                        .when(row_index == 0, |row| row.bg(theme.muted.opacity(0.45)));
-                    let last_cell = row_states.len().saturating_sub(1);
-                    for (column, state) in row_states.iter().enumerate() {
-                        let align = data
-                            .aligns
-                            .get(column)
-                            .copied()
-                            .unwrap_or(markdown::ColumnAlign::Left);
-                        let text_align = match align {
-                            markdown::ColumnAlign::Left => TextAlign::Left,
-                            markdown::ColumnAlign::Center => TextAlign::Center,
-                            markdown::ColumnAlign::Right => TextAlign::Right,
-                        };
-                        let link = view.clone();
-                        let image_source = images.clone();
-                        let source = document_source.clone();
-                        let cell = div()
-                            .flex_1()
-                            .min_w_0()
-                            .p_2()
-                            .when(column < last_cell, |cell| {
-                                cell.border_r_1().border_color(theme.border)
-                            })
-                            .when(!last_row, |cell| {
-                                cell.border_b_1().border_color(theme.border)
-                            })
-                            .text_align(text_align)
-                            .child(
-                                TextView::new(state)
-                                    .style(markdown_style::text_style(cx, body))
-                                    .selectable(true)
-                                    .text_align(text_align)
-                                    .image_source(move |uri| {
-                                        reflow_images::source(
-                                            image_source.clone(),
-                                            source.clone(),
-                                            uri.to_string(),
-                                        )
-                                    })
-                                    .on_link_click(move |href, _, _, cx| {
-                                        let _ = link.update(cx, |this, cx| {
-                                            this.follow_reflow_link(href.as_ref(), cx)
-                                        });
-                                    }),
-                            );
-                        row = row.child(cell);
-                    }
-                    table = table.child(row);
-                }
-                return frame(table.into_any_element());
-            }
-            markdown::RenderKind::Code => {
-                let info = match &block.payload {
-                    markdown::RenderPayload::Code(info) => info.clone(),
-                    _ => markdown::CodeInfo::default(),
-                };
-                let settings = self
-                    .reflow
-                    .code_settings
-                    .get(&index)
-                    .copied()
-                    .unwrap_or_default();
-                let language = info.language.clone().unwrap_or_else(|| "text".to_string());
-                let copy = info.text.clone();
-                let menu_view = cx.entity();
-                let menu_settings = settings;
-                let menu = Button::new(("markdown-code-menu", index))
-                    .ghost()
-                    .small()
-                    .icon(IconName::EllipsisVertical)
-                    .accessibility_label(tr!("Code options"))
-                    .tooltip(tr!("Code options"))
-                    .dropdown_menu(move |menu, window, _| {
-                        let numbers_view = menu_view.clone();
-                        let wrap_view = menu_view.clone();
-                        menu.item(
-                            PopupMenuItem::new(tr!("Show line numbers"))
-                                .checked(menu_settings.numbers)
-                                .on_click(window.listener_for(
-                                    &numbers_view,
-                                    move |this, _, _, cx| {
-                                        let settings =
-                                            this.reflow.code_settings.entry(index).or_default();
-                                        settings.numbers = !settings.numbers;
-                                        this.reflow.list.remeasure_items(index..index + 1);
-                                        cx.notify();
-                                    },
-                                )),
-                        )
-                        .item(
-                            PopupMenuItem::new(tr!("Wrap lines"))
-                                .checked(menu_settings.wrap)
-                                .on_click(window.listener_for(
-                                    &wrap_view,
-                                    move |this, _, _, cx| {
-                                        let settings =
-                                            this.reflow.code_settings.entry(index).or_default();
-                                        settings.wrap = !settings.wrap;
-                                        this.reflow.list.remeasure_items(index..index + 1);
-                                        cx.notify();
-                                    },
-                                )),
-                        )
-                    });
-                let header = div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .px_3()
-                    .py_1()
-                    .child(
-                        div()
-                            .text_size(px(11.))
-                            .text_color(theme.muted_foreground)
-                            .child(language),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .child(
-                                Button::new(("markdown-code-copy", index))
-                                    .ghost()
-                                    .small()
-                                    .icon(IconName::Copy)
-                                    .accessibility_label(tr!("Copy code"))
-                                    .tooltip(tr!("Copy code"))
-                                    .on_click(cx.listener(move |_, _, _, cx| {
-                                        cx.write_to_clipboard(gpui_kit::ClipboardItem::new_string(
-                                            copy.clone(),
-                                        ));
-                                    })),
-                            )
-                            .child(menu),
-                    );
-                let code_size = markdown_style::code_size(body);
-                let mono = font(theme.mono_font_family.clone());
-                let mut body_view = div()
-                    .id(("markdown-code-body", index))
-                    .w_full()
-                    .px_3()
-                    .py_2();
-                if !settings.wrap {
-                    body_view = body_view.overflow_x_scroll();
-                }
-                let mut lines = div().flex().flex_col();
-                let width = info.text.lines().count().to_string().len();
-                for (number, line) in info.text.split('\n').enumerate() {
-                    let mut row = div().flex().items_start();
-                    if settings.numbers {
-                        row = row.child(
-                            div()
-                                .w(px(30.))
-                                .flex_none()
-                                .text_size(px(code_size))
-                                .font(mono.clone())
-                                .text_color(theme.muted_foreground)
-                                .child(format!("{:>width$}", number + 1)),
-                        );
-                    }
-                    let text = if line.is_empty() {
-                        " ".to_string()
-                    } else {
-                        line.to_string()
-                    };
-                    row = row.child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .font(mono.clone())
-                            .text_size(px(code_size))
-                            .text_color(theme.foreground)
-                            .when(!settings.wrap, |line| line.whitespace_nowrap())
-                            .child(text),
-                    );
-                    lines = lines.child(row);
-                }
-                body_view = body_view.child(lines);
-                let block_view = div()
-                    .id(("markdown-code", index))
-                    .test_support()
-                    .w_full()
-                    .flex()
-                    .flex_col()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(theme.border)
-                    .bg(theme.muted.opacity(0.35))
-                    .child(header)
-                    .child(body_view);
-                return frame(block_view.into_any_element());
-            }
-            _ => {}
-        }
-        let state = if let Some(position) = self.reflow.blocks.iter().position(|b| b.index == index)
-        {
-            let block = self
-                .reflow
-                .blocks
-                .remove(position)
-                .unwrap_or_else(|| unreachable!());
-            let state = block.state.clone();
-            self.reflow.blocks.push_back(block);
-            state
-        } else {
-            // A block that contains a code block is laid out from its own
-            // Markdown: the HTML projection has no `<pre>` handling, so it
-            // would draw the code as inline-code runs with no code card,
-            // language or highlighting.
-            let state = cx.new(|cx| match block.markdown.as_deref() {
-                Some(markdown) => TextViewState::markdown(markdown, cx).selectable(true),
-                None => TextViewState::html(&block.html, cx).selectable(true),
-            });
-            let list = self.reflow.list.clone();
-            let view = cx.entity().downgrade();
-            let subscription = cx.observe(&state, move |_, _, cx| {
-                // Remeasuring touches the list's own borrow, and this observer can
-                // fire from inside a list layout pass because the text element
-                // updates its state while it is being laid out. Deferring the
-                // remeasure keeps the two borrows apart; the notification is for
-                // the reader, never for the observed text state, which would
-                // re-enter this observer.
-                let list = list.clone();
-                let view = view.clone();
-                cx.defer(move |cx| {
-                    list.remeasure_items(index..index + 1);
-                    let _ = view.update(cx, |_, cx| cx.notify());
-                });
-            });
-            while self.reflow.blocks.len() >= 96 {
-                self.reflow.blocks.pop_front();
-            }
-            self.reflow.blocks.push_back(TextBlock {
-                index,
-                state: state.clone(),
-                _subscription: subscription,
-            });
-            state
-        };
-        let view = cx.entity().downgrade();
-        let source = self.books[self.active].source.clone();
-        let images = cx.entity().downgrade();
-        div()
-            .id(("markdown-block", index))
-            .test_support()
-            .w_full()
-            .px_4()
-            .py_1()
-            .min_h(px(20.))
-            .text_size(px(body))
-            .child(
-                TextView::new(&state)
-                    .style(markdown_style::text_style(cx, body))
-                    .selectable(true)
-                    .image_source(move |uri| {
-                        reflow_images::source(images.clone(), source.clone(), uri.to_string())
-                    })
-                    .on_link_click(move |href, _, _, cx| {
-                        let _ =
-                            view.update(cx, |this, cx| this.follow_reflow_link(href.as_ref(), cx));
-                    }),
-            )
-            .into_any_element()
-    }
-
     fn follow_reflow_link(&mut self, href: &str, cx: &mut Context<Self>) {
         if let Some(anchor) = href.strip_prefix('#') {
-            if let Some(block) = self
-                .reflow
-                .markdown
-                .as_ref()
-                .and_then(|doc| doc.anchor_block(anchor))
-            {
-                self.jump_reflow(String::new(), block, cx);
+            if let Some(offset) = self.reflow.markdown.as_ref().and_then(|markdown| {
+                markdown
+                    .metadata
+                    .headings
+                    .iter()
+                    .find(|heading| heading.anchor == anchor)
+                    .map(|heading| heading.source.start)
+            }) {
+                self.jump_markdown_source(offset, cx);
             }
         } else if href.starts_with("https://")
             || href.starts_with("http://")
@@ -2693,6 +2557,146 @@ fn reflow_search_result_text(title: &str, href: &str, snippet: &str) -> String {
     } else {
         format!("{title} · {snippet}")
     }
+}
+
+fn source_render_range(source: &str, offset: usize) -> Option<std::ops::Range<usize>> {
+    if source.is_empty() {
+        return None;
+    }
+    let mut start = offset.min(source.len().saturating_sub(1));
+    while !source.is_char_boundary(start) {
+        start = start.saturating_sub(1);
+    }
+    let mut end = (start + 1).min(source.len());
+    while !source.is_char_boundary(end) {
+        end = (end + 1).min(source.len());
+    }
+    (start < end).then_some(start..end)
+}
+
+fn search_markdown_text(text: &str, query: &str) -> Vec<ReflowSearchHit> {
+    let needle = query.to_lowercase();
+    if needle.is_empty() {
+        return Vec::new();
+    }
+    let folded = text.to_lowercase();
+    let ranges = if folded.len() == text.len() {
+        folded
+            .match_indices(&needle)
+            .map(|(offset, matched)| offset..offset + matched.len())
+            .collect::<Vec<_>>()
+    } else {
+        text.match_indices(query)
+            .map(|(offset, matched)| offset..offset + matched.len())
+            .collect::<Vec<_>>()
+    };
+    ranges
+        .into_iter()
+        .filter(|range| text.is_char_boundary(range.start) && text.is_char_boundary(range.end))
+        .take(300)
+        .map(|range| {
+            let line_start = text[..range.start]
+                .rfind(['\n', '\r'])
+                .map_or(0, |offset| offset + 1);
+            let line_end = text[range.end..]
+                .find(['\n', '\r'])
+                .map_or(text.len(), |offset| range.end + offset);
+            let mut snippet = text[line_start..line_end]
+                .trim()
+                .chars()
+                .take(160)
+                .collect::<String>();
+            if line_start > 0 {
+                snippet.insert(0, '…');
+            }
+            if line_end < text.len() {
+                snippet.push('…');
+            }
+            ReflowSearchHit {
+                rendered: range,
+                href: String::new(),
+                text: snippet,
+            }
+        })
+        .collect()
+}
+
+fn mermaid_source(language: &str, source: &str) -> String {
+    match language.to_ascii_lowercase().as_str() {
+        "flow" => legacy_flow_to_mermaid(source),
+        "seq" => legacy_sequence_to_mermaid(source),
+        _ => source.trim().to_owned(),
+    }
+}
+
+fn legacy_flow_to_mermaid(source: &str) -> String {
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    for raw in source.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let Some((left, right)) = line.split_once("=>") else {
+            if let Some((from, to)) = line.split_once("->") {
+                edges.push(format!("  {} --> {}", from.trim(), to.trim()));
+            }
+            continue;
+        };
+        let id = left.trim();
+        let Some((kind, label)) = right.split_once(':') else {
+            continue;
+        };
+        let label = label.trim();
+        let node = match kind.trim().to_ascii_lowercase().as_str() {
+            "start" | "end" => format!("  {id}([{label}])"),
+            "condition" => format!("  {id}{{{label}}}"),
+            "inputoutput" => format!("  {id}[/{label}/]"),
+            _ => format!("  {id}[{label}]"),
+        };
+        nodes.push(node);
+    }
+    std::iter::once("flowchart TD".to_owned())
+        .chain(nodes)
+        .chain(edges)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn legacy_sequence_to_mermaid(source: &str) -> String {
+    let mut lines = vec!["sequenceDiagram".to_owned()];
+    for raw in source.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line.to_ascii_lowercase().starts_with("note ") {
+            lines.push(line.to_owned());
+            continue;
+        }
+        if let Some((participants, message)) = line.split_once(':') {
+            let (from, arrow, to) = ["->>", "-->", "->", "--"]
+                .iter()
+                .find_map(|arrow| {
+                    participants
+                        .split_once(arrow)
+                        .map(|(from, to)| (from.trim(), *arrow, to.trim()))
+                })
+                .unwrap_or(("", "", ""));
+            if !from.is_empty() {
+                let arrow = match arrow {
+                    "->" => "->>",
+                    "-->" => "-->>",
+                    "--" => "-->>",
+                    _ => arrow,
+                };
+                lines.push(format!("  {from}{arrow}{to}: {}", message.trim()));
+                continue;
+            }
+        }
+        lines.push(line.to_owned());
+    }
+    lines.join("\n")
 }
 
 /// Distance from a point to page bounds; zero inside them.

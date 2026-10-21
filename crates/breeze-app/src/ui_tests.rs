@@ -399,7 +399,7 @@ fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext)
         assert!(
             window
                 .within("settings-body")
-                .find("default-pdf-app")
+                .find("default-document-app")
                 .visible()
         );
         // Row-by-row explanations are gone; the update status lives in About.
@@ -2843,7 +2843,7 @@ fn markdown_reader_scrolls_and_records_its_position(cx: &mut TestAppContext) {
         );
         assert_eq!(view.read(cx).books[0].reflow.markdown_offset, 0);
         for _ in 0..12 {
-            window.scroll("reflow-viewport", ScrollDelta::Lines(point(0., -6.)), cx);
+            window.scroll("markdown-document", ScrollDelta::Lines(point(0., -6.)), cx);
         }
         window.render_frame(cx);
         let offset = view.read(cx).books[0].reflow.markdown_offset;
@@ -2858,7 +2858,7 @@ fn markdown_reader_scrolls_and_records_its_position(cx: &mut TestAppContext) {
         // Scrolling past the end reports the finished document instead of
         // asking the borrowed list where it landed.
         for _ in 0..80 {
-            window.scroll("reflow-viewport", ScrollDelta::Lines(point(0., -20.)), cx);
+            window.scroll("markdown-document", ScrollDelta::Lines(point(0., -20.)), cx);
         }
         assert_eq!(view.read(cx).books[0].reflow.progress, 1.);
         // The heading outline jumps and the text-size command remeasures the
@@ -3175,7 +3175,14 @@ fn markdown_has_no_paging_and_toggles_its_reading_width(cx: &mut TestAppContext)
         );
 
         // The status bar reports the rendered character count of the document.
-        let characters = view.read(cx).reflow.markdown.as_ref().unwrap().characters;
+        let characters = view
+            .read(cx)
+            .reflow
+            .markdown
+            .as_ref()
+            .unwrap()
+            .metadata
+            .characters;
         assert_eq!(characters, 22, "the width fixture renders 22 characters");
         let expected = i18n::format_message(i18n::text("{} characters"), &[characters.to_string()]);
         assert_eq!(
@@ -3242,7 +3249,7 @@ fn markdown_reading_previews_the_unsaved_draft(cx: &mut TestAppContext) {
     cx.run_until_parked();
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
-        window.click("markdown-edit-toggle", cx);
+        window.within("markdown-modes").click(1usize, cx);
         window.render_frame(cx);
         window.input("Draft addition ", cx);
         window.render_frame(cx);
@@ -3255,7 +3262,7 @@ fn markdown_reading_previews_the_unsaved_draft(cx: &mut TestAppContext) {
             "typing must make the draft dirty"
         );
         // Leaving edit mode switches the reader to the draft preview.
-        window.click("markdown-edit-toggle", cx);
+        window.within("markdown-modes").click(0usize, cx);
         window.render_frame(cx);
     })
     .unwrap();
@@ -3269,11 +3276,7 @@ fn markdown_reading_previews_the_unsaved_draft(cx: &mut TestAppContext) {
             .markdown
             .clone()
             .expect("the draft preview did not load");
-        let text: String = document
-            .blocks
-            .iter()
-            .map(|block| block.text.as_ref())
-            .collect();
+        let text = document.state.read(cx).rendered_text().as_str().to_owned();
         assert!(
             text.contains("Draft addition"),
             "the preview did not read the draft: {text:?}"
@@ -3287,12 +3290,10 @@ fn markdown_reading_previews_the_unsaved_draft(cx: &mut TestAppContext) {
     .unwrap();
 }
 
-/// Native reading blocks (table, tasks, code, images) fit in one viewport and
-/// expose their controls; the extended test above covers the top-of-page shapes.
+/// Kit's TextView is the only Markdown renderer: tables, tasks, code, images
+/// and ordinary prose all belong to one document state.
 #[gpui_kit::test]
-fn markdown_native_blocks_render(cx: &mut TestAppContext) {
-    use breeze_reflow::markdown::RenderKind;
-
+fn markdown_uses_one_text_view_for_all_blocks(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     std::fs::write(
         directory.path().join("badge.svg"),
@@ -3322,47 +3323,23 @@ fn markdown_native_blocks_render(cx: &mut TestAppContext) {
     }
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
-        let document = view
+        let markdown = view
             .read(cx)
             .reflow
             .markdown
             .clone()
             .expect("the document did not load");
-        let index = |kind: RenderKind| {
-            document
-                .blocks
-                .iter()
-                .position(|block| block.kind == kind)
-                .unwrap_or_else(|| panic!("no {kind:?} block"))
-        };
-        for (id, kind) in [
-            ("markdown-table", RenderKind::Table),
-            ("markdown-tasks", RenderKind::Tasks),
-            ("markdown-code", RenderKind::Code),
-        ] {
-            let element = window
-                .try_find((id, index(kind)))
-                .unwrap_or_else(|| panic!("{id} is missing"));
+        let rendered = markdown.state.read(cx).rendered_text().as_str().to_owned();
+        for expected in ["help()", "destroy()", "已完成", "未完成", "fn main() {}"] {
             assert!(
-                element.bounds().size.height > px(16.),
-                "{id} has no height: {:?}",
-                element.bounds()
+                rendered.contains(expected),
+                "{expected:?} is missing from the single TextView: {rendered:?}"
             );
         }
+        assert!(window.try_find("markdown-document").is_some());
         assert!(
-            window
-                .try_find(("markdown-code-menu", index(RenderKind::Code)))
-                .is_some()
-        );
-        assert!(
-            window
-                .try_find(("markdown-code-copy", index(RenderKind::Code)))
-                .is_some()
-        );
-        assert!(
-            window
-                .try_find(("markdown-images", index(RenderKind::Images)))
-                .is_some()
+            window.try_find(("markdown-block", 0usize)).is_none(),
+            "the removed per-block renderer is still present"
         );
         assert_eq!(
             view.read(cx).reflow.images.failures,
@@ -3374,14 +3351,10 @@ fn markdown_native_blocks_render(cx: &mut TestAppContext) {
     .unwrap();
 }
 
-/// The reading surface renders the constructs a hand-written note uses:
-/// front matter, a TOC, rules, sup/sub, emoji, aligned tables, task checks,
-/// formulas, mermaid source and SVG badges.
+/// TextView plugins retain the constructs Kit does not draw itself: front
+/// matter, TOC, math and Mermaid. Everything around them remains one text view.
 #[gpui_kit::test]
-fn markdown_reading_renders_the_extended_constructs(cx: &mut TestAppContext) {
-    use breeze_reflow::markdown::RenderKind;
-    use gpui_kit::base::TextViewState;
-
+fn markdown_text_view_plugins_render_extended_constructs(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     std::fs::write(
         directory.path().join("badge.svg"),
@@ -3391,7 +3364,7 @@ fn markdown_reading_renders_the_extended_constructs(cx: &mut TestAppContext) {
     let path = directory.path().join("extended.md");
     std::fs::write(
         &path,
-        "---\ntitle: 格式测试\n---\n\n# 标题\n\n## 子标题\n\n[TOC]\n\n---\n\n===\n\nsoft one\nsoft two\n\nX<sub>2</sub> O<sup>2</sup> :smile:\n\n| 左 | 中 | 右 |\n|:--|:-:|--:|\n| `help()` | `destroy()` | 1 |\n\n- [x] 已完成\n- [ ] 未完成\n\n$x^2$\n\n$$\nE = mc^2\n$$\n\n```rust\nfn main() {}\n```\n\n```mermaid\ngraph TD\nA-->B\n```\n\n![badge](badge.svg)\n",
+        "---\ntitle: 格式测试\n---\n\n# 标题\n\n## 子标题\n\n[TOC]\n\n---\n\nsoft one\nsoft two\n\n| 左 | 中 | 右 |\n|:--|:-:|--:|\n| `help()` | `destroy()` | 1 |\n\n- [x] 已完成\n- [ ] 未完成\n\n$x^2$\n\n$$\nE = mc^2\n$$\n\n```rust\nfn main() {}\n```\n\n```mermaid\ngraph TD\nA-->B\n```\n\n![badge](badge.svg)\n",
     )
     .unwrap();
     let (handle, view) = app(cx);
@@ -3404,124 +3377,51 @@ fn markdown_reading_renders_the_extended_constructs(cx: &mut TestAppContext) {
     })
     .unwrap();
     cx.run_until_parked();
-    for _ in 0..4 {
+    for _ in 0..6 {
         cx.run_until_parked();
         cx.update_window(handle, |_, window, cx| window.render_frame(cx))
             .unwrap();
     }
-    let document = cx
-        .update_window(handle, |_, window, cx| {
-            window.render_frame(cx);
-            let document = view
-                .read(cx)
-                .reflow
-                .markdown
-                .clone()
-                .expect("the document did not load");
-            let index = |kind: RenderKind| {
-                document
-                    .blocks
-                    .iter()
-                    .position(|block| block.kind == kind)
-                    .unwrap_or_else(|| panic!("no {kind:?} block"))
-            };
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let markdown = view
+            .read(cx)
+            .reflow
+            .markdown
+            .clone()
+            .expect("the document did not load");
+        let rendered = markdown.state.read(cx).rendered_text().as_str().to_owned();
+        for expected in [
+            "格式测试",
+            "标题",
+            "soft one",
+            "help()",
+            "destroy()",
+            "已完成",
+            "未完成",
+            "fn main() {}",
+        ] {
             assert!(
-                window
-                    .try_find(("markdown-frontmatter", index(RenderKind::FrontMatter)))
-                    .is_some(),
-                "the front matter card is missing"
+                rendered.contains(expected),
+                "{expected:?} is missing from the TextView: {rendered:?}"
             );
-            let rule = window
-                .try_find(("markdown-rule", index(RenderKind::Rule)))
-                .expect("the rule is missing");
-            assert!(
-                rule.bounds().size.height > px(8.),
-                "the rule has no visible height: {:?}",
-                rule.bounds()
-            );
-            assert!(
-                window
-                    .try_find(("markdown-math", index(RenderKind::Math)))
-                    .is_some(),
-                "the formula block is missing"
-            );
-            assert!(
-                view.read(cx).reflow.images.failures == 0,
-                "the SVG badge was reported as unavailable: {:?}",
-                view.read(cx).reflow.images.last_failure
-            );
-            document
-        })
-        .unwrap();
-    let soft = document
-        .blocks
-        .iter()
-        .find(|block| block.html.contains("soft one"))
-        .expect("the soft-break paragraph");
-    assert!(
-        soft.html.contains("soft one<br>soft two"),
-        "a source line break stayed a space: {}",
-        soft.html
-    );
-    let toc = &document.blocks[document
-        .blocks
-        .iter()
-        .position(|block| block.kind == RenderKind::Toc)
-        .unwrap()];
-    assert!(toc.html.contains("href=\"#标题\""), "{}", toc.html);
-    assert!(
-        toc.html.contains("<ul><li><a href=\"#子标题\""),
-        "a subheading is not nested in the TOC: {}",
-        toc.html
-    );
-
-    // The table and the task list go through the Markdown reader, which
-    // carries alignment and checkbox state that the HTML reader cannot.
-    let table = document
-        .blocks
-        .iter()
-        .find(|block| block.markdown.is_some() && block.html.contains("<table>"))
-        .expect("a table block")
-        .clone();
-    let state = cx
-        .update(|cx| cx.new(|cx| TextViewState::markdown(table.markdown.as_deref().unwrap(), cx)));
-    cx.run_until_parked();
-    let rendered = cx.update(|cx| state.read(cx).rendered_text().as_str().to_owned());
-    assert!(
-        rendered.contains("help()") && rendered.contains("destroy()"),
-        "a table cell was lost: {rendered:?}"
-    );
-
-    let tasks = document
-        .blocks
-        .iter()
-        .find(|block| block.markdown.is_some() && block.text.contains("已完成"))
-        .expect("a task block")
-        .clone();
-    let state = cx
-        .update(|cx| cx.new(|cx| TextViewState::markdown(tasks.markdown.as_deref().unwrap(), cx)));
-    cx.run_until_parked();
-    let rendered = cx.update(|cx| state.read(cx).rendered_text().as_str().to_owned());
-    assert!(
-        rendered.contains("已完成") && rendered.contains("未完成"),
-        "a task item was lost: {rendered:?}"
-    );
-
-    let typography = document
-        .blocks
-        .iter()
-        .find(|block| block.html.contains("X"))
-        .expect("the typography block")
-        .clone();
-    let state = cx.update(|cx| cx.new(|cx| TextViewState::html(&typography.html, cx)));
-    cx.run_until_parked();
-    let rendered = cx.update(|cx| state.read(cx).rendered_text().as_str().to_owned());
-    for expected in ["X₂", "O²", "😄"] {
+        }
         assert!(
-            rendered.contains(expected),
-            "{expected:?} is missing from {rendered:?}"
+            window.try_find(("markdown-toc-entry", 0usize)).is_some(),
+            "the TOC plugin did not render"
         );
-    }
+        assert!(window.try_find("markdown-math").is_some());
+        markdown.state.read(cx).list_state().scroll_to_end();
+        window.render_frame(cx);
+        assert!(window.try_find("markdown-mermaid").is_some());
+        assert_eq!(
+            view.read(cx).reflow.images.failures,
+            0,
+            "the SVG badge was reported as unavailable: {:?}",
+            view.read(cx).reflow.images.last_failure
+        );
+    })
+    .unwrap();
 }
 
 /// A Markdown file above the reading parse ceiling still edits: the reader
@@ -3561,7 +3461,7 @@ fn oversized_markdown_reports_the_limit_and_edits_as_source(cx: &mut TestAppCont
             "the reader must name the rendering limit"
         );
 
-        window.click("markdown-edit-toggle", cx);
+        window.within("markdown-modes").click(1usize, cx);
         window.render_frame(cx);
         let session = view.read(cx).books[0]
             .markdown_edit
@@ -4195,7 +4095,7 @@ fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppCon
 
         // Entering edit mode keeps the reader chrome and mounts the surface in
         // the same content region.
-        window.click("markdown-edit-toggle", cx);
+        window.within("markdown-modes").click(1usize, cx);
         window.render_frame(cx);
         assert!(view.read(cx).books[0].markdown_editing);
         assert!(
@@ -4239,7 +4139,7 @@ fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppCon
         );
 
         // Leaving edit mode returns to reading but keeps the draft session.
-        window.click("markdown-edit-toggle", cx);
+        window.within("markdown-modes").click(0usize, cx);
         window.render_frame(cx);
         assert!(!view.read(cx).books[0].markdown_editing);
         assert!(window.try_find("markdown-editor").is_none());

@@ -37,6 +37,7 @@ catalog! {
     "Page {} rendering failed; some content could not be displayed" => ("第 {} 页渲染失败，部分内容无法显示", "第 {} 頁渲染失敗，部分內容無法顯示"),
     "Page {} is outside this document's {} pages" => ("请求的第 {} 页超出文档范围（共 {} 页）", "請求的第 {} 頁超出文件範圍（共 {} 頁）"),
     "Unsupported page zoom" => ("不支持的页面缩放", "不支援的頁面縮放"),
+    "Unsupported or invalid diagram syntax" => ("不支持或无效的图表语法", "不支援或無效的圖表語法"),
     "This page exceeds the render memory budget" => ("页面超出渲染内存预算", "頁面超出渲染記憶體預算"),
     "The requested page region is outside the document" => ("请求的页面区域超出文档范围", "請求的頁面區域超出文件範圍"),
     "The renderer did not return the requested resolution" => ("渲染器未返回请求的清晰度", "渲染器未傳回要求的清晰度"),

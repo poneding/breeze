@@ -75,7 +75,6 @@ impl Breeze {
             }
         };
         self.reflow.images.insert(cx, entry);
-        self.reflow.list.remeasure();
         cx.notify();
     }
 }
@@ -209,7 +208,7 @@ fn decode(document: Option<&Path>, uri: &str) -> Result<Pixels> {
         let document = document.context("An image needs a document directory")?;
         // The reference is a Markdown URI, so `%20` and a trailing query or
         // fragment are resolved before the file is opened.
-        let path = breeze_reflow::markdown::Document::resolve_image(document, uri)?;
+        let path = breeze_reflow::markdown::resolve_image(document, uri)?;
         let file = std::fs::File::open(&path)?;
         anyhow::ensure!(
             file.metadata()?.len() <= MAX_IMAGE_BYTES as u64,
@@ -221,7 +220,7 @@ fn decode(document: Option<&Path>, uri: &str) -> Result<Pixels> {
         bytes
     };
     if looks_like_svg(&bytes) {
-        decode_svg(&bytes)
+        rasterize_svg(&bytes, 1.0)
     } else {
         decode_raster(bytes)
     }
@@ -258,13 +257,7 @@ fn looks_like_svg(bytes: &[u8]) -> bool {
     text.starts_with("<svg") || text.starts_with("<?xml") && text.contains("<svg")
 }
 
-/// Rasterize an SVG (shields.io badges are SVG). Text needs the system fonts,
-/// so the font database is loaded for each image; decoded results are cached.
-fn decode_svg(bytes: &[u8]) -> Result<Pixels> {
-    rasterize_svg(bytes, 1.0)
-}
-
-/// Rasterize an SVG at an explicit scale. Diagrams use 2x for sharp text.
+/// Rasterize an SVG for the shared TextView image path.
 pub(super) fn rasterize_svg(bytes: &[u8], scale: f32) -> Result<Pixels> {
     let mut options = resvg::usvg::Options::default();
     options.fontdb_mut().load_system_fonts();
@@ -369,7 +362,7 @@ mod tests {
         });
         let uri = format!("http://{address}/badge.svg");
         let bytes = fetch_remote(&uri).expect("the SVG is fetched");
-        let pixels = decode_svg(&bytes).expect("the SVG is rasterized");
+        let pixels = rasterize_svg(&bytes, 1.0).expect("the SVG is rasterized");
         assert_eq!((pixels.width, pixels.height), (40, 16));
         assert_eq!(pixels.bgra.len(), 40 * 16 * 4);
         server.join().unwrap();

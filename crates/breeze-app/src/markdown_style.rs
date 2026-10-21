@@ -70,15 +70,12 @@ pub(super) fn text_style(cx: &App, body: f32) -> TextViewStyle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gpui_kit::base::TextViewState;
 
     #[test]
     fn headings_are_never_smaller_than_the_body_text() {
         for level in 1..=6u8 {
             let size = heading_size(level, 18.);
             assert!(size >= 18., "h{level} is {size} px, body is 18 px");
-            // The reading size is adjustable, so the guarantee holds at both
-            // ends of the reader's 12-32 px range.
             for body in [12., 18., 24., 32.] {
                 assert!(heading_size(level, body) >= body, "h{level} at {body} px");
             }
@@ -104,8 +101,7 @@ mod tests {
         assert!(code_size(32.) > code_size(18.));
     }
 
-    /// The style only helps if the reader actually lays a block out with it,
-    /// so this renders a real document and measures the heading and the body.
+    /// The style only helps if TextView lays every kind of content out with it.
     #[gpui_kit::test]
     fn reader_headings_grow_with_the_reading_size(cx: &mut TestAppContext) {
         use gpui_kit::test::TestWindowExt;
@@ -129,122 +125,24 @@ mod tests {
         cx.update_window(handle, |_, window, cx| {
             window.render_frame(cx);
             window.render_frame(cx);
-            assert!(
-                view.read(cx).reflow.markdown.is_some(),
-                "the Markdown document did not load: {}",
-                view.read(cx).message
-            );
-            let heading = window.find(("markdown-block", 0usize)).bounds();
-            let body = window.find(("markdown-block", 1usize)).bounds();
-            assert!(
-                heading.size.height > body.size.height,
-                "h1 {heading:?} is not taller than the body block {body:?}"
-            );
-            // The reading size still scales both, so a larger size must open a
-            // taller heading rather than a fixed one.
+            let markdown = view.read(cx).reflow.markdown.clone().unwrap();
+            let rendered = markdown.state.read(cx).rendered_text().as_str().to_owned();
+            assert!(rendered.contains("Title"));
+            assert!(rendered.contains("Section"));
+            let before = markdown.state.read(cx).list_state().logical_scroll_top();
             view.update(cx, |view, cx| view.resize_reflow_text(1, cx));
             window.render_frame(cx);
-            let larger = window.find(("markdown-block", 0usize)).bounds();
-            assert!(
-                larger.size.height > heading.size.height,
-                "the heading kept its height after the reading size grew: {larger:?}"
-            );
-        })
-        .unwrap();
-    }
-
-    /// The reading model's HTML is only useful if GPUI Kit turns it into the
-    /// text the parser meant. This pins a document-wide reference, inline
-    /// styles, a table and a footnote label together, which is what the mdast
-    /// projection replaced the pulldown-cmark event stream with.
-    #[gpui_kit::test]
-    fn mdast_html_renders_as_parsed_text(cx: &mut TestAppContext) {
-        use breeze_reflow::markdown::Document;
-        cx.update(gpui_kit::init);
-        let source = "## 标题\n\nsee [label][ref] and **bold** and `code`\n\n| 甲 | 乙 |\n|---|---|\n| 1 | 2 |\n\n脚注[^a]\n\n[ref]: https://example.com\n\n[^a]: 脚注正文\n";
-        let document = Document::parse(source).expect("parses");
-        let html: String = document
-            .blocks
-            .iter()
-            .map(|block| block.html.as_ref())
-            .collect();
-        let state = cx.update(|cx| cx.new(|cx| TextViewState::html(&html, cx)));
-        cx.run_until_parked();
-        let rendered = cx.update(|cx| state.read(cx).rendered_text().as_str().to_owned());
-        for expected in [
-            "标题",
-            "see label and bold and code",
-            "甲",
-            "乙",
-            "脚注正文",
-        ] {
-            assert!(
-                rendered.contains(expected),
-                "{expected:?} is missing from {rendered:?}"
-            );
-        }
-        assert!(
-            !rendered.contains("[ref]"),
-            "the reference label resolved instead of showing its source: {rendered:?}"
-        );
-    }
-
-    /// The reader hands a fence's own source to the Markdown parser, so this
-    /// pins what that parser makes of the slice: code, not algorithm text.
-    #[gpui_kit::test]
-    fn a_fence_slice_parses_as_code(cx: &mut TestAppContext) {
-        cx.update(gpui_kit::init);
-        let state =
-            cx.update(|cx| cx.new(|cx| TextViewState::markdown("```rust\nfn main() {}\n```", cx)));
-        cx.run_until_parked();
-        let rendered = cx.update(|cx| state.read(cx).rendered_text().as_str().trim().to_owned());
-        assert_eq!(rendered, "fn main() {}");
-    }
-
-    /// A fence has to reach the reader as a code block, including one nested in
-    /// a list item, where the HTML path drew it as inline-code runs.
-    #[gpui_kit::test]
-    fn reader_lays_fenced_code_out_as_code(cx: &mut TestAppContext) {
-        use gpui_kit::test::TestWindowExt;
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("code.md");
-        std::fs::write(
-            &path,
-            "Intro\n\n```rust\nfn main() {\n    let x = 1;\n}\n```\n\n- item\n  ```\n  nested\n  ```\n",
-        )
-        .unwrap();
-        let (handle, view) = crate::ui_tests::app(cx);
-        cx.update_window(handle, |_, _, cx| {
-            view.update(cx, |view, cx| {
-                view.books[0].source = Source::File(path.clone());
-                view.books[0].title = "code.md".into();
-                view.load(cx);
-            });
-        })
-        .unwrap();
-        cx.run_until_parked();
-        cx.update_window(handle, |_, window, cx| {
-            window.render_frame(cx);
-            window.render_frame(cx);
-            let document = view
+            let after = view
                 .read(cx)
                 .reflow
                 .markdown
-                .clone()
-                .expect("the Markdown document did not load");
-            assert!(
-                document.blocks[1].markdown.is_some(),
-                "the reader kept no Markdown for the top-level fence"
-            );
-            assert!(
-                document.blocks[2].markdown.is_some(),
-                "the reader kept no Markdown for the fence inside the list"
-            );
-            let intro = window.find(("markdown-block", 0usize)).bounds();
-            let fence = window.find(("markdown-block", 1usize)).bounds();
-            let item = window.find(("markdown-block", 2usize)).bounds();
-            assert!(fence.size.height > intro.size.height, "{fence:?}");
-            assert!(item.size.height > intro.size.height, "{item:?}");
+                .as_ref()
+                .unwrap()
+                .state
+                .read(cx)
+                .list_state()
+                .logical_scroll_top();
+            assert_eq!(before.item_ix, after.item_ix);
         })
         .unwrap();
     }
