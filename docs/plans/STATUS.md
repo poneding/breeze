@@ -16,9 +16,12 @@ tree.
 `cargo clippy --workspace --all-targets --locked -- -D warnings` pass. New tests
 assert one `markdown-document` and no `markdown-block` renderer, exercise Kit's
 tables/tasks/code/images, plugin constructs, search, outline jumps and scroll
-progress. Native visual inspection confirmed the unified surface on macOS;
-Windows and Linux runtime acceptance remain pending. See
-[work package 31](31-markdown-text-view-unification.md).
+progress. Follow-up fixes added the native scrollbar-cover treatment, a 24 px
+content inset, working TOC reveal ranges, 2x SVG image loading, Mermaid
+background removal and Kit tree-sitter code highlighting. Native visual
+inspection on macOS confirmed the unified renderer, padding, code highlighting
+and frameless image/diagram surfaces; Windows and Linux runtime acceptance
+remain pending. See [work package 31](31-markdown-text-view-unification.md).
 
 ## October 21 Explicit annotation selection tool
 
