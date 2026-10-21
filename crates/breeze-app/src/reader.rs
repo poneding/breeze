@@ -277,16 +277,13 @@ impl Breeze {
                             .flex_1()
                             .min_w_0()
                             .justify_start()
-                            .child(
-                                self.command(
-                                    "collapse",
-                                    IconName::PanelLeft,
-                                    tr!("Navigation panel"),
-                                    &ToggleSidebar,
-                                    cx,
-                                )
-                                .selected(true),
-                            ),
+                            .child(self.command(
+                                "collapse",
+                                IconName::PanelLeft,
+                                tr!("Navigation panel"),
+                                &ToggleSidebar,
+                                cx,
+                            )),
                     )
                     .child(
                         TabBar::new("nav-tabs")

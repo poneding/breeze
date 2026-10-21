@@ -1192,6 +1192,31 @@ fn panel_toggles_live_in_their_expanded_headers(cx: &mut TestAppContext) {
 }
 
 #[gpui_kit::test]
+fn sidebar_toggles_do_not_paint_a_selected_state(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        // Collapsing a sidebar is an action, not a state the reader reports:
+        // both header toggles stay plain ghost icons instead of accent fills.
+        assert!(view.read(cx).sidebar);
+        assert_ne!(
+            window.find("collapse").selected(),
+            Some(true),
+            "the navigation header toggle must not paint the selected fill"
+        );
+        window.click("document-panel-toggle", cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).document_panel.open);
+        assert_ne!(
+            window.find("document-panel-toggle").selected(),
+            Some(true),
+            "the document panel toggle must not paint the selected fill"
+        );
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn spread_second_page_gesture_targets_its_own_surface(cx: &mut TestAppContext) {
     let worker = PdfWorker::new().unwrap();
     let first = futures::executor::block_on(worker.request(Source::Sample, 0).unwrap())
