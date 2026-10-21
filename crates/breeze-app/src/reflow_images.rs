@@ -5,6 +5,7 @@
 //! rendered as an empty placeholder; it never becomes the reader's status
 //! notice, which is reserved for the document as a whole.
 use crate::*;
+use anyhow::Context as _;
 use std::{
     collections::{HashSet, VecDeque},
     io::{Cursor, Read},
@@ -34,6 +35,49 @@ pub(super) struct Images {
     /// document information panel.
     pub failures: usize,
     pub last_failure: Option<String>,
+}
+
+impl Breeze {
+    /// Publish a decoded image (or its failure) and remeasure the reader.
+    fn finish_image(
+        &mut self,
+        cx: &mut Context<Self>,
+        key: String,
+        result: anyhow::Result<Pixels>,
+    ) {
+        self.reflow.images.loading.remove(&key);
+        let entry = match result {
+            Ok(pixels) => match texture(pixels) {
+                Ok(image) => {
+                    let size = image.size(0);
+                    Entry {
+                        uri: key,
+                        bytes: usize::from(size.width) * usize::from(size.height) * 4,
+                        loaded: Loaded::Image(image),
+                    }
+                }
+                Err(error) => {
+                    self.reflow.images.note_failure(&key, &format!("{error:#}"));
+                    Entry {
+                        uri: key,
+                        bytes: 0,
+                        loaded: Loaded::Failed,
+                    }
+                }
+            },
+            Err(error) => {
+                self.reflow.images.note_failure(&key, &format!("{error:#}"));
+                Entry {
+                    uri: key,
+                    bytes: 0,
+                    loaded: Loaded::Failed,
+                }
+            }
+        };
+        self.reflow.images.insert(cx, entry);
+        self.reflow.list.remeasure();
+        cx.notify();
+    }
 }
 
 impl Images {
@@ -92,6 +136,24 @@ pub(super) fn source(view: WeakEntity<Breeze>, document: Source, uri: String) ->
                 return None;
             }
             let Source::File(path) = &document else {
+                if !is_remote(&uri) {
+                    return None;
+                }
+                let source = document.clone();
+                this.reflow.images.loading.insert(uri.clone());
+                let requested = uri.clone();
+                let key = uri.clone();
+                let work = cx.background_spawn(async move { decode(None, &requested) });
+                cx.spawn(async move |this, cx| {
+                    let result = work.await;
+                    let _ = this.update(cx, |this, cx| {
+                        if this.reflow.source.as_ref() != Some(&source) {
+                            return;
+                        }
+                        this.finish_image(cx, key, result);
+                    });
+                })
+                .detach();
                 return None;
             };
             let path = path.clone();
@@ -101,45 +163,14 @@ pub(super) fn source(view: WeakEntity<Breeze>, document: Source, uri: String) ->
             // take their own owned copies of the URI.
             let requested = uri.clone();
             let key = uri.clone();
-            let work = cx.background_spawn(async move { decode(&path, &requested) });
+            let work = cx.background_spawn(async move { decode(Some(&path), &requested) });
             cx.spawn(async move |this, cx| {
                 let result = work.await;
                 let _ = this.update(cx, |this, cx| {
                     if this.reflow.source.as_ref() != Some(&source) {
                         return;
                     }
-                    this.reflow.images.loading.remove(&key);
-                    let entry = match result {
-                        Ok(pixels) => match texture(pixels) {
-                            Ok(image) => {
-                                let size = image.size(0);
-                                Entry {
-                                    uri: key,
-                                    bytes: usize::from(size.width) * usize::from(size.height) * 4,
-                                    loaded: Loaded::Image(image),
-                                }
-                            }
-                            Err(error) => {
-                                this.reflow.images.note_failure(&key, &format!("{error:#}"));
-                                Entry {
-                                    uri: key,
-                                    bytes: 0,
-                                    loaded: Loaded::Failed,
-                                }
-                            }
-                        },
-                        Err(error) => {
-                            this.reflow.images.note_failure(&key, &format!("{error:#}"));
-                            Entry {
-                                uri: key,
-                                bytes: 0,
-                                loaded: Loaded::Failed,
-                            }
-                        }
-                    };
-                    this.reflow.images.insert(cx, entry);
-                    this.reflow.list.remeasure();
-                    cx.notify();
+                    this.finish_image(cx, key, result);
                 });
             })
             .detach();
@@ -157,18 +188,118 @@ impl Images {
     }
 }
 
-fn decode(document: &Path, uri: &str) -> Result<Pixels> {
-    // The reference is a Markdown URI, so `%20` and a trailing query or
-    // fragment are resolved before the file is opened.
-    let path = breeze_reflow::markdown::Document::resolve_image(document, uri)?;
-    let file = std::fs::File::open(&path)?;
+/// Whether the reference is a network image rather than a local file.
+fn is_remote(uri: &str) -> bool {
+    uri.starts_with("https://") || uri.starts_with("http://")
+}
+
+/// Decode a local or remote image, including SVG.
+fn decode(document: Option<&Path>, uri: &str) -> Result<Pixels> {
+    let bytes = if is_remote(uri) {
+        fetch_remote(uri)?
+    } else {
+        let document = document.context("An image needs a document directory")?;
+        // The reference is a Markdown URI, so `%20` and a trailing query or
+        // fragment are resolved before the file is opened.
+        let path = breeze_reflow::markdown::Document::resolve_image(document, uri)?;
+        let file = std::fs::File::open(&path)?;
+        anyhow::ensure!(
+            file.metadata()?.len() <= MAX_IMAGE_BYTES as u64,
+            "image exceeds the 16 MiB input limit"
+        );
+        let mut bytes = Vec::new();
+        file.take(MAX_IMAGE_BYTES as u64 + 1)
+            .read_to_end(&mut bytes)?;
+        bytes
+    };
+    if looks_like_svg(&bytes) {
+        decode_svg(&bytes)
+    } else {
+        decode_raster(bytes)
+    }
+}
+
+/// A bounded network fetch. Badges and screenshots are small; a document must
+/// not be able to block the reader on an arbitrarily large response.
+fn fetch_remote(uri: &str) -> Result<Vec<u8>> {
+    anyhow::ensure!(uri.len() <= 2048, "image URL is too long");
+    let config = ureq::Agent::config_builder()
+        .https_only(false)
+        .timeout_global(Some(std::time::Duration::from_secs(10)))
+        .max_redirects(5)
+        .http_status_as_error(true)
+        .user_agent(concat!("Breeze/", env!("CARGO_PKG_VERSION")));
+    // A loopback fixture must not use a developer machine's proxy settings.
+    #[cfg(test)]
+    let config = config.proxy(None);
+    let agent: ureq::Agent = config.build().into();
+    let mut response = agent.get(uri).call()?;
+    let bytes = response
+        .body_mut()
+        .with_config()
+        .limit(MAX_IMAGE_BYTES as u64)
+        .read_to_vec()?;
+    anyhow::ensure!(!bytes.is_empty(), "the image response is empty");
+    Ok(bytes)
+}
+
+fn looks_like_svg(bytes: &[u8]) -> bool {
+    let head = &bytes[..bytes.len().min(512)];
+    let text = String::from_utf8_lossy(head);
+    let text = text.trim_start();
+    text.starts_with("<svg") || text.starts_with("<?xml") && text.contains("<svg")
+}
+
+/// Rasterize an SVG (shields.io badges are SVG). Text needs the system fonts,
+/// so the font database is loaded for each image; decoded results are cached.
+fn decode_svg(bytes: &[u8]) -> Result<Pixels> {
+    rasterize_svg(bytes, 1.0)
+}
+
+/// Rasterize an SVG at an explicit scale. Diagrams use 2x for sharp text.
+pub(super) fn rasterize_svg(bytes: &[u8], scale: f32) -> Result<Pixels> {
+    let mut options = resvg::usvg::Options::default();
+    options.fontdb_mut().load_system_fonts();
+    let tree = resvg::usvg::Tree::from_data(bytes, &options)?;
+    let size = tree.size();
+    anyhow::ensure!(size.width() > 0. && size.height() > 0., "empty SVG");
+    let scale = scale.clamp(0.5, 3.0);
+    let width = (size.width() * scale).ceil() as u32;
+    let height = (size.height() * scale).ceil() as u32;
     anyhow::ensure!(
-        file.metadata()?.len() <= MAX_IMAGE_BYTES as u64,
-        "image exceeds the 16 MiB input limit"
+        width <= 8192 && height <= 8192,
+        "SVG exceeds the 8192 px limit"
     );
-    let mut bytes = Vec::new();
-    file.take(MAX_IMAGE_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)?;
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
+        .context("the SVG is larger than the pixel budget")?;
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::from_scale(scale, scale),
+        &mut pixmap.as_mut(),
+    );
+    let mut bgra = pixmap.take();
+    anyhow::ensure!(
+        bgra.len() <= IMAGE_BUDGET,
+        "image exceeds the 32 MiB decoded limit"
+    );
+    // `tiny-skia` produces premultiplied RGBA; the texture path stores the
+    // channel order the raster decoder produces.
+    for pixel in bgra.as_chunks_mut::<4>().0 {
+        pixel.swap(0, 2);
+    }
+    Ok(Pixels {
+        width,
+        height,
+        bgra,
+    })
+}
+
+/// Rasterize an SVG and turn it into the reader's texture format.
+pub(super) fn svg_image(bytes: &[u8], scale: f32) -> Result<Arc<RenderImage>> {
+    texture(rasterize_svg(bytes, scale)?)
+}
+
+fn decode_raster(bytes: Vec<u8>) -> Result<Pixels> {
     let mut reader = image::ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(IMAGE_BUDGET as u64);
@@ -194,4 +325,45 @@ fn decode(document: &Path, uri: &str) -> Result<Pixels> {
         height,
         bgra,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{io::Write as _, net::TcpListener};
+
+    #[test]
+    fn svg_detection_is_conservative() {
+        assert!(looks_like_svg(
+            b"<svg xmlns=\"http://www.w3.org/2000/svg\"></svg>"
+        ));
+        assert!(looks_like_svg(
+            b"<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\"></svg>"
+        ));
+        assert!(!looks_like_svg(b"\x89PNG\r\n\x1a\n"));
+    }
+
+    #[test]
+    fn a_remote_svg_is_fetched_and_rasterized() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request);
+            let body = r##"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="16"><rect width="40" height="16" fill="#333"/></svg>"##;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: image/svg+xml\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+        let uri = format!("http://{address}/badge.svg");
+        let bytes = fetch_remote(&uri).expect("the SVG is fetched");
+        let pixels = decode_svg(&bytes).expect("the SVG is rasterized");
+        assert_eq!((pixels.width, pixels.height), (40, 16));
+        assert_eq!(pixels.bgra.len(), 40 * 16 * 4);
+        server.join().unwrap();
+    }
 }

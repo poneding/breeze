@@ -3234,6 +3234,139 @@ fn markdown_reading_previews_the_unsaved_draft(cx: &mut TestAppContext) {
     .unwrap();
 }
 
+/// The reading surface renders the constructs a hand-written note uses:
+/// front matter, a TOC, rules, sup/sub, emoji, aligned tables, task checks,
+/// formulas, mermaid source and SVG badges.
+#[gpui_kit::test]
+fn markdown_reading_renders_the_extended_constructs(cx: &mut TestAppContext) {
+    use breeze_reflow::markdown::RenderKind;
+    use gpui_kit::base::TextViewState;
+
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::write(
+        directory.path().join("badge.svg"),
+        r##"<svg xmlns="http://www.w3.org/2000/svg" width="80" height="20"><rect width="80" height="20" fill="#2f855a"/><text x="8" y="14" fill="white" font-size="12">build</text></svg>"##,
+    )
+    .unwrap();
+    let path = directory.path().join("extended.md");
+    std::fs::write(
+        &path,
+        "---\ntitle: 格式测试\n---\n\n# 标题\n\n[TOC]\n\n---\n\n===\n\nX<sub>2</sub> O<sup>2</sup> :smile:\n\n| 左 | 中 | 右 |\n|:--|:-:|--:|\n| `help()` | `destroy()` | 1 |\n\n- [x] 已完成\n- [ ] 未完成\n\n$x^2$\n\n$$\nE = mc^2\n$$\n\n```mermaid\ngraph TD\nA-->B\n```\n\n![badge](badge.svg)\n",
+    )
+    .unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "extended.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    for _ in 0..4 {
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| window.render_frame(cx))
+            .unwrap();
+    }
+    let document = cx
+        .update_window(handle, |_, window, cx| {
+            window.render_frame(cx);
+            let document = view
+                .read(cx)
+                .reflow
+                .markdown
+                .clone()
+                .expect("the document did not load");
+            let index = |kind: RenderKind| {
+                document
+                    .blocks
+                    .iter()
+                    .position(|block| block.kind == kind)
+                    .unwrap_or_else(|| panic!("no {kind:?} block"))
+            };
+            assert!(
+                window
+                    .try_find(("markdown-frontmatter", index(RenderKind::FrontMatter)))
+                    .is_some(),
+                "the front matter card is missing"
+            );
+            assert!(
+                window
+                    .try_find(("markdown-rule", index(RenderKind::Rule)))
+                    .is_some(),
+                "the rule is missing"
+            );
+            assert!(
+                window
+                    .try_find(("markdown-math", index(RenderKind::Math)))
+                    .is_some(),
+                "the formula block is missing"
+            );
+            assert!(
+                view.read(cx).reflow.images.failures == 0,
+                "the SVG badge was reported as unavailable: {:?}",
+                view.read(cx).reflow.images.last_failure
+            );
+            document
+        })
+        .unwrap();
+    let toc = &document.blocks[document
+        .blocks
+        .iter()
+        .position(|block| block.kind == RenderKind::Toc)
+        .unwrap()];
+    assert!(toc.html.contains("href=\"#标题\""), "{}", toc.html);
+
+    // The table and the task list go through the Markdown reader, which
+    // carries alignment and checkbox state that the HTML reader cannot.
+    let table = document
+        .blocks
+        .iter()
+        .find(|block| block.markdown.is_some() && block.html.contains("<table>"))
+        .expect("a table block")
+        .clone();
+    let state = cx
+        .update(|cx| cx.new(|cx| TextViewState::markdown(table.markdown.as_deref().unwrap(), cx)));
+    cx.run_until_parked();
+    let rendered = cx.update(|cx| state.read(cx).rendered_text().as_str().to_owned());
+    assert!(
+        rendered.contains("help()") && rendered.contains("destroy()"),
+        "a table cell was lost: {rendered:?}"
+    );
+
+    let tasks = document
+        .blocks
+        .iter()
+        .find(|block| block.markdown.is_some() && block.text.contains("已完成"))
+        .expect("a task block")
+        .clone();
+    let state = cx
+        .update(|cx| cx.new(|cx| TextViewState::markdown(tasks.markdown.as_deref().unwrap(), cx)));
+    cx.run_until_parked();
+    let rendered = cx.update(|cx| state.read(cx).rendered_text().as_str().to_owned());
+    assert!(
+        rendered.contains("已完成") && rendered.contains("未完成"),
+        "a task item was lost: {rendered:?}"
+    );
+
+    let typography = document
+        .blocks
+        .iter()
+        .find(|block| block.html.contains("X"))
+        .expect("the typography block")
+        .clone();
+    let state = cx.update(|cx| cx.new(|cx| TextViewState::html(&typography.html, cx)));
+    cx.run_until_parked();
+    let rendered = cx.update(|cx| state.read(cx).rendered_text().as_str().to_owned());
+    for expected in ["X₂", "O²", "😄"] {
+        assert!(
+            rendered.contains(expected),
+            "{expected:?} is missing from {rendered:?}"
+        );
+    }
+}
+
 /// A Markdown file above the reading parse ceiling still edits: the reader
 /// names the limit while the source editor opens with every byte intact.
 #[gpui_kit::test]

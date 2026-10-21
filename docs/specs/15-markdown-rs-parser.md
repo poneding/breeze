@@ -170,6 +170,33 @@ The reading view is the rendered preview. Evidence for that choice:
 - The reading parse ceiling does not apply to editing: a larger file is read and
   edited as source, while the reader still reports its limit.
 
+## Reading constructs (October 20, 2026)
+
+The reading surface now draws the constructs a hand-written Markdown note uses,
+not only CommonMark paragraphs. The user reported thirteen gaps against a
+reference note; the implementation classifies blocks and chooses the widest
+reader that can draw each one:
+
+| Construct | Reading behavior |
+|---|---|
+| Front matter | A `---` YAML block becomes a native metadata card; its fences do not render. `title: …` and other lines are shown as key/value rows. |
+| Table of contents | `[TOC]`, `[[toc]]`, `[[_TOC_]]`, `{{toc}}` and `<toc>` become a generated heading list with anchor links. The list is filled after every heading is known, so it may precede them. |
+| Rules | `---` thematic breaks and a paragraph line of only `===`/`---`/`***` (three or more) become a native divider. CommonMark alone treats `===` as a paragraph. |
+| Superscript/subscript | `<sup>…</sup>` and `<sub>…</sub>` runs map to Unicode superscript/subscript characters where they exist (`O<sup>2</sup>` → `O²`, `X<sub>2</sub>` → `X₂`). Characters without a Unicode counterpart keep their baseline. |
+| Abbreviations | A paragraph made only of `*[ABBR]: expansion` lines is a declaration and is not rendered. Usages remain plain text; Kit's HTML reader has no `<abbr>` styling or tooltip. |
+| Tables | Table blocks are handed to Kit's Markdown reader, which applies GFM column alignment and keeps every cell (including inline code such as `help()`). |
+| Task lists | Task-list blocks use Kit's Markdown reader, which draws checkboxes from the GFM state. |
+| Emoji | A bounded GitHub shortcode table replaces known `:name:` runs in ordinary text; unknown names stay literal. Code spans are untouched. |
+| Formulas | A `$$…$$` block is typeset with RaTeX (embedded KaTeX fonts) into an image. Inline `$…$` shows its TeX in a code run; inline typesetting is still open. |
+| Mermaid | A ```mermaid fence is rendered natively by `mermaid-rs-renderer` to SVG, then rasterized with the system fonts. Unsupported diagram syntax falls back to the source code card. |
+| Images | Local files, remote `http(s)` images and SVG badges are supported. Remote fetches are bounded (10 s, 16 MiB, five redirects); SVGs are rasterized at their intrinsic size with system fonts for badge text. |
+
+These are reading-only projections: editing remains source text, and an
+unsupported construct never disappears from the draft.
+
+Open limitations: abbreviation tooltips, inline formula typesetting, a dark
+Mermaid palette, and diagrams beyond the native renderer's syntax set.
+
 ## Resource limits
 
 | Limit | Value | Behavior |

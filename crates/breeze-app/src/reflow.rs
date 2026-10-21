@@ -71,6 +71,11 @@ impl ReflowTextSelection {
     }
 }
 
+/// A rasterized formula or diagram: the image plus its logical size.
+type RenderedImage = Option<(Arc<RenderImage>, f32, f32)>;
+type MathCache = HashMap<(String, u8, [u8; 3]), RenderedImage>;
+type MermaidCache = HashMap<(String, bool), RenderedImage>;
+
 pub(super) struct ReflowView {
     pub source: Option<Source>,
     pub markdown: Option<Arc<markdown::Document>>,
@@ -87,6 +92,10 @@ pub(super) struct ReflowView {
     queued: bool,
     pub hits: Vec<(String, usize, String)>,
     pub images: reflow_images::Images,
+    /// Typeset display formulas, keyed by TeX, font size and text colour.
+    math_cache: MathCache,
+    /// Rendered Mermaid diagrams, keyed by their source and the app theme.
+    mermaid_cache: MermaidCache,
     /// Selection over the current EPUB frame, plus the rectangles to paint.
     text_selection: Option<ReflowTextSelection>,
     selection: Vec<(usize, Vec<[f32; 4]>)>,
@@ -134,6 +143,8 @@ impl Default for ReflowView {
             queued: false,
             hits: Vec::new(),
             images: Default::default(),
+            math_cache: HashMap::new(),
+            mermaid_cache: HashMap::new(),
             text_selection: None,
             selection: Vec::new(),
             selection_active: false,
@@ -182,6 +193,8 @@ impl ReflowView {
         self.pending_turn = 0;
         self.worker = None;
         self.images.clear(cx);
+        self.math_cache.clear();
+        self.mermaid_cache.clear();
         let page_images = std::mem::take(&mut self.page_images);
         if !page_images.is_empty() {
             cx.defer(move |cx| {
@@ -2027,6 +2040,140 @@ impl Breeze {
         let Some(block) = document.blocks.get(index) else {
             return div().into_any_element();
         };
+        let body = f32::from(self.books[self.active].reflow.font_size);
+        let theme = Theme::global(cx).clone();
+        let frame = |child: AnyElement| {
+            div()
+                .id(("markdown-block", index))
+                .test_support()
+                .w_full()
+                .px_4()
+                .py_1()
+                .min_h(px(20.))
+                .text_size(px(body))
+                .child(child)
+                .into_any_element()
+        };
+        match block.kind {
+            markdown::RenderKind::Rule => {
+                return frame(
+                    div()
+                        .id(("markdown-rule", index))
+                        .test_support()
+                        .w_full()
+                        .py_2()
+                        .child(div().h(px(1.)).w_full().bg(theme.border))
+                        .into_any_element(),
+                );
+            }
+            markdown::RenderKind::FrontMatter => {
+                let mut card = div()
+                    .id(("markdown-frontmatter", index))
+                    .test_support()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .px_3()
+                    .py_2()
+                    .rounded_md()
+                    .bg(theme.muted.opacity(0.45))
+                    .border_l_2()
+                    .border_color(theme.primary.opacity(0.5));
+                for line in block.text.lines() {
+                    let (key, value) = line.split_once(':').unwrap_or(("", line));
+                    let mut row = div().flex().gap_2();
+                    if !key.trim().is_empty() {
+                        row = row.child(
+                            div()
+                                .text_color(theme.muted_foreground)
+                                .child(key.trim().to_string()),
+                        );
+                    }
+                    row = row.child(div().child(value.trim().to_string()));
+                    card = card.child(row);
+                }
+                return frame(card.into_any_element());
+            }
+            markdown::RenderKind::Math => {
+                let tex = block.text.trim().to_string();
+                let rgb = {
+                    let colour = theme.foreground.to_rgb();
+                    [
+                        (colour.r * 255.0).round() as u8,
+                        (colour.g * 255.0).round() as u8,
+                        (colour.b * 255.0).round() as u8,
+                    ]
+                };
+                let font_size = self.books[self.active].reflow.font_size;
+                let key = (tex.clone(), font_size, rgb);
+                let rendered = self
+                    .reflow
+                    .math_cache
+                    .entry(key)
+                    .or_insert_with(|| {
+                        ratex_gpui::render::render_latex(&tex, body, 2.0, theme.foreground)
+                            .map(|formula| (formula.image, formula.width, formula.height))
+                    })
+                    .clone();
+                let formula = match rendered {
+                    Some((image, width, height)) => {
+                        img(image).w(px(width)).h(px(height)).into_any_element()
+                    }
+                    // A malformed formula still shows its TeX rather than nothing.
+                    None => div()
+                        .text_size(px(body + 2.))
+                        .font_family(theme.font_family.clone())
+                        .child(tex)
+                        .into_any_element(),
+                };
+                return frame(
+                    div()
+                        .id(("markdown-math", index))
+                        .test_support()
+                        .w_full()
+                        .flex()
+                        .justify_center()
+                        .py_2()
+                        .child(formula)
+                        .into_any_element(),
+                );
+            }
+            markdown::RenderKind::Mermaid => {
+                let source_text = block.text.trim().to_string();
+                let key = (source_text.clone(), theme.is_dark());
+                let rendered = self
+                    .reflow
+                    .mermaid_cache
+                    .entry(key)
+                    .or_insert_with(|| {
+                        let svg = mermaid_rs_renderer::render(&source_text).ok()?;
+                        let image = crate::reflow_images::svg_image(svg.as_bytes(), 2.0).ok()?;
+                        let size = image.size(0);
+                        Some((
+                            image,
+                            usize::from(size.width) as f32 / 2.0,
+                            usize::from(size.height) as f32 / 2.0,
+                        ))
+                    })
+                    .clone();
+                if let Some((image, width, height)) = rendered {
+                    return frame(
+                        div()
+                            .id(("markdown-mermaid", index))
+                            .test_support()
+                            .w_full()
+                            .flex()
+                            .justify_center()
+                            .py_2()
+                            .child(img(image).w(px(width)).h(px(height)))
+                            .into_any_element(),
+                    );
+                }
+                // Unsupported syntax falls through to the Markdown source card.
+            }
+            _ => {}
+        }
         let state = if let Some(position) = self.reflow.blocks.iter().position(|b| b.index == index)
         {
             let block = self
@@ -2075,7 +2222,6 @@ impl Breeze {
         let view = cx.entity().downgrade();
         let source = self.books[self.active].source.clone();
         let images = cx.entity().downgrade();
-        let body = f32::from(self.books[self.active].reflow.font_size);
         div()
             .id(("markdown-block", index))
             .test_support()
@@ -2295,6 +2441,23 @@ mod tests {
             });
         }
         layer
+    }
+
+    #[test]
+    fn mermaid_diagrams_rasterize() {
+        let svg = mermaid_rs_renderer::render("flowchart LR; A-->B").expect("a flowchart renders");
+        assert!(svg.contains("<svg"), "{svg}");
+        let image =
+            crate::reflow_images::svg_image(svg.as_bytes(), 2.0).expect("the SVG rasterizes");
+        assert!(usize::from(image.size(0).width) > 0);
+    }
+
+    #[test]
+    fn block_formulas_typeset() {
+        let rendered =
+            ratex_gpui::render::render_latex("E = mc^2", 18., 2., gpui_kit::hsla(0., 0., 0., 1.))
+                .expect("a simple formula typesets");
+        assert!(rendered.width > 0. && rendered.height > 0.);
     }
 
     #[test]

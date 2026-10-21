@@ -74,3 +74,7 @@ These work-package documents were written before the corresponding code changes.
 15. [28 — Markdown source editor](28-markdown-source-editor.md): GPUI Kit's
     code editor with tree-sitter Markdown highlighting, with the reading view
     as the rendered preview, replacing the home-grown live-preview surface.
+
+16. [29 — Markdown reading constructs](29-markdown-reading-constructs.md):
+    front matter, TOC, rules, sup/sub, emoji, aligned tables, task checks,
+    formulas, Mermaid and remote/SVG images in the reading surface.

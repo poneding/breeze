@@ -61,9 +61,14 @@ pub fn html(node: &Node, source: &str, references: &References, out: &mut String
         // Definitions produce no content; front matter and math stay literal.
         Node::Definition(_) => {}
         Node::Yaml(yaml) => {
-            out.push_str("<p><code>");
-            escape(&yaml.value, out);
-            out.push_str("</code></p>");
+            out.push_str("<p>");
+            for (index, line) in yaml.value.lines().enumerate() {
+                if index > 0 {
+                    out.push_str("<br>");
+                }
+                escape(line, out);
+            }
+            out.push_str("</p>");
         }
         Node::Toml(toml) => {
             out.push_str("<p><code>");
@@ -173,9 +178,38 @@ fn alignment(kind: &AlignKind) -> Option<&'static str> {
 }
 
 fn inlines(nodes: &[Node], source: &str, references: &References, out: &mut String) {
+    let mut script: Option<Script> = None;
     for node in nodes {
         match node {
-            Node::Text(text) => escape(&text.value, out),
+            Node::Text(text) => {
+                let value = match script {
+                    Some(script) => script_text(&text.value, script),
+                    None => emojify(&text.value),
+                };
+                escape(&value, out);
+            }
+            Node::Html(html) => {
+                match html.value.trim().to_ascii_lowercase().as_str() {
+                    "<sup>" => {
+                        script = Some(Script::Super);
+                        continue;
+                    }
+                    "</sup>" => {
+                        script = None;
+                        continue;
+                    }
+                    "<sub>" => {
+                        script = Some(Script::Sub);
+                        continue;
+                    }
+                    "</sub>" => {
+                        script = None;
+                        continue;
+                    }
+                    _ => {}
+                }
+                out.push_str(&html.value);
+            }
             Node::Strong(strong) => container("strong", &strong.children, source, references, out),
             Node::Emphasis(emphasis) => {
                 container("em", &emphasis.children, source, references, out);
@@ -214,7 +248,6 @@ fn inlines(nodes: &[Node], source: &str, references: &References, out: &mut Stri
                 None => escape(source_slice(source, node), out),
             },
             Node::Break(_) => out.push_str("<br>"),
-            Node::Html(html) => out.push_str(&html.value),
             Node::InlineMath(math) => {
                 out.push_str("<code>");
                 escape(&math.value, out);
@@ -276,8 +309,12 @@ fn push_attribute(out: &mut String, name: &str, value: &str) {
     out.push(' ');
     out.push_str(name);
     out.push_str("=\"");
-    escape_attribute(value, out);
+    escape_attribute_impl(value, out);
     out.push('"');
+}
+
+pub(crate) fn escape_text(text: &str, out: &mut String) {
+    escape(text, out)
 }
 
 fn escape(text: &str, out: &mut String) {
@@ -291,7 +328,11 @@ fn escape(text: &str, out: &mut String) {
     }
 }
 
-fn escape_attribute(text: &str, out: &mut String) {
+pub(crate) fn escape_attribute(text: &str, out: &mut String) {
+    escape_attribute_impl(text, out)
+}
+
+fn escape_attribute_impl(text: &str, out: &mut String) {
     for character in text.chars() {
         match character {
             '&' => out.push_str("&amp;"),
@@ -301,6 +342,317 @@ fn escape_attribute(text: &str, out: &mut String) {
             _ => out.push(character),
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum Script {
+    Super,
+    Sub,
+}
+
+/// Map a run to Unicode super/subscript characters where they exist.
+///
+/// GPUI Kit's HTML reader has no baseline shift, so `<sup>`/`<sub>` markup
+/// would otherwise render as ordinary text. The TeX-ish forms people write
+/// (`X<sub>2</sub>`, `O<sup>2</sup>`) have exact Unicode counterparts; text
+/// without a counterpart keeps its characters and only loses the raise.
+fn script_text(text: &str, script: Script) -> String {
+    text.chars()
+        .map(|character| {
+            let mapped = match script {
+                Script::Super => superscript(character),
+                Script::Sub => subscript(character),
+            };
+            mapped.unwrap_or(character)
+        })
+        .collect()
+}
+
+fn superscript(character: char) -> Option<char> {
+    Some(match character {
+        '0' => '⁰',
+        '1' => '¹',
+        '2' => '²',
+        '3' => '³',
+        '4' => '⁴',
+        '5' => '⁵',
+        '6' => '⁶',
+        '7' => '⁷',
+        '8' => '⁸',
+        '9' => '⁹',
+        '+' => '⁺',
+        '-' => '⁻',
+        '=' => '⁼',
+        '(' => '⁽',
+        ')' => '⁾',
+        'a' => 'ᵃ',
+        'b' => 'ᵇ',
+        'c' => 'ᶜ',
+        'd' => 'ᵈ',
+        'e' => 'ᵉ',
+        'f' => 'ᶠ',
+        'g' => 'ᵍ',
+        'h' => 'ʰ',
+        'i' => 'ⁱ',
+        'j' => 'ʲ',
+        'k' => 'ᵏ',
+        'l' => 'ˡ',
+        'm' => 'ᵐ',
+        'n' => 'ⁿ',
+        'o' => 'ᵒ',
+        'p' => 'ᵖ',
+        'r' => 'ʳ',
+        's' => 'ˢ',
+        't' => 'ᵗ',
+        'u' => 'ᵘ',
+        'v' => 'ᵛ',
+        'w' => 'ʷ',
+        'x' => 'ˣ',
+        'y' => 'ʸ',
+        'z' => 'ᶻ',
+        'A' => 'ᴬ',
+        'B' => 'ᴮ',
+        'D' => 'ᴰ',
+        'E' => 'ᴱ',
+        'G' => 'ᴳ',
+        'H' => 'ᴴ',
+        'I' => 'ᴵ',
+        'J' => 'ᴶ',
+        'K' => 'ᴷ',
+        'L' => 'ᴸ',
+        'M' => 'ᴹ',
+        'N' => 'ᴺ',
+        'O' => 'ᴼ',
+        'P' => 'ᴾ',
+        'R' => 'ᴿ',
+        'T' => 'ᵀ',
+        'U' => 'ᵁ',
+        'V' => 'ⱽ',
+        'W' => 'ᵂ',
+        _ => return None,
+    })
+}
+
+fn subscript(character: char) -> Option<char> {
+    Some(match character {
+        '0' => '₀',
+        '1' => '₁',
+        '2' => '₂',
+        '3' => '₃',
+        '4' => '₄',
+        '5' => '₅',
+        '6' => '₆',
+        '7' => '₇',
+        '8' => '₈',
+        '9' => '₉',
+        '+' => '₊',
+        '-' => '₋',
+        '=' => '₌',
+        '(' => '₍',
+        ')' => '₎',
+        'a' => 'ₐ',
+        'e' => 'ₑ',
+        'h' => 'ₕ',
+        'i' => 'ᵢ',
+        'j' => 'ⱼ',
+        'k' => 'ₖ',
+        'l' => 'ₗ',
+        'm' => 'ₘ',
+        'n' => 'ₙ',
+        'o' => 'ₒ',
+        'p' => 'ₚ',
+        'r' => 'ᵣ',
+        's' => 'ₛ',
+        't' => 'ₜ',
+        'u' => 'ᵤ',
+        'v' => 'ᵥ',
+        'x' => 'ₓ',
+        _ => return None,
+    })
+}
+
+/// Replace GitHub-style emoji shortcodes with their characters.
+///
+/// Code spans and raw HTML are separate node kinds and are left untouched; only
+/// ordinary text is scanned. Unknown names stay as written.
+fn emojify(text: &str) -> String {
+    if !text.contains(':') {
+        return text.to_owned();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(start) = rest.find(':') {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 1..];
+        let Some(end) = after.find(':') else {
+            out.push_str(&rest[start..]);
+            return out;
+        };
+        let name = &after[..end];
+        let valid = !name.is_empty()
+            && name.len() <= 32
+            && name.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '+')
+            });
+        if valid && let Some(emoji) = emoji(name) {
+            out.push_str(emoji);
+            rest = &after[end + 1..];
+            continue;
+        }
+        out.push(':');
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
+fn emoji(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "smile" => "😄",
+        "smiley" => "😃",
+        "grin" => "😁",
+        "joy" => "😂",
+        "wink" => "😉",
+        "heart_eyes" => "😍",
+        "thinking" => "🤔",
+        "sunglasses" => "😎",
+        "cry" => "😢",
+        "sob" => "😭",
+        "angry" => "😠",
+        "rage" => "😡",
+        "heart" => "❤️",
+        "broken_heart" => "💔",
+        "blue_heart" => "💙",
+        "green_heart" => "💚",
+        "yellow_heart" => "💛",
+        "purple_heart" => "💜",
+        "sparkling_heart" => "💖",
+        "+1" | "thumbsup" => "👍",
+        "-1" | "thumbsdown" => "👎",
+        "clap" => "👏",
+        "pray" => "🙏",
+        "muscle" => "💪",
+        "wave" => "👋",
+        "ok_hand" => "👌",
+        "point_right" => "👉",
+        "point_left" => "👈",
+        "eyes" => "👀",
+        "fire" => "🔥",
+        "rocket" => "🚀",
+        "tada" => "🎉",
+        "sparkles" => "✨",
+        "star" => "⭐",
+        "star2" => "🌟",
+        "zap" => "⚡",
+        "boom" => "💥",
+        "bug" => "🐛",
+        "beetle" => "🪲",
+        "lock" => "🔒",
+        "unlock" => "🔓",
+        "key" => "🔑",
+        "bell" => "🔔",
+        "mag" => "🔍",
+        "bulb" => "💡",
+        "memo" => "📝",
+        "book" => "📖",
+        "books" => "📚",
+        "bookmark" => "🔖",
+        "link" => "🔗",
+        "paperclip" => "📎",
+        "pushpin" => "📌",
+        "round_pushpin" => "📍",
+        "clipboard" => "📋",
+        "calendar" => "📅",
+        "clock1" => "🕐",
+        "hourglass" => "⌛",
+        "email" => "📧",
+        "phone" => "☎️",
+        "computer" => "💻",
+        "desktop_computer" => "🖥️",
+        "keyboard" => "⌨️",
+        "gear" => "⚙️",
+        "wrench" => "🔧",
+        "hammer" => "🔨",
+        "package" => "📦",
+        "inbox_tray" => "📥",
+        "outbox_tray" => "📤",
+        "floppy_disk" => "💾",
+        "cd" => "💿",
+        "dvd" => "📀",
+        "camera" => "📷",
+        "movie_camera" => "🎥",
+        "art" => "🎨",
+        "pencil2" => "✏️",
+        "scissors" => "✂️",
+        "triangular_ruler" => "📐",
+        "chart_with_upwards_trend" => "📈",
+        "chart_with_downwards_trend" => "📉",
+        "bar_chart" => "📊",
+        "clipboard_with_check" => "📋",
+        "white_check_mark" => "✅",
+        "heavy_check_mark" => "✔️",
+        "x" => "❌",
+        "warning" => "⚠️",
+        "no_entry" => "⛔",
+        "information_source" => "ℹ️",
+        "question" => "❓",
+        "exclamation" => "❗",
+        "sunny" => "☀️",
+        "cloud" => "☁️",
+        "umbrella" => "☔",
+        "snowflake" => "❄️",
+        "coffee" => "☕",
+        "beer" => "🍺",
+        "cake" => "🍰",
+        "apple" => "🍎",
+        "car" => "🚗",
+        "taxi" => "🚕",
+        "bus" => "🚌",
+        "train" => "🚆",
+        "airplane" => "✈️",
+        "ship" => "🚢",
+        "bike" => "🚲",
+        "house" => "🏠",
+        "office" => "🏢",
+        "school" => "🏫",
+        "hospital" => "🏥",
+        "bank" => "🏦",
+        "moneybag" => "💰",
+        "dollar" => "💵",
+        "credit_card" => "💳",
+        "gift" => "🎁",
+        "trophy" => "🏆",
+        "medal_sports" => "🏅",
+        "soccer" => "⚽",
+        "basketball" => "🏀",
+        "football" => "🏈",
+        "tennis" => "🎾",
+        "video_game" => "🎮",
+        "dice" => "🎲",
+        "musical_note" => "🎵",
+        "notes" => "🎶",
+        "guitar" => "🎸",
+        "microphone" => "🎤",
+        "headphones" => "🎧",
+        "globe_with_meridians" => "🌐",
+        "earth_asia" => "🌏",
+        "earth_americas" => "🌎",
+        "earth_africa" => "🌍",
+        "moon" => "🌙",
+        "100" => "💯",
+        "ok" => "🆗",
+        "new" => "🆕",
+        "free" => "🆓",
+        "top" => "🔝",
+        "soon" => "🔜",
+        "construction" => "🚧",
+        "recycle" => "♻️",
+        "dart" => "🎯",
+        "flag" => "🚩",
+        "checkered_flag" => "🏁",
+        "pinata" => "🪅",
+        _ => return None,
+    })
 }
 
 #[cfg(test)]

@@ -16,6 +16,12 @@ breeze-core.workspace = true
 breeze-pdf.workspace = true
 breeze-reflow.workspace = true
 image.workspace = true
+# Rasterizes SVG badges and diagrams; the same release GPUI already links.
+resvg = "=0.46.0"
+# Typesets display formulas with embedded KaTeX fonts (MIT). Render-only build.
+ratex-gpui = { version = "=0.4.1", default-features = false }
+# Renders Mermaid fences to SVG natively, without a browser (MIT).
+mermaid-rs-renderer = { version = "=0.3.1", default-features = false }
 ureq = { version = "=3.4.2", default-features = false, features = ["rustls"] }
 semver = "=1.0.28"
 sys-locale = "=0.3.2"

@@ -1,3 +1,36 @@
+## October 20 Markdown reading constructs
+
+The user's reference note exposed thirteen reading gaps. The reader now
+classifies top-level blocks and routes each shape to the renderer that can draw
+it; [specification 15](../specs/15-markdown-rs-parser.md#reading-constructs-october-20-2026)
+has the full behavior table and [work package 29](29-markdown-reading-constructs.md)
+the work record.
+
+- Front matter renders as a native metadata card; `[TOC]`, `[[toc]]`,
+  `[[_TOC_]]` and `{{toc}}` become a generated heading list; `---` and
+  `===`/`***`-only lines become a native divider.
+- Tables and task lists go through Kit's Markdown reader, so GFM column
+  alignment and checkboxes appear and every cell renders (including the
+  reported `help()` cell).
+- `<sup>`/`<sub>` map to Unicode; known `:shortcode:` emoji become characters;
+  abbreviation declaration paragraphs are hidden.
+- Display formulas typeset with RaTeX and its embedded KaTeX fonts; Mermaid
+  fences render natively to SVG with `mermaid-rs-renderer`. Unsupported Mermaid
+  syntax falls back to the source code card.
+- Images load from local paths, remote `http(s)` URLs and SVG. Remote fetches
+  are bounded (10 s, 16 MiB, five redirects); SVG rasterization uses system
+  fonts so badge labels render.
+- Licenses: added tree-sitter, RaTeX with KaTeX OFL fonts, and
+  mermaid-rs-renderer notices under `assets/licenses/`.
+
+Verified with `cargo fmt --all -- --check`, `cargo test --workspace --locked`
+(408 passed) and `cargo clippy --workspace --all-targets --locked -- -D
+warnings`. New tests cover the construct classification and rendering, SVG
+rasterization, a loopback remote fetch, formula typesetting and the native
+blocks. Native visual inspection was not performed because this session's model
+cannot view images. Remaining: abbreviation tooltips, inline formula typesetting,
+a dark Mermaid palette, and Windows/Linux verification.
+
 ## October 20 Markdown editing becomes a highlighted source editor
 
 The user chose the reliable source-editor route after the live-preview

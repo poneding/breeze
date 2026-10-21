@@ -22,8 +22,16 @@ use std::{collections::HashMap, ops::Range};
 pub const MAX_PARSE_BYTES: usize = 2 * 1024 * 1024;
 
 /// The reader, editor and worker share this one extension set.
+///
+/// Front matter and math are part of the reading vocabulary even though the
+/// editor leaves them as source: a note's `---` metadata and `$…$` formulas
+/// must not display as stray rules or dollar signs.
 pub fn options() -> ParseOptions {
-    ParseOptions::gfm()
+    let mut options = ParseOptions::gfm();
+    options.constructs.frontmatter = true;
+    options.constructs.math_text = true;
+    options.constructs.math_flow = true;
+    options
 }
 
 /// Parse one immutable snapshot.
@@ -195,6 +203,16 @@ pub fn contains_code(node: &Node) -> bool {
     preorder(node).any(|node| matches!(node, Node::Code(_)))
 }
 
+/// Whether a GFM table is nested in `node`.
+pub fn contains_table(node: &Node) -> bool {
+    preorder(node).any(|node| matches!(node, Node::Table(_)))
+}
+
+/// Whether a task-list item is nested in `node`.
+pub fn contains_task(node: &Node) -> bool {
+    preorder(node).any(|node| matches!(node, Node::ListItem(item) if item.checked.is_some()))
+}
+
 /// The rendered text of one block, as the reader counts and searches it.
 ///
 /// The counting rule follows the reader's earlier event stream: a paragraph
@@ -256,7 +274,11 @@ fn blocks(node: &Node, out: &mut String) {
             }
         }
         Node::ThematicBreak(_) => out.push('\n'),
-        // Definitions, raw HTML and front matter carry no searchable words.
+        // Metadata and formulas are searchable text in the reading surface.
+        Node::Yaml(yaml) => out.push_str(&yaml.value),
+        Node::Toml(toml) => out.push_str(&toml.value),
+        Node::Math(math) => out.push_str(&math.value),
+        // Definitions and raw HTML carry no searchable words.
         _ => {}
     }
 }

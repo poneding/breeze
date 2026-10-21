@@ -15,18 +15,39 @@ use std::{
     sync::Arc,
 };
 
+/// How the reading surface should draw a top-level block.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RenderKind {
+    /// Ordinary Markdown drawn from the HTML projection.
+    #[default]
+    Prose,
+    /// A thematic break, or a line of only `=`/`-`/`*`/`_` characters.
+    Rule,
+    /// The document's YAML front matter, drawn as a metadata card.
+    FrontMatter,
+    /// A `[TOC]` placeholder, replaced by the document's heading list.
+    Toc,
+    /// A display formula. Breeze shows the TeX source; it does not typeset it.
+    Math,
+    /// A ```mermaid fence, drawn as source because no diagram engine is built in.
+    Mermaid,
+}
+
 #[derive(Clone, Debug)]
 pub struct Block {
     pub source: Range<usize>,
     pub html: Arc<str>,
     pub text: Arc<str>,
-    /// The block's own Markdown source, kept only when the block contains a
-    /// fenced or indented code block.
+    /// The block's own Markdown source, kept when the block contains a code
+    /// block, a table or a task list.
     ///
     /// [`Self::html`] is handed to the rich-text view's HTML reader, which has
-    /// no `<pre>` code card. Those blocks are laid out from this source instead,
-    /// so a reader can still show real code.
+    /// no `<pre>` code card and cannot express table alignment or checkboxes.
+    /// Those blocks are laid out from this source by the Markdown reader
+    /// instead, so a reader still shows real code, aligned tables and checks.
     pub markdown: Option<Arc<str>>,
+    /// The block's reading shape, for blocks the reader draws natively.
+    pub kind: RenderKind,
 }
 
 #[derive(Clone, Debug)]
@@ -70,11 +91,16 @@ impl Document {
         };
         let mut anchors = HashMap::<String, usize>::new();
         let mut render_bytes = 0usize;
+        let mut toc_blocks: Vec<usize> = Vec::new();
         for node in root.children().map(Vec::as_slice).unwrap_or_default() {
             check_depth(node)?;
             // A definition is an association, not content: the reader has never
             // shown one, and the block indexes are display indexes.
             if matches!(node, Node::Definition(_)) {
+                continue;
+            }
+            // PHP-Markdown abbreviation definitions are declarations, not prose.
+            if is_abbreviation_block(node, source) {
                 continue;
             }
             let source_range = ast::span(node).context("A Markdown block has no position")?;
@@ -83,8 +109,13 @@ impl Document {
                 "A Markdown block points past the source"
             );
             let block = document.blocks.len();
+            let kind = classify(node, source, &source_range);
             let mut html = String::new();
-            render::html(node, source, &references, &mut html);
+            if kind == RenderKind::Toc {
+                toc_blocks.push(block);
+            } else {
+                render::html(node, source, &references, &mut html);
+            }
             let text = ast::block_text(node);
             render_bytes += html.len() + text.len();
             ensure!(
@@ -97,13 +128,31 @@ impl Document {
             );
             document.characters += text.chars().count();
             collect_headings(node, block, &mut document.headings, &mut anchors);
+            let markdown = (kind == RenderKind::Mermaid
+                || ast::contains_code(node)
+                || ast::contains_table(node)
+                || ast::contains_task(node))
+            .then(|| Arc::from(&source[source_range.clone()]));
             document.blocks.push(Block {
-                markdown: ast::contains_code(node)
-                    .then(|| Arc::from(&source[source_range.clone()])),
+                markdown,
                 source: source_range,
                 html: html.into(),
                 text: text.into(),
+                kind,
             });
+        }
+        // A table of contents may precede the headings it lists, so its HTML is
+        // filled only after every heading has been collected.
+        if !toc_blocks.is_empty() {
+            let toc = toc_html(&document.headings);
+            for block in toc_blocks {
+                render_bytes += toc.len();
+                ensure!(
+                    render_bytes <= MAX_RENDER_BYTES,
+                    "Markdown exceeds the 64 MiB render-text budget"
+                );
+                document.blocks[block].html = Arc::from(toc.as_str());
+            }
         }
         Ok(document)
     }
@@ -202,6 +251,86 @@ fn collect_headings(
     }
 }
 
+/// Classify a top-level block for the reading surface.
+fn classify(node: &Node, source: &str, span: &Range<usize>) -> RenderKind {
+    match node {
+        Node::ThematicBreak(_) => RenderKind::Rule,
+        Node::Yaml(_) | Node::Toml(_) => RenderKind::FrontMatter,
+        Node::Math(_) => RenderKind::Math,
+        Node::Code(code) if code.lang.as_deref() == Some("mermaid") => RenderKind::Mermaid,
+        Node::Paragraph(_) => {
+            let text = source.get(span.clone()).unwrap_or_default().trim();
+            if is_rule_line(text) {
+                return RenderKind::Rule;
+            }
+            if is_toc_marker(text) {
+                return RenderKind::Toc;
+            }
+            RenderKind::Prose
+        }
+        _ => RenderKind::Prose,
+    }
+}
+
+/// A line of only `=`/`-`/`*`/`_` characters. `---` reaches the AST as a
+/// thematic break; `===` is a paragraph in CommonMark but a rule in most
+/// hand-written notes.
+fn is_rule_line(text: &str) -> bool {
+    let mut characters = text.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    matches!(first, '=' | '-' | '*' | '_')
+        && text.len() >= 3
+        && characters.all(|character| character == first)
+}
+
+/// The placeholders notes use for a table of contents.
+fn is_toc_marker(text: &str) -> bool {
+    matches!(
+        text.to_ascii_lowercase().as_str(),
+        "[toc]" | "[[toc]]" | "[[_toc_]]" | "{{toc}}" | "<toc>"
+    )
+}
+
+/// A paragraph made only of `*[ABBR]: expansion` lines.
+fn is_abbreviation_block(node: &Node, source: &str) -> bool {
+    let Node::Paragraph(_) = node else {
+        return false;
+    };
+    let Some(span) = ast::span(node) else {
+        return false;
+    };
+    let text = source.get(span).unwrap_or_default();
+    let mut any = false;
+    for line in text.lines().filter(|line| !line.trim().is_empty()) {
+        let line = line.trim();
+        if !line.starts_with("*[") || !line.contains("]: ") {
+            return false;
+        }
+        any = true;
+    }
+    any
+}
+
+/// A flat, link-only table of contents. Headings stay in document order; the
+/// destination matters more than nesting for a reading aid.
+fn toc_html(headings: &[Heading]) -> String {
+    let mut out = String::from("<nav><ul>");
+    for heading in headings {
+        if heading.title.is_empty() {
+            continue;
+        }
+        out.push_str("<li><a href=\"#");
+        render::escape_attribute(&heading.anchor, &mut out);
+        out.push_str("\">");
+        render::escape_text(&heading.title, &mut out);
+        out.push_str("</a></li>");
+    }
+    out.push_str("</ul></nav>");
+    out
+}
+
 fn slug(title: &str) -> String {
     title
         .to_lowercase()
@@ -253,6 +382,74 @@ mod tests {
         assert_eq!(doc.anchor_block("标题-1"), Some(2));
         assert_eq!(doc.block_at_offset(doc.source_bytes), doc.blocks.len() - 1);
         assert!(doc.blocks.last().unwrap().html.contains("two"));
+    }
+
+    #[test]
+    fn front_matter_toc_rules_and_typographic_marks_render() {
+        let source = "---\ntitle: Test\nauthor: Me\n---\n\n# Heading\n\n[TOC]\n\n---\n\n===\n\nX<sub>2</sub> and O<sup>2</sup>, :smile: :rocket:\n\n*[HTML]: HyperText Markup Language\n\nHTML text\n";
+        let document = Document::parse(source).unwrap();
+        assert_eq!(document.blocks[0].kind, RenderKind::FrontMatter);
+        assert!(document.blocks[0].text.contains("title: Test"));
+        assert_eq!(document.blocks[1].kind, RenderKind::Prose);
+        assert_eq!(document.blocks[2].kind, RenderKind::Toc);
+        assert!(
+            document.blocks[2]
+                .html
+                .contains("<a href=\"#heading\">Heading</a>"),
+            "{}",
+            document.blocks[2].html
+        );
+        // `---` is a thematic break; a `===` line is a rule extension.
+        assert_eq!(document.blocks[3].kind, RenderKind::Rule);
+        assert_eq!(document.blocks[4].kind, RenderKind::Rule);
+        let text = document
+            .blocks
+            .iter()
+            .find(|block| block.html.contains("X"))
+            .expect("the typography block");
+        assert!(text.html.contains("X₂"), "{}", text.html);
+        assert!(text.html.contains("O²"), "{}", text.html);
+        assert!(text.html.contains("😄"), "{}", text.html);
+        assert!(text.html.contains("🚀"), "{}", text.html);
+        // Abbreviation definitions are declarations, not reading content.
+        assert!(
+            document
+                .blocks
+                .iter()
+                .all(|block| !block.html.contains("*[HTML]")),
+            "an abbreviation definition leaked into the page"
+        );
+    }
+
+    #[test]
+    fn tables_tasks_math_and_mermaid_choose_their_reading_shape() {
+        let source = "| A | B |\n|:-:|--:|\n| `help()` | `destroy()` |\n\n- [x] done\n\n$x^2$\n\n$$\nE = mc^2\n$$\n\n```mermaid\ngraph TD\nA-->B\n```\n";
+        let document = Document::parse(source).unwrap();
+        let table = &document.blocks[0];
+        assert_eq!(table.kind, RenderKind::Prose);
+        assert!(
+            table.markdown.is_some(),
+            "a table must use the Markdown reader for alignment"
+        );
+        assert!(table.html.contains("help()"), "{}", table.html);
+        let tasks = &document.blocks[1];
+        assert!(
+            tasks.markdown.is_some(),
+            "a task list must use the Markdown reader for checkboxes"
+        );
+        let math = document
+            .blocks
+            .iter()
+            .find(|block| block.kind == RenderKind::Math)
+            .expect("a display formula");
+        assert!(math.text.contains("E = mc^2"));
+        let mermaid = document
+            .blocks
+            .iter()
+            .find(|block| block.kind == RenderKind::Mermaid)
+            .expect("a mermaid fence");
+        assert!(mermaid.markdown.is_some());
+        assert!(mermaid.text.contains("graph TD"));
     }
 
     #[test]
