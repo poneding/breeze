@@ -7,6 +7,7 @@ use gpui_kit::component::{
     switch::Switch,
     tooltip::Tooltip,
 };
+use std::path::PathBuf;
 
 const WIDTH: f32 = 256.;
 const KINDS: [Kind; 11] = [
@@ -221,33 +222,27 @@ impl Breeze {
                 tf!("{} items", book.annotations.history.items.len()),
                 muted,
             ))
-            .child(info_field(tr!("File location"), path, muted))
-            .when_some(
+            .child(path_field(
+                "document-file-location",
+                "reveal-document",
+                tr!("File location"),
+                path,
                 match &book.source {
                     Source::File(path) => Some(path.clone()),
-                    _ => None,
+                    Source::Sample => None,
                 },
-                |content, path| {
-                    content.child(
-                        Button::new("reveal-document")
-                            .ghost()
-                            .small()
-                            .icon(IconName::FolderOpen)
-                            .label(tr!("Show in folder"))
-                            .on_click(move |_, _, cx| cx.reveal_path(&path)),
-                    )
-                },
-            )
+                muted,
+            ))
             .when_some(book.annotations.path.as_ref(), |content, path| {
-                content.child(info_field(
+                content.child(path_field(
+                    "annotation-location",
+                    "reveal-annotation-location",
                     tr!("Annotation location"),
                     path.display().to_string(),
+                    Some(path.clone()),
                     muted,
                 ))
             })
-            .child(div().text_size(px(11.)).text_color(muted).child(tr!(
-                "Annotations are saved separately. The source PDF is not modified."
-            )))
             .when_some(
                 self.preview
                     .as_ref()
@@ -277,40 +272,46 @@ impl Breeze {
             .h_full()
             .min_h_0()
             .child(
-                column()
-                    .flex_shrink_0()
-                    .p_2()
-                    .gap_2()
-                    .child(
-                        row().gap_2().child(self.annotation_kind_filter(cx)).child(
+                column().flex_shrink_0().p_2().gap_2().child(
+                    row()
+                        .id("annotation-filter-row")
+                        .test_support()
+                        .w_full()
+                        .gap_2()
+                        .child(self.annotation_kind_filter(cx))
+                        .child(
                             div()
                                 .text_size(px(11.))
                                 .text_color(muted)
                                 .child(format!("{count} / {total}")),
+                        )
+                        .child(div().flex_1())
+                        .child(
+                            row()
+                                .flex_shrink_0()
+                                .gap_2()
+                                .child(
+                                    Switch::new("annotations-current-page")
+                                        .small()
+                                        .checked(self.document_panel.current_page_only)
+                                        .on_change(cx.listener(|this, value, _, cx| {
+                                            this.document_panel.current_page_only = *value;
+                                            this.document_panel
+                                                .scroll
+                                                .scroll_to_item(0, ScrollStrategy::Top);
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    div()
+                                        .id("annotations-current-page-label")
+                                        .test_support()
+                                        .text_size(px(11.))
+                                        .text_color(muted)
+                                        .child(tr!("Current page only")),
+                                ),
                         ),
-                    )
-                    .child(
-                        row()
-                            .gap_2()
-                            .child(
-                                Switch::new("annotations-current-page")
-                                    .small()
-                                    .checked(self.document_panel.current_page_only)
-                                    .on_change(cx.listener(|this, value, _, cx| {
-                                        this.document_panel.current_page_only = *value;
-                                        this.document_panel
-                                            .scroll
-                                            .scroll_to_item(0, ScrollStrategy::Top);
-                                        cx.notify();
-                                    })),
-                            )
-                            .child(
-                                div()
-                                    .text_size(px(11.))
-                                    .text_color(muted)
-                                    .child(tr!("Current page only")),
-                            ),
-                    ),
+                ),
             )
             .child(if indices.is_empty() {
                 div()
@@ -587,6 +588,53 @@ fn info_field(label: &'static str, value: String, muted: Hsla) -> Div {
                 .child(value.clone())
                 .tooltip(move |window, cx| Tooltip::new(value.clone()).build(window, cx)),
         )
+}
+
+fn path_field(
+    value_id: &'static str,
+    reveal_id: &'static str,
+    label: &'static str,
+    value: String,
+    path: Option<PathBuf>,
+    muted: Hsla,
+) -> Div {
+    let tooltip = value.clone();
+    let value_row = row()
+        .w_full()
+        .min_w_0()
+        .gap_1()
+        .child(
+            div()
+                .id(value_id)
+                .test_support()
+                .flex_1()
+                .min_w_0()
+                .overflow_hidden()
+                .whitespace_nowrap()
+                .text_size(px(12.))
+                .text_ellipsis_start()
+                .child(value)
+                .tooltip(move |window, cx| Tooltip::new(tooltip.clone()).build(window, cx)),
+        )
+        .when_some(path, |value_row, path| {
+            value_row.child(
+                Button::new(reveal_id)
+                    .ghost()
+                    .small()
+                    .flex_shrink_0()
+                    .icon(IconName::FolderOpen)
+                    .accessibility_label(tr!(reveal::label()))
+                    .tooltip(tr!(reveal::label()))
+                    .on_click(move |_, _, cx| cx.reveal_path(&path)),
+            )
+        });
+
+    column()
+        .w_full()
+        .min_w_0()
+        .gap_1()
+        .child(div().text_size(px(11.)).text_color(muted).child(label))
+        .child(value_row)
 }
 
 #[cfg(test)]

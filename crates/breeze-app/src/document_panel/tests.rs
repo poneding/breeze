@@ -83,6 +83,14 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         window.click("document-panel-annotations", cx);
         window.render_frame(cx);
         assert_eq!(view.read(cx).document_panel.tab, 1);
+        let filter_row = window.find("annotation-filter-row").bounds();
+        let kind_filter = window.find("annotation-kind-filter").bounds();
+        let current_page = window.find("annotations-current-page").bounds();
+        let current_page_label = window.find("annotations-current-page-label").bounds();
+        assert!((kind_filter.center().y - current_page.center().y).abs() <= px(1.));
+        assert!(kind_filter.right() < current_page_label.left());
+        assert!(current_page_label.right() <= filter_row.right());
+        assert!(filter_row.right() - current_page_label.right() <= px(1.));
         assert!(window.find(("annotation-item", 0usize)).visible());
         assert!(window.find(("annotation-item", 1usize)).visible());
         window.click("annotation-kind-filter", cx);
@@ -157,6 +165,58 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         assert!(!view.read(cx).search_open);
         assert!(view.read(cx).document_panel.open);
         assert!(window.find("document-panel-information").visible());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn locations_stay_on_one_line_and_expose_folder_actions(cx: &mut TestAppContext) {
+    let (handle, view) = crate::ui_tests::app(cx);
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory
+        .path()
+        .join("a very long directory name that should be truncated from the start")
+        .join("Field notes.pdf");
+    let sidecar = source.with_extension("pdf.breeze-annotations.json");
+
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(source.clone());
+            view.books[0].annotations.path = Some(sidecar.clone());
+            view.document_panel.open = true;
+            view.document_panel.tab = 0;
+            cx.notify();
+        });
+        window.render_frame(cx);
+
+        let source_location = window.find("document-file-location");
+        let source_reveal = window.find("reveal-document");
+        let annotation_location = window.find("annotation-location");
+        let annotation_reveal = window.find("reveal-annotation-location");
+        assert!(source_location.visible());
+        assert!(source_reveal.visible());
+        assert!(annotation_location.visible());
+        assert!(annotation_reveal.visible());
+        assert!(source_location.bounds().size.height <= px(20.));
+        assert!(annotation_location.bounds().size.height <= px(20.));
+        assert!(source_reveal.bounds().left() >= source_location.bounds().right());
+        assert!(annotation_reveal.bounds().left() >= annotation_location.bounds().right());
+        assert!(
+            (source_reveal.bounds().center().y - source_location.bounds().center().y).abs()
+                <= px(1.)
+        );
+        assert!(
+            (annotation_reveal.bounds().center().y - annotation_location.bounds().center().y).abs()
+                <= px(1.)
+        );
+        assert_eq!(
+            source_reveal.label(),
+            Some(i18n::text(crate::reveal::label()))
+        );
+        assert_eq!(
+            annotation_reveal.label(),
+            Some(i18n::text(crate::reveal::label()))
+        );
     })
     .unwrap();
 }
