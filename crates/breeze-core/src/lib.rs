@@ -30,6 +30,16 @@ pub enum Zoom {
     Percent(u16),
 }
 impl Zoom {
+    pub const MIN_PERCENT: u16 = 25;
+    pub const MAX_PERCENT: u16 = 500;
+
+    /// Discrete zoom levels offered by the status control.
+    ///
+    /// Lower scales need finer control; above 200%, 50-point steps keep the
+    /// menu compact, and the final 100-point step reaches the 500% ceiling.
+    pub const PERCENT_OPTIONS: [u16; 13] =
+        [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 350, 400, 500];
+
     pub fn label(self) -> String {
         match self {
             Self::FitPage => "适合页面".into(),
@@ -38,14 +48,21 @@ impl Zoom {
             Self::Percent(_) => "自定义比例".into(),
         }
     }
-    /// Move to the next grid boundary in the requested direction, including from fit scales.
+    /// Move to the next discrete zoom level, including from fit scales.
     pub fn step_percent(current: f32, forward: bool) -> Self {
-        let step = if forward {
-            (current / 25.).floor() + 1.
+        let percent = if forward {
+            Self::PERCENT_OPTIONS
+                .into_iter()
+                .find(|percent| f32::from(*percent) > current)
+                .unwrap_or(Self::MAX_PERCENT)
         } else {
-            (current / 25.).ceil() - 1.
+            Self::PERCENT_OPTIONS
+                .into_iter()
+                .rev()
+                .find(|percent| f32::from(*percent) < current)
+                .unwrap_or(Self::MIN_PERCENT)
         };
-        Self::Percent((step * 25.).clamp(25., 200.) as u16)
+        Self::Percent(percent)
     }
 }
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -348,13 +365,19 @@ mod tests {
             (174.9, 150, 175),
             (175.1, 175, 200),
             (25., 25, 50),
-            (200., 175, 200),
+            (200., 175, 250),
+            (260., 250, 300),
+            (400., 350, 500),
+            (500., 400, 500),
             (12., 25, 25),
-            (260., 200, 200),
         ] {
             assert_eq!(Zoom::step_percent(current, false), Zoom::Percent(smaller));
             assert_eq!(Zoom::step_percent(current, true), Zoom::Percent(larger));
         }
+        assert_eq!(
+            Zoom::PERCENT_OPTIONS,
+            [25, 50, 75, 100, 125, 150, 175, 200, 250, 300, 350, 400, 500]
+        );
     }
     #[test]
     fn tabs_do_not_share_navigation() {

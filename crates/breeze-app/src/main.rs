@@ -275,6 +275,7 @@ struct Breeze {
     preview: Option<Arc<Preview>>,
     message: String,
     page_input: Entity<InputState>,
+    page_editing: bool,
     focus: FocusHandle,
     tool: usize,
     tool_settings: tool_settings::ToolSettings,
@@ -312,11 +313,28 @@ impl Breeze {
                     cx.notify();
                 }
             });
-        let page_input = cx.new(|cx| InputState::new(window, cx).default_value("1"));
+        let page_input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .default_value("1")
+                .validate(|text, _| text.is_empty() || text.chars().all(|c| c.is_ascii_digit()))
+        });
         let page_submission = cx.subscribe_in(&page_input, window, |this, _, event, window, cx| {
-            if matches!(event, InputEvent::PressEnter { .. }) && this.screen == Screen::Reader {
-                this.submit_page(cx);
-                window.focus(&this.focus, cx);
+            if this.screen != Screen::Reader {
+                return;
+            }
+            match event {
+                InputEvent::PressEnter { .. } => this.submit_page(window, cx),
+                InputEvent::Blur if this.page_editing => {
+                    cx.defer_in(window, |this, window, cx| {
+                        if this.page_editing
+                            && !this.page_input.read(cx).focus_handle(cx).is_focused(window)
+                        {
+                            this.page_editing = false;
+                            cx.notify();
+                        }
+                    });
+                }
+                _ => {}
             }
         });
         let search_input = cx
@@ -464,6 +482,7 @@ impl Breeze {
             preview: None,
             message: "".into(),
             page_input,
+            page_editing: false,
             focus: cx.focus_handle(),
             tool: 0,
             tool_settings: tool_settings::ToolSettings::default(),

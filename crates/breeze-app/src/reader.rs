@@ -413,6 +413,35 @@ impl Breeze {
     fn status(&self, window: &Window, cx: &mut Context<Self>) -> AnyElement {
         let p = self.p(cx);
         let s = &self.books[self.active].state;
+        let page = s.navigation.page() + 1;
+        let total = s.navigation.total();
+        let page_control = if self.page_editing {
+            Input::new(&self.page_input)
+                .id("page-input")
+                .small()
+                .w(px(68.))
+                .aria_label(tr!("Go to page"))
+                .suffix(
+                    Button::new("jump")
+                        .ghost()
+                        .small()
+                        .tab_stop(false)
+                        .icon(IconName::CornerDownLeft)
+                        .text_color(p.muted)
+                        .accessibility_label(tr!("Go to entered page"))
+                        .tooltip(tr!("Go to entered page"))
+                        .on_click(cx.listener(|this, _, window, cx| this.submit_page(window, cx))),
+                )
+                .into_any_element()
+        } else {
+            Button::new("page-position")
+                .ghost()
+                .small()
+                .label(format!("{page} / {total}"))
+                .tooltip_with_action(tr!("Go to page"), &FocusPage, Some("Breeze"))
+                .on_click(cx.listener(|this, _, window, cx| this.begin_page_edit(window, cx)))
+                .into_any_element()
+        };
         row()
             .id("status-scroll")
             .test_support()
@@ -424,25 +453,7 @@ impl Breeze {
             .border_t_1()
             .border_color(p.line)
             .bg(p.bg)
-            .child(div().text_size(px(12.)).child(format!(
-                "{} / {}",
-                s.navigation.page() + 1,
-                s.navigation.total()
-            )))
-            .child(div().w(px(42.)).child(Input::new(&self.page_input).small()))
-            .child(
-                Button::new("jump")
-                    .ghost()
-                    .small()
-                    .icon(IconName::CornerDownLeft)
-                    .accessibility_label(tr!("Go to entered page"))
-                    .tooltip_with_action(
-                        tr!("Go to entered page; shortcut focuses the page field"),
-                        &FocusPage,
-                        Some("Breeze"),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.submit_page(cx))),
-            )
+            .child(page_control)
             .child(
                 div()
                     .flex_1()
@@ -459,20 +470,27 @@ impl Breeze {
             .child(self.layout_button(cx))
             .child(self.zoom_button(cx))
             .child(self.command("zoom-out", IconName::Minus, tr!("Zoom out"), &ZoomOut, cx))
-            .child(
-                div()
-                    .id("zoom-percent")
-                    .test_support()
-                    .min_w(px(48.))
-                    .text_center()
-                    .text_size(px(12.))
-                    .child(format!("{:.0}%", self.display_zoom(window))),
-            )
+            .child(self.zoom_percent_button(window, cx))
             .child(self.command("zoom-in", IconName::Plus, tr!("Zoom in"), &ZoomIn, cx))
             .child(self.fullscreen_button(cx))
             .into_any_element()
     }
-    pub(super) fn submit_page(&mut self, cx: &mut Context<Self>) {
+
+    pub(super) fn begin_page_edit(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.books[self.active].is_pdf() {
+            return;
+        }
+        let page = self.books[self.active].state.navigation.page() + 1;
+        self.page_editing = true;
+        self.page_input.update(cx, |input, cx| {
+            input.set_value(page.to_string(), window, cx);
+            input.focus(window, cx);
+            input.select_all(window, cx);
+        });
+        cx.notify();
+    }
+
+    pub(super) fn submit_page(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if !self.books[self.active].is_pdf() {
             return;
         }
@@ -483,10 +501,17 @@ impl Breeze {
         match self.books[self.active].state.navigation.jump(&value) {
             Ok(()) => {
                 self.message.clear();
+                self.page_editing = false;
                 self.load(cx);
+                window.focus(&self.focus, cx);
             }
             Err(error) => {
                 self.message = error.into();
+                self.page_editing = true;
+                self.page_input.update(cx, |input, cx| {
+                    input.focus(window, cx);
+                    input.select_all(window, cx);
+                });
                 cx.notify();
             }
         }

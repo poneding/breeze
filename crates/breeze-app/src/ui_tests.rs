@@ -1,7 +1,7 @@
 use super::*;
 use breeze_core::Rotation;
 use gpui_kit::InputEvent as _;
-use gpui_kit::test::TestWindowExt;
+use gpui_kit::test::{TestQueryExt, TestWindowExt};
 
 /// A press, a move, or a release dispatched through the window's own event
 /// path, so a selection can be held open across clock steps.
@@ -123,6 +123,7 @@ fn commands_and_input_keys_work(cx: &mut TestAppContext) {
         window.press("secondary-2", cx);
         assert_eq!(view.read(cx).books[0].state.mode, Mode::Annotate);
         window.press("secondary-g", cx);
+        assert!(view.read(cx).page_editing);
         assert!(
             view.read(cx)
                 .page_input
@@ -143,12 +144,51 @@ fn commands_and_input_keys_work(cx: &mut TestAppContext) {
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
         assert_eq!(view.read(cx).books[0].state.navigation.page(), 3);
+        assert!(!view.read(cx).page_editing);
+        assert_eq!(window.find("page-position").label(), Some("4 / 8"));
         window.press("secondary-=", cx);
         assert_eq!(view.read(cx).books[0].state.zoom, Zoom::Percent(125));
         window.press("secondary-,", cx);
         assert!(view.read(cx).home_page == HomePage::Settings);
         window.press("secondary-shift-h", cx);
         assert!(view.read(cx).screen == Screen::Home);
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn status_page_position_opens_an_integer_field(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(!view.read(cx).page_editing);
+        assert_eq!(window.find("page-position").label(), Some("1 / 8"));
+
+        window.click("page-position", cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).page_editing);
+        assert_eq!(view.read(cx).page_input.read(cx).value().as_ref(), "1");
+        assert!(
+            view.read(cx)
+                .page_input
+                .read(cx)
+                .focus_handle(cx)
+                .is_focused(window)
+        );
+        assert_eq!(window.find("page-input").value(), Some("1"));
+
+        window.input("x", cx);
+        assert_eq!(view.read(cx).page_input.read(cx).value().as_ref(), "1");
+        window.input("4", cx);
+        assert_eq!(view.read(cx).page_input.read(cx).value().as_ref(), "4");
+        window.press("enter", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).books[0].state.navigation.page(), 3);
+        assert!(!view.read(cx).page_editing);
+        assert_eq!(window.find("page-position").label(), Some("4 / 8"));
     })
     .unwrap();
 }
@@ -2204,6 +2244,35 @@ fn zoom_mode_is_separate_from_computed_percentage_and_snaps_to_grid(cx: &mut Tes
             view.read(cx).books[0].state.zoom,
             Zoom::Percent(_)
         ));
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn zoom_percentage_dropdown_selects_discrete_levels(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| view.set_zoom(Zoom::Percent(200), cx));
+        window.render_frame(cx);
+
+        window.click("zoom-percent", cx);
+        window.render_frame(cx);
+        assert!(window.try_find_by_label("25%").is_some());
+        assert!(window.try_find_by_label("250%").is_some());
+        assert!(window.try_find_by_label("500%").is_some());
+        assert!(window.try_find_by_label("450%").is_none());
+
+        // The menu starts without a cursor. Nine downs reach 250%, the first
+        // 50-point level after the 200% boundary.
+        for _ in 0..9 {
+            window.press("down", cx);
+        }
+        window.press("enter", cx);
+    })
+    .unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).books[0].state.zoom, Zoom::Percent(250));
     })
     .unwrap();
 }

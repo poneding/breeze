@@ -1,3 +1,29 @@
+## October 22 Editable page position and zoom presets
+
+The PDF status bar's page position was permanent text followed by an always
+visible input and jump button. It now starts as one clickable `current / total`
+button. Clicking it, or pressing Primary+G, swaps it for an integer-only input
+initialized to the current page; the muted Enter icon is inside the input's
+trailing edge. Enter or the icon validates the destination, navigates, and
+returns to the text form. Invalid and out-of-range values keep the field open,
+select its text, and report the existing navigation error.
+
+The calculated zoom percentage is now a dropdown rather than static text. Its
+levels are 25–200% in 25-point steps, 250–400% in 50-point steps, and 500% as
+the final 100-point step. `breeze-core` owns that sequence, and percentage zoom,
+the preset menu, zoom buttons, keyboard zoom, and discrete wheel steps share it
+instead of maintaining separate bounds. Smooth trackpad zoom remains continuous
+between 25% and 500%.
+
+`cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets --locked
+-- -D warnings`, and the focused page/zoom component tests pass. The complete
+workspace run reached 252 passing app tests but failed one unrelated Markdown
+text-size assertion caused by the working tree's separate default-font-size
+change. Native macOS inspection with an isolated
+`BREEZE_DATA_DIR` confirmed the page input and inline muted Enter icon, a jump
+from page 3 to 5, the complete preset menu, and selection of 250% with the
+reader switching to Custom Ratio. Windows and Linux remain unverified.
+
 ## October 22 Annotation controls follow their selection
 
 Selected-annotation controls used a fixed 208 px height estimate, leaving a

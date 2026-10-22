@@ -151,11 +151,43 @@ impl Breeze {
                             .icon(IconName::SlidersHorizontal)
                             .checked(matches!(selected, Zoom::Percent(_)))
                             .on_click(window.listener_for(&view, |this, _, window, cx| {
-                                let percent =
-                                    this.display_zoom(window).round().clamp(25., 200.) as u16;
+                                let percent = this.display_zoom(window).round().clamp(
+                                    f32::from(Zoom::MIN_PERCENT),
+                                    f32::from(Zoom::MAX_PERCENT),
+                                ) as u16;
                                 this.set_zoom(Zoom::Percent(percent), cx);
                             })),
                     )
+            })
+    }
+
+    pub(super) fn zoom_percent_button(
+        &self,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
+        let selected = self.books[self.active].state.zoom;
+        let current = self.display_zoom(window).round() as u16;
+        let view = cx.entity();
+        Button::new("zoom-percent")
+            .ghost()
+            .small()
+            .label(format!("{current}%"))
+            .dropdown_caret(true)
+            .accessibility_label(tr!("Zoom options"))
+            .tooltip(tr!("Choose zoom mode"))
+            .dropdown_menu(move |menu, window, _| {
+                let mut menu = menu.check_side(Side::Right);
+                for percent in Zoom::PERCENT_OPTIONS {
+                    menu = menu.item(
+                        PopupMenuItem::new(format!("{percent}%"))
+                            .checked(selected == Zoom::Percent(percent))
+                            .on_click(window.listener_for(&view, move |this, _, _, cx| {
+                                this.set_zoom(Zoom::Percent(percent), cx);
+                            })),
+                    );
+                }
+                menu
             })
     }
 
@@ -195,7 +227,8 @@ impl Breeze {
             return;
         }
         let current = self.display_zoom(window);
-        let target = (current + delta + self.reading.zoom_remainder).clamp(25., 200.);
+        let target = (current + delta + self.reading.zoom_remainder)
+            .clamp(f32::from(Zoom::MIN_PERCENT), f32::from(Zoom::MAX_PERCENT));
         let rounded = target.round();
         self.set_zoom(Zoom::Percent(rounded as u16), cx);
         self.reading.zoom_remainder = target - rounded;

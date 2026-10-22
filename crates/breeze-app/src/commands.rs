@@ -246,12 +246,7 @@ impl Breeze {
                 self.toggle_favorite(self.active, cx);
                 cx.notify();
             } else if action.as_any().is::<FocusPage>() {
-                let n = self.books[self.active].state.navigation.page() + 1;
-                self.page_input.update(cx, |input, cx| {
-                    input.set_value(n.to_string(), window, cx);
-                    input.focus(window, cx);
-                    input.select_all(window, cx);
-                });
+                self.begin_page_edit(window, cx);
             } else if action.as_any().is::<ReadMode>() || action.as_any().is::<AnnotateMode>() {
                 if !self.annotation_navigation_allowed(cx) {
                     return;
