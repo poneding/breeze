@@ -5,6 +5,63 @@ use gpui_kit::test::TestAppContextExt;
 use gpui_kit::test::TestWindowExt;
 
 #[test]
+fn controls_flip_above_at_the_content_edge_without_changing_the_gap() {
+    let viewport = breeze_core::annotations::Rect {
+        x: 100.,
+        y: 40.,
+        width: 600.,
+        height: 420.,
+    };
+    let gap = 8.;
+    let height = 164.;
+    let near_top = breeze_core::annotations::Rect {
+        x: 260.,
+        y: 88.,
+        width: 120.,
+        height: 24.,
+    };
+    let below = geometry::popup_placement(near_top, viewport, 260., height, gap, 8.).unwrap();
+    assert!(!below.above);
+    assert!((below.y - (near_top.y + near_top.height + gap)).abs() < 0.001);
+
+    let near_bottom = breeze_core::annotations::Rect {
+        y: 390.,
+        ..near_top
+    };
+    let above = geometry::popup_placement(near_bottom, viewport, 260., height, gap, 8.).unwrap();
+    assert!(above.above);
+    assert!((above.y + height - (near_bottom.y - gap)).abs() < 0.001);
+}
+
+#[test]
+fn controls_clamp_to_the_reader_width_and_choose_the_roomier_side() {
+    let viewport = breeze_core::annotations::Rect {
+        x: 20.,
+        y: 30.,
+        width: 400.,
+        height: 180.,
+    };
+    let placement = geometry::popup_placement(
+        breeze_core::annotations::Rect {
+            x: 390.,
+            y: 80.,
+            width: 30.,
+            height: 40.,
+        },
+        viewport,
+        260.,
+        160.,
+        8.,
+        8.,
+    )
+    .unwrap();
+    assert_eq!(placement.width, 260.);
+    assert_eq!(placement.x, 152.);
+    assert!(placement.y >= 38.);
+    assert!(placement.y + 160. <= 202.);
+}
+
+#[test]
 fn squiggle_selection_follows_the_rendered_crest() {
     let mut a = line();
     a.kind = Kind::Squiggle;
@@ -301,6 +358,66 @@ fn shape_resize_handles_commit_once_and_undo(cx: &mut TestAppContext) {
     .unwrap();
 }
 
+#[gpui_kit::test]
+fn selection_controls_stay_adjacent_and_flip_inside_the_reader_viewport(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        // PDF document Y grows upward, so these land near the displayed bottom
+        // and top respectively.
+        for (y, expect_above) in [(80., true), (760., false)] {
+            let mut annotation = line();
+            annotation.points = vec![DocPoint::new(80., y), DocPoint::new(220., y)];
+            view.update(cx, |view, cx| {
+                view.annotation_editing.clear();
+                view.books[0].annotations.history.items = vec![annotation.clone()];
+                view.tool = SELECT_TOOL;
+                view.select_annotation(0, window, cx);
+            });
+            for _ in 0..4 {
+                window.render_frame(cx);
+            }
+
+            let popup = window.find("annotation-selection-controls").bounds();
+            let viewport = window.find("document-viewport").bounds();
+            let page = window.find("page-surface").bounds();
+            let state = view.read(cx);
+            let preview = state.preview.as_ref().unwrap();
+            let geometry = state.view_geometry(preview.geometry);
+            let bounds = geometry::display_bounds(&annotation, geometry);
+            let (page_width, page_height) = geometry.size();
+            let anchor = Bounds {
+                origin: page.origin
+                    + point(
+                        px(bounds.x / page_width * f32::from(page.size.width)),
+                        px(bounds.y / page_height * f32::from(page.size.height)),
+                    ),
+                size: size(
+                    px(bounds.width / page_width * f32::from(page.size.width)),
+                    px(bounds.height / page_height * f32::from(page.size.height)),
+                ),
+            };
+
+            assert!(popup.top() >= viewport.top());
+            assert!(popup.bottom() <= viewport.bottom());
+            assert!(popup.left() >= viewport.left());
+            assert!(popup.right() <= viewport.right());
+            if expect_above {
+                assert!(
+                    (f32::from(popup.bottom()) + 8. - f32::from(anchor.top())).abs() < 0.5,
+                    "popup={popup:?} anchor={anchor:?}"
+                );
+            } else {
+                assert!(
+                    (f32::from(popup.top()) - f32::from(anchor.bottom()) - 8.).abs() < 0.5,
+                    "popup={popup:?} anchor={anchor:?}"
+                );
+            }
+        }
+    })
+    .unwrap();
+}
+
 fn setup(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
     let worker = PdfWorker::new().unwrap();
     let page = futures::executor::block_on(worker.request(Source::Sample, 0).unwrap())
@@ -463,6 +580,7 @@ fn selection_slider_is_one_transaction_and_stale_targets_are_rejected(cx: &mut T
     let (handle, view) = setup(cx);
     let original = line();
     cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
         view.update(cx, |view, cx| {
             view.books[0].annotations.history.items = vec![original.clone()];
             view.tool = SELECT_TOOL;

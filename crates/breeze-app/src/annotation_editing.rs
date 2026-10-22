@@ -2,7 +2,7 @@ use crate::*;
 use breeze_core::annotations::ViewGeometry;
 use breeze_core::annotations::{Annotation, Kind, Point as DocPoint};
 use gpui_kit::component::{
-    Theme,
+    ElementExt, Theme,
     input::NumberInput,
     slider::{Slider, SliderEvent, SliderState},
 };
@@ -15,6 +15,9 @@ mod tests;
 pub(super) const SELECT_TOOL: usize = 11;
 // A document can be white even when the application theme's accent is white.
 pub(super) const SELECTION_COLOR: u32 = 0x5f92e8;
+const CONTROLS_GAP: f32 = 8.;
+const CONTROLS_MARGIN: f32 = 8.;
+const CONTROLS_FALLBACK_HEIGHT: f32 = 208.;
 /// Outermost halo first, core line last. A wider, fainter stroke behind a narrow
 /// opaque one reads as a soft glow; the offsets are logical pixels.
 const SELECTION_STROKES: [(f32, u32); 3] =
@@ -73,6 +76,8 @@ pub(super) struct AnnotationEditing {
     selection: Option<Selection>,
     editor: Option<TextEditor>,
     moving: Option<MoveDraft>,
+    /// Measured in the overlay so placement uses the real control height.
+    controls_measured: Option<(u64, f32)>,
     serial: u64,
 }
 
@@ -716,24 +721,6 @@ impl Breeze {
                         .into_any_element(),
                 );
             }
-            if self.annotation_editing.moving.is_none() {
-                let panel_width = width.min(260.);
-                let panel_x = x.clamp(0., (width - panel_width).max(0.));
-                let panel_y = if y >= 212. {
-                    y - 208.
-                } else {
-                    (y + sh + 6.).min((height - 208.).max(0.))
-                };
-                layers.push(
-                    div()
-                        .absolute()
-                        .left(px(panel_x))
-                        .top(px(panel_y))
-                        .w(px(panel_width))
-                        .child(self.selected_annotation_controls(selected, cx))
-                        .into_any_element(),
-                );
-            }
             if resizable {
                 let serial = selected.serial;
                 for (index, handle) in geometry::ResizeHandle::ALL.into_iter().enumerate() {
@@ -783,6 +770,105 @@ impl Breeze {
             }
         }
         layers
+    }
+
+    pub(super) fn annotation_selection_controls_overlay(
+        &self,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        if !self.annotation_selection_allowed() || self.annotation_editing.moving.is_some() {
+            return None;
+        }
+        let selected = self
+            .annotation_editing
+            .selection
+            .as_ref()
+            .filter(|selected| selected.target.matches(&self.books[self.active]))?;
+        let page = selected.preview.page;
+        let page_bounds = *self.page_bounds.get(&page)?;
+        let viewport_bounds = self.viewport_bounds?;
+        let preview = self
+            .preview
+            .as_ref()
+            .filter(|preview| preview.page == page)?;
+        let geometry = self.view_geometry(preview.geometry);
+        let (page_width, page_height) = geometry.size();
+        let bounds = if geometry::resizable(selected.preview.kind) {
+            geometry::shape_bounds(&selected.preview, geometry)
+                .unwrap_or_else(|| geometry::display_bounds(&selected.preview, geometry))
+        } else {
+            geometry::display_bounds(&selected.preview, geometry)
+        };
+        let x = bounds.x / page_width * f32::from(page_bounds.size.width);
+        let y = bounds.y / page_height * f32::from(page_bounds.size.height);
+        let width = if selected.preview.kind == Kind::Note {
+            80.
+        } else {
+            bounds.width / page_width * f32::from(page_bounds.size.width)
+        };
+        let height = if selected.preview.kind == Kind::Note {
+            22.
+        } else {
+            bounds.height / page_height * f32::from(page_bounds.size.height)
+        };
+        let selection_bounds = breeze_core::annotations::Rect {
+            x: f32::from(page_bounds.origin.x) + x,
+            y: f32::from(page_bounds.origin.y) + y,
+            width,
+            height,
+        };
+        let viewport = breeze_core::annotations::Rect {
+            x: f32::from(viewport_bounds.origin.x),
+            y: f32::from(viewport_bounds.origin.y),
+            width: f32::from(viewport_bounds.size.width),
+            height: f32::from(viewport_bounds.size.height),
+        };
+        if !selection_bounds_intersects(selection_bounds, viewport) {
+            return None;
+        }
+        let visible_anchor = intersect_rects(selection_bounds, viewport);
+        let controls_width = f32::from(page_bounds.size.width).min(260.);
+        let controls_height = self
+            .annotation_editing
+            .controls_measured
+            .filter(|(serial, _)| *serial == selected.serial)
+            .map_or(CONTROLS_FALLBACK_HEIGHT, |(_, height)| height);
+        let placement = geometry::popup_placement(
+            visible_anchor,
+            viewport,
+            controls_width,
+            controls_height,
+            CONTROLS_GAP,
+            CONTROLS_MARGIN,
+        )?;
+        let serial = selected.serial;
+        let view = cx.entity();
+        let controls = div()
+            .id("annotation-selection-controls-popover")
+            .test_support()
+            .absolute()
+            .left(px(placement.x - f32::from(viewport_bounds.origin.x)))
+            .top(px(placement.y - f32::from(viewport_bounds.origin.y)))
+            .w(px(placement.width))
+            .on_prepaint(move |bounds, window, cx| {
+                view.update(cx, |this, cx| {
+                    if !this
+                        .annotation_editing
+                        .selection
+                        .as_ref()
+                        .is_some_and(|selected| selected.serial == serial)
+                    {
+                        return;
+                    }
+                    let measured = Some((serial, f32::from(bounds.size.height)));
+                    if this.annotation_editing.controls_measured != measured {
+                        this.annotation_editing.controls_measured = measured;
+                        cx.defer_in(window, |_, _, cx| cx.notify());
+                    }
+                });
+            })
+            .child(self.selected_annotation_controls(selected, cx));
+        Some(controls.into_any_element())
     }
 
     fn selected_annotation_controls(
@@ -929,6 +1015,32 @@ impl Breeze {
                     .child(Slider::new(&selected.opacity)),
             )
             .into_any_element()
+    }
+}
+
+fn selection_bounds_intersects(
+    anchor: breeze_core::annotations::Rect,
+    viewport: breeze_core::annotations::Rect,
+) -> bool {
+    anchor.x < viewport.x + viewport.width
+        && anchor.x + anchor.width > viewport.x
+        && anchor.y < viewport.y + viewport.height
+        && anchor.y + anchor.height > viewport.y
+}
+
+fn intersect_rects(
+    first: breeze_core::annotations::Rect,
+    second: breeze_core::annotations::Rect,
+) -> breeze_core::annotations::Rect {
+    let left = first.x.max(second.x);
+    let top = first.y.max(second.y);
+    let right = (first.x + first.width).min(second.x + second.width);
+    let bottom = (first.y + first.height).min(second.y + second.height);
+    breeze_core::annotations::Rect {
+        x: left,
+        y: top,
+        width: (right - left).max(0.),
+        height: (bottom - top).max(0.),
     }
 }
 

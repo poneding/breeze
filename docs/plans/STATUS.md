@@ -1,3 +1,20 @@
+## October 22 Annotation controls follow their selection
+
+Selected-annotation controls used a fixed 208 px height estimate, leaving a
+large gap above shorter panels, and were clipped by the page surface near the
+reader edges. The controls now move to a reader-viewport overlay, use their
+measured height to choose below or above the selected element with an 8 px gap,
+and clamp horizontally and vertically to the content area. The page canvas
+keeps the selection outline and resize handles; the overlay remains separate
+from page rendering and scrolling.
+
+Unit tests cover upward flipping, gap preservation, horizontal clamping and the
+roomier-side fallback. A component test selects annotations near both vertical
+edges, verifies the measured overlay stays adjacent and fully inside the reader
+viewport. `cargo test --workspace --locked` and Clippy pass with warnings
+denied. Native macOS inspection could not run because the session's Mac was
+locked; Windows and Linux remain unverified.
+
 ## October 21 Markdown rendering unified on GPUI Kit TextView
 
 The user directed removal of Breeze's own Markdown rendering path. The reader

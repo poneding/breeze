@@ -213,6 +213,72 @@ pub(super) fn display_bounds(annotation: &Annotation, geometry: ViewGeometry) ->
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) struct PopupPlacement {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub above: bool,
+}
+
+/// Keep the controls adjacent to the selected element while fitting them inside
+/// the reader viewport. The caller supplies the measured control size so the
+/// flip decision does not depend on a guessed panel height.
+pub(super) fn popup_placement(
+    anchor: Rect,
+    viewport: Rect,
+    width: f32,
+    height: f32,
+    gap: f32,
+    margin: f32,
+) -> Option<PopupPlacement> {
+    if !anchor.x.is_finite()
+        || !anchor.y.is_finite()
+        || !anchor.width.is_finite()
+        || !anchor.height.is_finite()
+        || !viewport.x.is_finite()
+        || !viewport.y.is_finite()
+        || !viewport.width.is_finite()
+        || !viewport.height.is_finite()
+    {
+        return None;
+    }
+
+    let margin = margin.max(0.);
+    let gap = gap.max(0.);
+    let left = viewport.x + margin;
+    let top = viewport.y + margin;
+    let right = (viewport.x + viewport.width - margin).max(left);
+    let bottom = (viewport.y + viewport.height - margin).max(top);
+    let width = width.min(right - left);
+    let height = height.min(bottom - top);
+    if width <= 0. || height <= 0. {
+        return None;
+    }
+
+    let anchor_bottom = anchor.y + anchor.height;
+    let below_y = anchor_bottom + gap;
+    let above_y = anchor.y - gap - height;
+    let below_fits = below_y + height <= bottom;
+    let above_fits = above_y >= top;
+    let (y, above) = if below_fits {
+        (below_y, false)
+    } else if above_fits {
+        (above_y, true)
+    } else {
+        let below_space = (bottom - below_y).max(0.);
+        let above_space = (anchor.y - gap - top).max(0.);
+        if below_space >= above_space {
+            (below_y.clamp(top, bottom - height), false)
+        } else {
+            (above_y.clamp(top, bottom - height), true)
+        }
+    };
+    let x = anchor.x.clamp(left, right - width);
+
+    Some(PopupPlacement { x, y, width, above })
+}
+
 pub(super) fn translated(
     annotation: &Annotation,
     delta: Point,

@@ -11,6 +11,19 @@ Draft changes must not silently disappear on navigation or close. Transient sele
 
 Keep the accepted 34/38/32 px chrome and eight fixed colors. Use isolated state and sample copies under `target/` for native inspection. Record completed checks and limitations in [STATUS](STATUS.md), preserving unrelated staged and unstaged work.
 
+## October 22 selected-control placement
+
+Requested: keep the modification controls close to the selected annotation and
+flip them automatically before the reader content edge can clip them.
+
+Render the controls outside the page surface as a reader-viewport overlay. Keep
+an 8 px gap from the selected element, measure the real panel height before
+choosing the side, and clamp the panel within the content area. Selection
+outlines and resize handles remain page-local so the overlay does not alter page
+coordinates or annotation transactions. Cover top-edge, bottom-edge, narrow
+viewport and roomier-side fallback placement with tests; record native platform
+limitations in STATUS.
+
 ## October 21 explicit Select tool
 
 Requested: reading mode must not select annotation elements. In annotation

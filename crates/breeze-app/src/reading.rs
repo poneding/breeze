@@ -1226,12 +1226,14 @@ impl Breeze {
         let (width, height) = self.reading_viewport_size(window);
         let p = self.p(cx);
         let view = cx.entity();
+        let annotation_controls = self.annotation_selection_controls_overlay(cx);
         let viewport = div()
             .id("document-viewport")
             .test_support()
             .flex_1()
             .min_w_0()
             .min_h_0()
+            .relative()
             .bg(p.canvas)
             .on_prepaint({
                 let view = cx.entity();
@@ -1400,62 +1402,66 @@ impl Breeze {
             let item_sizes = items.clone();
             return viewport
                 .child(
-                    v_virtual_list(
-                        cx.entity(),
-                        "continuous-pages",
-                        items,
-                        move |this, range, _, cx| {
-                            let wanted = range.start * layout.columns()
-                                ..(range.end * layout.columns()).min(sizes.len());
-                            let first_row = range.start;
-                            let generation = this.generation;
-                            range
-                                .map(|index| {
-                                    let pages = layout.pages(index * layout.columns(), sizes.len());
-                                    let (_, _, scale) = row_geometry(
-                                        &sizes,
-                                        pages.clone(),
-                                        width,
-                                        height,
-                                        zoom,
-                                        rotation,
-                                    );
-                                    row()
-                                        .id(("continuous-page", index))
-                                        .when(index == first_row, |d| {
-                                            let view = cx.entity();
-                                            let wanted = wanted.clone();
-                                            d.on_prepaint(move |_, _, cx| {
-                                                view.update(cx, |this, cx| {
-                                                    if generation == this.generation {
-                                                        this.defer_visible(wanted, false, cx);
-                                                    }
+                    div().size_full().child(
+                        v_virtual_list(
+                            cx.entity(),
+                            "continuous-pages",
+                            items,
+                            move |this, range, _, cx| {
+                                let wanted = range.start * layout.columns()
+                                    ..(range.end * layout.columns()).min(sizes.len());
+                                let first_row = range.start;
+                                let generation = this.generation;
+                                range
+                                    .map(|index| {
+                                        let pages =
+                                            layout.pages(index * layout.columns(), sizes.len());
+                                        let (_, _, scale) = row_geometry(
+                                            &sizes,
+                                            pages.clone(),
+                                            width,
+                                            height,
+                                            zoom,
+                                            rotation,
+                                        );
+                                        row()
+                                            .id(("continuous-page", index))
+                                            .when(index == first_row, |d| {
+                                                let view = cx.entity();
+                                                let wanted = wanted.clone();
+                                                d.on_prepaint(move |_, _, cx| {
+                                                    view.update(cx, |this, cx| {
+                                                        if generation == this.generation {
+                                                            this.defer_visible(wanted, false, cx);
+                                                        }
+                                                    })
                                                 })
                                             })
-                                        })
-                                        .w(item_sizes[widest].width)
-                                        .h(item_sizes[index].height)
-                                        .justify_center()
-                                        .items_start()
-                                        .py_3()
-                                        .gap_3()
-                                        .children(pages.map(|page| {
-                                            let points = rotation.apply(sizes[page]);
-                                            this.page_item(
-                                                page,
-                                                points.0 * scale,
-                                                points.1 * scale,
-                                                cx,
-                                            )
-                                        }))
-                                })
-                                .collect()
-                        },
-                    )
-                    .with_item_to_measure_index(widest)
-                    .track_scroll(&self.reading.pages_scroll)
-                    .size_full(),
+                                            .w(item_sizes[widest].width)
+                                            .h(item_sizes[index].height)
+                                            .justify_center()
+                                            .items_start()
+                                            .py_3()
+                                            .gap_3()
+                                            .children(pages.map(|page| {
+                                                let points = rotation.apply(sizes[page]);
+                                                this.page_item(
+                                                    page,
+                                                    points.0 * scale,
+                                                    points.1 * scale,
+                                                    cx,
+                                                )
+                                            }))
+                                    })
+                                    .collect()
+                            },
+                        )
+                        .with_item_to_measure_index(widest)
+                        .track_scroll(&self.reading.pages_scroll)
+                        .size_full(),
+                    ),
                 )
+                .children(annotation_controls)
                 .into_any_element();
         }
         let range = layout.pages(page, sizes.len());
@@ -1464,20 +1470,26 @@ impl Breeze {
         let (row_width, _, scale) =
             row_geometry(&sizes, range.clone(), width, height, zoom, rotation);
         viewport
-            .overflow_scroll()
-            .p_3()
             .child(
-                row()
-                    .min_w_full()
-                    .w(px(row_width))
-                    .gap_3()
-                    .items_start()
-                    .justify_center()
-                    .children(range.map(|i| {
-                        let points = rotation.apply(sizes[i]);
-                        self.page_item(i, points.0 * scale, points.1 * scale, cx)
-                    })),
+                div()
+                    .id("reader-page-scroll")
+                    .size_full()
+                    .overflow_scroll()
+                    .p_3()
+                    .child(
+                        row()
+                            .min_w_full()
+                            .w(px(row_width))
+                            .gap_3()
+                            .items_start()
+                            .justify_center()
+                            .children(range.map(|i| {
+                                let points = rotation.apply(sizes[i]);
+                                self.page_item(i, points.0 * scale, points.1 * scale, cx)
+                            })),
+                    ),
             )
+            .children(annotation_controls)
             .into_any_element()
     }
 }
