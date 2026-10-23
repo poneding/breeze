@@ -226,29 +226,20 @@ impl Breeze {
         self.save_annotations_for(self.active, cx);
     }
     fn save_annotations_for(&mut self, index: usize, cx: &mut Context<Self>) {
-        self.save_annotations_to(index, None, cx);
-    }
-    fn save_annotations_to(
-        &mut self,
-        index: usize,
-        new_path: Option<PathBuf>,
-        cx: &mut Context<Self>,
-    ) {
         let book = &mut self.books[index];
         let a = &mut book.annotations;
-        let save_as = new_path.is_some();
         if !a.ready || a.saving || a.source_conflict || a.fingerprint.is_empty() {
             self.message =
                 tr!("Annotations are not ready or have a conflict; saving is unavailable").into();
             cx.notify();
             return;
         }
-        let Some(path) = new_path.or_else(|| a.path.clone()) else {
+        let Some(path) = a.path.clone() else {
             return;
         };
         let source = book.source.clone();
         let fingerprint = a.fingerprint.clone();
-        let revision = if save_as { None } else { a.revision.clone() };
+        let revision = a.revision.clone();
         let original_path = a.path.clone();
         let identity = a.identity.clone();
         let items = a.history.items.clone();
@@ -259,7 +250,6 @@ impl Breeze {
             Source::Sample => None,
         };
         let destination = path.display().to_string();
-        let saved_path = path.clone();
         let saved_fingerprint = fingerprint.clone();
         let work = cx.background_spawn(async move {
             breeze_storage::save_annotations(
@@ -285,9 +275,7 @@ impl Breeze {
                 book.annotations.saving = false;
                 match result {
                     Ok(revision) => {
-                        // Publish the association and acknowledgement as one UI transaction.
-                        // A failed Save As must leave the last good sidecar reachable.
-                        book.annotations.path = Some(saved_path);
+                        // Acknowledge only the exact snapshot written by this job.
                         book.annotations.revision = Some(revision);
                         book.annotations.saved = saved;
                         if !book.annotations.source_conflict {
@@ -306,25 +294,12 @@ impl Breeze {
                             }
                             None => AnnotationFailure::Io,
                         };
-                        if !save_as || failure == AnnotationFailure::SourceConflict {
-                            book.annotations.failure = Some(failure);
-                            if failure == AnnotationFailure::SourceConflict {
-                                book.annotations.source_conflict = true;
-                            }
+                        book.annotations.failure = Some(failure);
+                        if failure == AnnotationFailure::SourceConflict {
+                            book.annotations.source_conflict = true;
                         }
-                        if save_as {
-                            this.message = tf!(
-                                "Save As failed; the original save location is retained: {}",
-                                format!("{:#}", e)
-                            );
-                            if failure == AnnotationFailure::SourceConflict {
-                                book.annotations.error = Some(this.message.clone());
-                            }
-                        } else {
-                            book.annotations.error =
-                                Some(tf!("Save failed: {}", format!("{:#}", e)));
-                            this.message = tf!("Annotation save failed: {}", format!("{:#}", e));
-                        }
+                        book.annotations.error = Some(tf!("Save failed: {}", format!("{:#}", e)));
+                        this.message = tf!("Annotation save failed: {}", format!("{:#}", e));
                     }
                 }
                 cx.notify();
@@ -332,77 +307,6 @@ impl Breeze {
         })
         .detach();
         cx.notify();
-    }
-    pub(super) fn save_annotations_as(&mut self, cx: &mut Context<Self>) {
-        if !self.books[self.active].is_pdf() {
-            return;
-        }
-        if self.annotation_editing.pending_text() {
-            self.message = tr!("Press Enter to finish the text note before Save As").into();
-            cx.notify();
-            return;
-        }
-        self.commit_selected_annotation(cx);
-        let book = &mut self.books[self.active];
-        let a = &mut book.annotations;
-        if !a.ready || a.saving || a.source_conflict || a.fingerprint.is_empty() {
-            self.message = tr!(
-                "Annotations are loading, saving or have a source conflict; Save As is unavailable"
-            )
-            .into();
-            cx.notify();
-            return;
-        }
-        let source = book.source.clone();
-        let fingerprint = a.fingerprint.clone();
-        let original_path = a.path.clone();
-        let identity = a.identity.clone();
-        // A pending picker owns the same save slot as the subsequent write.
-        // This prevents competing dialogs and clean-document closes.
-        a.saving = true;
-        let directory = self.data_dir.clone().unwrap_or_else(std::env::temp_dir);
-        let receiver = cx.prompt_for_new_path(&directory, Some("annotations.breeze.json"));
-        cx.notify();
-        cx.spawn(async move |this, cx| {
-            let result = receiver.await;
-            let _ = this.update(cx, |this, cx| {
-                let Some(index) = this.books.iter().position(|b| b.source == source) else {
-                    return;
-                };
-                let a = &mut this.books[index].annotations;
-                if !Arc::ptr_eq(&a.identity, &identity)
-                    || a.fingerprint != fingerprint
-                    || a.path != original_path
-                {
-                    return;
-                }
-                a.saving = false;
-                let selected = match result {
-                    Ok(Ok(Some(path))) => Some(path),
-                    Ok(Ok(None)) => {
-                        // Cancelling keeps the current location; nothing to report.
-                        this.message.clear();
-                        None
-                    }
-                    Ok(Err(e)) => {
-                        this.message = tf!(
-                            "Cannot choose annotation save location: {}",
-                            format!("{:#}", e)
-                        );
-                        None
-                    }
-                    Err(e) => {
-                        this.message = tf!("Annotation file dialog interrupted: {}", e);
-                        None
-                    }
-                };
-                if let Some(path) = selected {
-                    this.save_annotations_to(index, Some(path), cx);
-                }
-                cx.notify();
-            });
-        })
-        .detach();
     }
     pub(super) fn has_unsaved_annotations(&self) -> bool {
         self.annotation_editing.pending_text()

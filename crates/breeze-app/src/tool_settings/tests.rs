@@ -42,14 +42,12 @@ fn annotation_toolbar_puts_select_first_and_keeps_note_and_shape_tools(cx: &mut 
         let undo = window.find("undo").bounds();
         let redo = window.find("redo").bounds();
         let save = window.find("save-sidecar").bounds();
-        let save_as = window.find("save-sidecar-as").bounds();
         assert_eq!(divider.size.width, px(1.));
         assert_eq!(divider.size.height, px(20.));
         assert!(actions.left() <= undo.left());
         assert!(undo.right() < redo.left());
         assert!(redo.right() < save.left());
-        assert!(save.right() < save_as.left());
-        assert!(save_as.right() < divider.left());
+        assert!(save.right() < divider.left());
         assert!(divider.right() < select.bounds().left());
         window.click(("tool", annotation_editing::SELECT_TOOL), cx);
         window.render_frame(cx);

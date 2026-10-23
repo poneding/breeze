@@ -97,7 +97,6 @@ actions!(
         FitWidth,
         SaveAnnotations,
         ExportPdf,
-        SaveAnnotationsAs,
         UndoAnnotation,
         RedoAnnotation,
         SearchDocument,
@@ -1194,9 +1193,6 @@ impl Render for Breeze {
                 }),
             )
             .on_action(cx.listener(|this, action: &SaveAnnotations, window, cx| {
-                this.execute(action, window, cx)
-            }))
-            .on_action(cx.listener(|this, action: &SaveAnnotationsAs, window, cx| {
                 this.execute(action, window, cx)
             }))
             .on_action(cx.listener(|this, action: &UndoAnnotation, window, cx| {

@@ -106,8 +106,8 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         assert!(
             window
                 .within("reader-toolbar")
-                .find("save-sidecar-as")
-                .visible()
+                .try_find("save-sidecar-as")
+                .is_none()
         );
         assert!(window.within("document-panel").try_find("undo").is_none());
         assert!(

@@ -278,13 +278,6 @@ impl Breeze {
                 )
                 .disabled(!data.ready || data.saving || data.error.is_some()),
             )
-            .child(self.command(
-                "save-sidecar-as",
-                IconName::FolderOpen,
-                tr!("Save annotations as"),
-                &SaveAnnotationsAs,
-                cx,
-            ))
             .into_any_element()
     }
 

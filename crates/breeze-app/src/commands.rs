@@ -49,7 +49,6 @@ pub fn bind(cx: &mut App) {
         KeyBinding::new("secondary-8", FitWidth, Some("Breeze && !Input")),
         KeyBinding::new("secondary-s", SaveAnnotations, Some("Breeze")),
         KeyBinding::new("secondary-shift-e", ExportPdf, Some("Breeze")),
-        KeyBinding::new("secondary-shift-s", SaveAnnotationsAs, Some("Breeze")),
         KeyBinding::new("secondary-z", UndoAnnotation, Some("Breeze && !Input")),
         KeyBinding::new(
             "secondary-shift-z",
@@ -132,7 +131,6 @@ impl Breeze {
             if !self.books[self.active].is_pdf() {
                 if action.as_any().is::<ExportPdf>()
                     || action.as_any().is::<SaveAnnotations>()
-                    || action.as_any().is::<SaveAnnotationsAs>()
                     || action.as_any().is::<UndoAnnotation>()
                     || action.as_any().is::<RedoAnnotation>()
                     || action.as_any().is::<CycleLayout>()
@@ -165,8 +163,6 @@ impl Breeze {
                 self.choose_pdf_export(cx);
             } else if action.as_any().is::<SaveAnnotations>() {
                 self.save_annotations(cx);
-            } else if action.as_any().is::<SaveAnnotationsAs>() {
-                self.save_annotations_as(cx);
             } else if action.as_any().is::<UndoAnnotation>() {
                 if self.annotation_editing.pending_text() {
                     return;
@@ -761,7 +757,6 @@ fn action_label(action: &dyn Action) -> &'static str {
         ExportPdf,
         tr!("Export annotations to a new PDF; preserve source")
     );
-    name!(SaveAnnotationsAs, tr!("Choose annotation save location"));
     name!(UndoAnnotation, tr!("Undo annotation"));
     name!(RedoAnnotation, tr!("Redo annotation"));
     name!(SearchDocument, tr!("Search document"));

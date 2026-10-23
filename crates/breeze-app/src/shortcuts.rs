@@ -53,7 +53,6 @@ pub(super) fn groups() -> Vec<(&'static str, Vec<Shortcut>)> {
             tr!("Annotations"),
             vec![
                 row(tr!("Save annotations"), vec![&SaveAnnotations]),
-                row(tr!("Save annotations as"), vec![&SaveAnnotationsAs]),
                 row(tr!("Undo annotation"), vec![&UndoAnnotation]),
                 row(tr!("Redo annotation"), vec![&RedoAnnotation]),
                 row(
