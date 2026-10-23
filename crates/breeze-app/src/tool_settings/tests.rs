@@ -41,9 +41,18 @@ fn annotation_toolbar_puts_select_first_and_keeps_note_and_shape_tools(cx: &mut 
         window.click(("tool", annotation_editing::SELECT_TOOL), cx);
         window.render_frame(cx);
         assert_eq!(view.read(cx).tool, annotation_editing::SELECT_TOOL);
+        let select = window.find(("tool", annotation_editing::SELECT_TOOL));
+        assert_eq!(select.checked(), Some(true));
+
         window.click(("tool", 4usize), cx);
         window.render_frame(cx);
         assert_eq!(view.read(cx).tool, 4);
+        assert_eq!(
+            window
+                .find(("tool", annotation_editing::SELECT_TOOL))
+                .checked(),
+            Some(false)
+        );
         assert_eq!(tools[5].0, IconName::Type.into());
         assert_eq!(tools[6].0, IconName::Circle.into());
         assert_eq!(tools[7].0, IconName::Square.into());

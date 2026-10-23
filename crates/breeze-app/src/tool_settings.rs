@@ -27,6 +27,22 @@ pub(super) fn annotation_tools() -> [(AnnotationIcon, &'static str); 11] {
         (IconName::ArrowUpRight.into(), tr!("Arrow")),
     ]
 }
+// Select and drawing tools share one compact ghost presentation so their
+// selected backgrounds cannot diverge.
+fn annotation_tool_button(
+    id: impl Into<ElementId>,
+    icon: AnnotationIcon,
+    label: &'static str,
+    selected: bool,
+) -> Button {
+    Button::new(id)
+        .ghost()
+        .small()
+        .icon(icon)
+        .accessibility_label(label)
+        .selected(selected)
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct ToolKey {
     index: usize,
@@ -105,27 +121,24 @@ impl Breeze {
             Mode::Annotate => annotation_tools().to_vec(),
         };
         let select = (mode == Mode::Annotate).then(|| {
-            Button::new(("tool", annotation_editing::SELECT_TOOL))
-                .ghost()
-                .small()
-                .icon(IconName::MousePointer2)
-                .accessibility_label(tr!("Select annotation"))
-                .tooltip(tr!(
-                    "Select an existing annotation to edit, move, resize or delete"
-                ))
-                .selected(self.tool == annotation_editing::SELECT_TOOL)
-                .toggled(self.tool == annotation_editing::SELECT_TOOL)
-                .when(self.tool == annotation_editing::SELECT_TOOL, |button| {
-                    button.primary()
-                })
-                .on_click(cx.listener(|this, _, _, cx| {
-                    if !this.annotation_navigation_allowed(cx) {
-                        return;
-                    }
-                    this.tool = annotation_editing::SELECT_TOOL;
-                    this.gesture.clear();
-                    cx.notify();
-                }))
+            annotation_tool_button(
+                ("tool", annotation_editing::SELECT_TOOL),
+                IconName::MousePointer2.into(),
+                tr!("Select annotation"),
+                self.tool == annotation_editing::SELECT_TOOL,
+            )
+            .toggled(self.tool == annotation_editing::SELECT_TOOL)
+            .tooltip(tr!(
+                "Select an existing annotation to edit, move, resize or delete"
+            ))
+            .on_click(cx.listener(|this, _, _, cx| {
+                if !this.annotation_navigation_allowed(cx) {
+                    return;
+                }
+                this.tool = annotation_editing::SELECT_TOOL;
+                this.gesture.clear();
+                cx.notify();
+            }))
         });
         row()
             .id("tools")
@@ -139,23 +152,19 @@ impl Breeze {
             .child(row().flex_shrink_0().gap_1().children(select).children(
                 tools.into_iter().enumerate().map(|(index, (icon, label))| {
                     let key = ToolKey { index };
-                    let button = Button::new(("tool", index))
-                        .ghost()
-                        .small()
-                        .icon(icon)
-                        .accessibility_label(label)
-                        .selected(self.tool == index)
-                        .on_click(cx.listener(move |this, event, _, cx| {
-                            if !this.annotation_navigation_allowed(cx) {
-                                return;
-                            }
-                            this.gesture.clear();
-                            this.tool = index;
-                            if matches!(event, ClickEvent::Keyboard(_)) {
-                                this.tool_settings.keyboard_open = Some(key);
-                            }
-                            cx.notify();
-                        }));
+                    let button =
+                        annotation_tool_button(("tool", index), icon, label, self.tool == index)
+                            .on_click(cx.listener(move |this, event, _, cx| {
+                                if !this.annotation_navigation_allowed(cx) {
+                                    return;
+                                }
+                                this.gesture.clear();
+                                this.tool = index;
+                                if matches!(event, ClickEvent::Keyboard(_)) {
+                                    this.tool_settings.keyboard_open = Some(key);
+                                }
+                                cx.notify();
+                            }));
                     let id = SharedString::from(format!(
                         "tool-settings-{}-{}-{index}-{}",
                         self.tool_settings.epoch,
