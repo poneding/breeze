@@ -85,6 +85,9 @@ impl AnnotationEditing {
     pub fn pending_text(&self) -> bool {
         self.editor.is_some()
     }
+    pub(super) fn has_selection(&self) -> bool {
+        self.selection.is_some()
+    }
     pub fn interacting(&self) -> bool {
         self.editor.is_some() || self.moving.is_some()
     }

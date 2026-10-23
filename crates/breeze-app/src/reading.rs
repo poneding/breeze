@@ -139,6 +139,9 @@ pub(super) struct ReadingView {
     wanted_thumbs: Range<usize>,
     busy: bool,
     pub pages_scroll: VirtualListScrollHandle,
+    pub(super) page_scroll: ScrollHandle,
+    page_scroll_offset: Point<gpui_kit::Pixels>,
+    continuous_scroll_offset: Point<gpui_kit::Pixels>,
     pub thumbs_scroll: UniformListScrollHandle,
     metrics: Option<PageMetrics>,
     pub zoom_remainder: f32,
@@ -162,6 +165,9 @@ impl Default for ReadingView {
             wanted_thumbs: 0..0,
             busy: false,
             pages_scroll: VirtualListScrollHandle::new(),
+            page_scroll: ScrollHandle::new(),
+            page_scroll_offset: Point::default(),
+            continuous_scroll_offset: Point::default(),
             thumbs_scroll: UniformListScrollHandle::new(),
             metrics: None,
             zoom_remainder: 0.,
@@ -1400,66 +1406,83 @@ impl Breeze {
                 .unwrap_or_default();
             let widest = metrics.as_ref().map(|m| m.widest).unwrap_or(0);
             let item_sizes = items.clone();
+            let scroll = self.reading.pages_scroll.base_handle().clone();
+            let scroll_view = cx.entity();
             return viewport
                 .child(
-                    div().size_full().child(
-                        v_virtual_list(
-                            cx.entity(),
-                            "continuous-pages",
-                            items,
-                            move |this, range, _, cx| {
-                                let wanted = range.start * layout.columns()
-                                    ..(range.end * layout.columns()).min(sizes.len());
-                                let first_row = range.start;
-                                let generation = this.generation;
-                                range
-                                    .map(|index| {
-                                        let pages =
-                                            layout.pages(index * layout.columns(), sizes.len());
-                                        let (_, _, scale) = row_geometry(
-                                            &sizes,
-                                            pages.clone(),
-                                            width,
-                                            height,
-                                            zoom,
-                                            rotation,
-                                        );
-                                        row()
-                                            .id(("continuous-page", index))
-                                            .when(index == first_row, |d| {
-                                                let view = cx.entity();
-                                                let wanted = wanted.clone();
-                                                d.on_prepaint(move |_, _, cx| {
-                                                    view.update(cx, |this, cx| {
-                                                        if generation == this.generation {
-                                                            this.defer_visible(wanted, false, cx);
-                                                        }
+                    div()
+                        .size_full()
+                        .on_prepaint(move |_, window, cx| {
+                            let offset = scroll.offset();
+                            scroll_view.update(cx, |this, cx| {
+                                if this.reading.continuous_scroll_offset != offset {
+                                    this.reading.continuous_scroll_offset = offset;
+                                    if this.annotation_editing.has_selection() {
+                                        cx.defer_in(window, |_, _, cx| cx.notify());
+                                    }
+                                }
+                            });
+                        })
+                        .child(
+                            v_virtual_list(
+                                cx.entity(),
+                                "continuous-pages",
+                                items,
+                                move |this, range, _, cx| {
+                                    let wanted = range.start * layout.columns()
+                                        ..(range.end * layout.columns()).min(sizes.len());
+                                    let first_row = range.start;
+                                    let generation = this.generation;
+                                    range
+                                        .map(|index| {
+                                            let pages =
+                                                layout.pages(index * layout.columns(), sizes.len());
+                                            let (_, _, scale) = row_geometry(
+                                                &sizes,
+                                                pages.clone(),
+                                                width,
+                                                height,
+                                                zoom,
+                                                rotation,
+                                            );
+                                            row()
+                                                .id(("continuous-page", index))
+                                                .when(index == first_row, |d| {
+                                                    let view = cx.entity();
+                                                    let wanted = wanted.clone();
+                                                    d.on_prepaint(move |_, _, cx| {
+                                                        view.update(cx, |this, cx| {
+                                                            if generation == this.generation {
+                                                                this.defer_visible(
+                                                                    wanted, false, cx,
+                                                                );
+                                                            }
+                                                        })
                                                     })
                                                 })
-                                            })
-                                            .w(item_sizes[widest].width)
-                                            .h(item_sizes[index].height)
-                                            .justify_center()
-                                            .items_start()
-                                            .py_3()
-                                            .gap_3()
-                                            .children(pages.map(|page| {
-                                                let points = rotation.apply(sizes[page]);
-                                                this.page_item(
-                                                    page,
-                                                    points.0 * scale,
-                                                    points.1 * scale,
-                                                    cx,
-                                                )
-                                            }))
-                                    })
-                                    .collect()
-                            },
-                        )
-                        .with_item_to_measure_index(widest)
-                        .track_scroll(&self.reading.pages_scroll)
-                        .size_full(),
-                    ),
+                                                .w(item_sizes[widest].width)
+                                                .h(item_sizes[index].height)
+                                                .justify_center()
+                                                .items_start()
+                                                .py_3()
+                                                .gap_3()
+                                                .children(pages.map(|page| {
+                                                    let points = rotation.apply(sizes[page]);
+                                                    this.page_item(
+                                                        page,
+                                                        points.0 * scale,
+                                                        points.1 * scale,
+                                                        cx,
+                                                    )
+                                                }))
+                                        })
+                                        .collect()
+                                },
+                            )
+                            .with_item_to_measure_index(widest)
+                            .track_scroll(&self.reading.pages_scroll)
+                            .size_full(),
+                        ),
                 )
                 .children(annotation_controls)
                 .into_any_element();
@@ -1469,6 +1492,8 @@ impl Breeze {
         self.defer_visible(wanted, false, cx);
         let (row_width, _, scale) =
             row_geometry(&sizes, range.clone(), width, height, zoom, rotation);
+        let scroll = self.reading.page_scroll.clone();
+        let scroll_view = cx.entity();
         viewport
             .child(
                 div()
@@ -1476,6 +1501,18 @@ impl Breeze {
                     .size_full()
                     .overflow_scroll()
                     .p_3()
+                    .track_scroll(&self.reading.page_scroll)
+                    .on_prepaint(move |_, window, cx| {
+                        let offset = scroll.offset();
+                        scroll_view.update(cx, |this, cx| {
+                            if this.reading.page_scroll_offset != offset {
+                                this.reading.page_scroll_offset = offset;
+                                if this.annotation_editing.has_selection() {
+                                    cx.defer_in(window, |_, _, cx| cx.notify());
+                                }
+                            }
+                        });
+                    })
                     .child(
                         row()
                             .min_w_full()

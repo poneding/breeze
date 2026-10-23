@@ -1,3 +1,25 @@
+## October 23 Annotation controls follow reader scrolling
+
+The selected-annotation controls could keep an old above/below decision after
+the page scrolled because the viewport overlay was not rebuilt when only the
+scroll offset changed. The reader now tracks both the single/spread page
+scroller and the continuous virtual list, repainting once per changed offset
+while an annotation is selected. The existing measured-size placement then
+re-evaluates the content edge and can move the panel from below to above the
+annotation.
+
+A component test starts with the controls below a selected line, scrolls the
+page until that position would overflow, and verifies the controls follow the
+new page bounds, flip above the line, keep their 8 px gap, and remain inside the
+reader viewport. Formatting and Clippy pass. The workspace test run passes with
+one pre-existing unrelated Settings assertion skipped
+(`home_navigation_selects_about_shortcuts_and_settings`, which expects a
+`default-document-app` element absent at the current HEAD). An isolated native
+macOS review build launched and a line annotation was created, but the
+session's coordinate mapping did not reliably hit the thin line for the
+selection/scroll transition, so that visual check remains incomplete. Windows
+and Linux remain unverified.
+
 ## October 22 Editable page position and zoom presets
 
 The PDF status bar's page position was permanent text followed by an always

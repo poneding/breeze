@@ -11,6 +11,15 @@ Draft changes must not silently disappear on navigation or close. Transient sele
 
 Keep the accepted 34/38/32 px chrome and eight fixed colors. Use isolated state and sample copies under `target/` for native inspection. Record completed checks and limitations in [STATUS](STATUS.md), preserving unrelated staged and unstaged work.
 
+## October 23 scrolling placement updates
+
+Keep the selected-control overlay synchronized while the reader scrolls. Track
+the page and continuous-list scroll handles, compare their offsets during
+prepaint, and request a coalesced repaint only when the offset changes with an
+active annotation selection. Re-run the measured above/below placement after
+each change so a panel that starts below a line can flip above it before the
+content edge clips the panel. Cover this transition with a component test.
+
 ## October 22 selected-control placement
 
 Requested: keep the modification controls close to the selected annotation and

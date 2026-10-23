@@ -418,6 +418,76 @@ fn selection_controls_stay_adjacent_and_flip_inside_the_reader_viewport(cx: &mut
     .unwrap();
 }
 
+#[gpui_kit::test]
+fn selection_controls_follow_and_flip_after_reader_scrolling(cx: &mut TestAppContext) {
+    let (handle, view) = setup(cx);
+    let mut annotation = line();
+    annotation.points = vec![DocPoint::new(80., 440.), DocPoint::new(220., 440.)];
+    let mut before = None;
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.books[0].state.zoom = Zoom::ActualSize;
+            view.books[0].annotations.history.items = vec![annotation.clone()];
+            view.tool = SELECT_TOOL;
+        });
+        window.render_frame(cx);
+        view.update(cx, |view, _| {
+            view.reading
+                .page_scroll
+                .set_offset(point(px(0.), px(-250.)));
+        });
+        for _ in 0..3 {
+            window.render_frame(cx);
+        }
+        view.update(cx, |view, cx| view.select_annotation(0, window, cx));
+        for _ in 0..4 {
+            window.render_frame(cx);
+        }
+
+        before = Some(window.find("annotation-selection-controls").bounds());
+        window.scroll(
+            "document-viewport",
+            ScrollDelta::Pixels(point(px(0.), px(250.))),
+            cx,
+        );
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        let before = before.unwrap();
+        let after = window.find("annotation-selection-controls").bounds();
+        let viewport = window.find("document-viewport").bounds();
+        let page = window.find("page-surface").bounds();
+        let state = view.read(cx);
+        let preview = state.preview.as_ref().unwrap();
+        let geometry = state.view_geometry(preview.geometry);
+        let bounds = geometry::display_bounds(&annotation, geometry);
+        let (page_width, page_height) = geometry.size();
+        let anchor = Bounds {
+            origin: page.origin
+                + point(
+                    px(bounds.x / page_width * f32::from(page.size.width)),
+                    px(bounds.y / page_height * f32::from(page.size.height)),
+                ),
+            size: size(
+                px(bounds.width / page_width * f32::from(page.size.width)),
+                px(bounds.height / page_height * f32::from(page.size.height)),
+            ),
+        };
+
+        assert!(
+            after.top() > before.top() + px(20.),
+            "controls did not follow the page"
+        );
+        let initial_anchor_bottom = anchor.bottom() - px(250.);
+        assert!((before.top() - initial_anchor_bottom - px(8.)).abs() < px(0.5));
+        assert!((f32::from(after.bottom()) + 8. - f32::from(anchor.top())).abs() < 0.5);
+        assert!(after.top() >= viewport.top());
+        assert!(after.bottom() <= viewport.bottom());
+    })
+    .unwrap();
+}
+
 fn setup(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
     let worker = PdfWorker::new().unwrap();
     let page = futures::executor::block_on(worker.request(Source::Sample, 0).unwrap())
