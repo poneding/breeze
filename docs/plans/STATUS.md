@@ -1,3 +1,21 @@
+## October 23 Page submit icon matches Close density
+
+The page input's Enter affordance occupied a full Small icon-button square and
+sat eight pixels inside the input border, making it feel heavier than the
+surrounding status controls. It now uses the title-bar tab Close dimensions:
+an 18.5 px hit target with an XSmall corner-return icon. The suffix adds six
+pixels before the button so the page number remains distinct, then pulls the
+button toward the border until its visible edge is two pixels inside the input
+outline.
+
+The page-position component test now asserts both the 18.5 px target and a
+1–3 px right-border gap. `cargo fmt --all -- --check`, the complete
+`cargo test --workspace --locked` suite (255 app tests plus all other suites),
+and `cargo clippy --workspace --all-targets --locked -- -D warnings` pass.
+Native macOS inspection with an isolated `BREEZE_DATA_DIR` confirmed the smaller
+icon, retained text separation, and close-to-border placement in the focused
+page field. Windows and Linux remain unverified.
+
 ## October 23 Status bar stays muted until hover
 
 PDF and reflowable status bars had mixed foreground colors: page and zoom

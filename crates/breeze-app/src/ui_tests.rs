@@ -176,6 +176,17 @@ fn status_page_position_opens_an_integer_field(cx: &mut TestAppContext) {
                 .is_focused(window)
         );
         assert_eq!(window.find("page-input").value(), Some("1"));
+        let input = window.find("page-input").bounds();
+        let jump = window.find("jump").bounds();
+        assert!(
+            (f32::from(jump.size.width) - 18.5).abs() < 0.6,
+            "the page submit button should match the compact tab Close size: {jump:?}"
+        );
+        let border_gap = input.right() - jump.right();
+        assert!(
+            border_gap >= px(1.) && border_gap <= px(3.),
+            "the page submit button {jump:?} should sit 1–3 px from the input border {input:?}"
+        );
 
         window.input("x", cx);
         assert_eq!(view.read(cx).page_input.read(cx).value().as_ref(), "1");

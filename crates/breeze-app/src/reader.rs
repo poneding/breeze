@@ -1,7 +1,7 @@
 use crate::*;
 use gpui_kit::base::{ResizeHandleRenderer, ResizeHandleState, Transition, transition};
 use gpui_kit::component::{
-    Theme, h_resizable,
+    Icon, Theme, h_resizable,
     menu::{DropdownMenu, PopupMenuItem},
     resizable_panel,
     tab::{Tab, TabBar},
@@ -484,17 +484,22 @@ impl Breeze {
                 .w(px(68.))
                 .aria_label(tr!("Go to page"))
                 .suffix({
-                    let color = self.status_color("jump", cx);
-                    let button = Button::new("jump")
-                        .ghost()
-                        .small()
-                        .tab_stop(false)
-                        .icon(IconName::CornerDownLeft)
-                        .accessibility_label(tr!("Go to entered page"))
-                        .tooltip(tr!("Go to entered page"))
-                        .on_click(cx.listener(|this, _, window, cx| this.submit_page(window, cx)))
-                        .text_color(color);
-                    self.status_control("jump", button, cx)
+                    div().ml(px(2.)).mr(px(-6.)).child({
+                        let color = self.status_color("jump", cx);
+                        let button = Button::new("jump")
+                            .ghost()
+                            .small()
+                            .size(px(18.5))
+                            .tab_stop(false)
+                            .icon(Icon::new(IconName::CornerDownLeft).xsmall())
+                            .accessibility_label(tr!("Go to entered page"))
+                            .tooltip(tr!("Go to entered page"))
+                            .on_click(
+                                cx.listener(|this, _, window, cx| this.submit_page(window, cx)),
+                            )
+                            .text_color(color);
+                        self.status_control("jump", button, cx)
+                    })
                 })
                 .into_any_element()
         } else {
