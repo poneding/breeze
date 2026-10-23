@@ -114,12 +114,15 @@ pub(super) fn bind(cx: &mut App) {
 impl Breeze {
     pub(super) fn tools(&self, mode: Mode, cx: &mut Context<Self>) -> AnyElement {
         // Reading owns no tool of its own: the mode tab is its pointer, so the
-        // group stays empty until Annotate is selected. In Annotate, Select is
-        // the leftmost mode switch that permits existing annotations to be hit.
+        // group stays empty until Annotate is selected. In Annotate, the
+        // annotation commands precede the divider and Select, which remains the
+        // first tool that permits existing annotations to be hit.
         let tools = match mode {
             Mode::Read => Vec::new(),
             Mode::Annotate => annotation_tools().to_vec(),
         };
+        let p = self.p(cx);
+        let actions = (mode == Mode::Annotate).then(|| self.annotation_actions(cx));
         let select = (mode == Mode::Annotate).then(|| {
             annotation_tool_button(
                 ("tool", annotation_editing::SELECT_TOOL),
@@ -149,12 +152,34 @@ impl Breeze {
             // Equal zero-basis slots center the group and collapse to nothing
             // when a narrow window has to scroll the row instead.
             .child(div().flex_1().min_w_0())
-            .child(row().flex_shrink_0().gap_1().children(select).children(
-                tools.into_iter().enumerate().map(|(index, (icon, label))| {
-                    let key = ToolKey { index };
-                    let button =
-                        annotation_tool_button(("tool", index), icon, label, self.tool == index)
-                            .on_click(cx.listener(move |this, event, _, cx| {
+            .child(
+                row()
+                    .flex_shrink_0()
+                    .gap_1()
+                    .children(actions)
+                    .when(mode == Mode::Annotate, |row| {
+                        row.child(
+                            div()
+                                .id("annotation-actions-divider")
+                                .test_support()
+                                .w(px(1.))
+                                .h(px(20.))
+                                .mx_1()
+                                .flex_shrink_0()
+                                .bg(p.line),
+                        )
+                    })
+                    .children(select)
+                    .children(tools.into_iter().enumerate().map(|(index, (icon, label))| {
+                        let key = ToolKey { index };
+                        let button = annotation_tool_button(
+                            ("tool", index),
+                            icon,
+                            label,
+                            self.tool == index,
+                        )
+                        .on_click(cx.listener(
+                            move |this, event, _, cx| {
                                 if !this.annotation_navigation_allowed(cx) {
                                     return;
                                 }
@@ -164,52 +189,102 @@ impl Breeze {
                                     this.tool_settings.keyboard_open = Some(key);
                                 }
                                 cx.notify();
-                            }));
-                    let id = SharedString::from(format!(
-                        "tool-settings-{}-{}-{index}-{}",
-                        self.tool_settings.epoch,
-                        mode.index(),
+                            },
+                        ));
+                        let id = SharedString::from(format!(
+                            "tool-settings-{}-{}-{index}-{}",
+                            self.tool_settings.epoch,
+                            mode.index(),
+                            if self.tool_settings.keyboard_open == Some(key) {
+                                "keyboard"
+                            } else {
+                                "hover"
+                            }
+                        ));
+                        let view = cx.entity().downgrade();
+                        // Keyboard activation pins a native popover with Escape and focus restoration.
+                        // Mouse users keep a hover card that stays open while its controls are hovered.
                         if self.tool_settings.keyboard_open == Some(key) {
-                            "keyboard"
-                        } else {
-                            "hover"
+                            return Popover::new(id)
+                                .anchor(Anchor::TopLeft)
+                                .open(true)
+                                .trigger(button)
+                                .on_open_change(cx.listener(|this, open, _, cx| {
+                                    if !open {
+                                        this.tool_settings.dismiss();
+                                        cx.notify();
+                                    }
+                                }))
+                                .content(move |_, window, cx| {
+                                    view.update(cx, |this, cx| {
+                                        this.tool_settings_content(key, window, cx)
+                                    })
+                                    .unwrap_or_else(|_| div().into_any_element())
+                                })
+                                .into_any_element();
                         }
-                    ));
-                    let view = cx.entity().downgrade();
-                    // Keyboard activation pins a native popover with Escape and focus restoration.
-                    // Mouse users keep a hover card that stays open while its controls are hovered.
-                    if self.tool_settings.keyboard_open == Some(key) {
-                        return Popover::new(id)
+                        HoverCard::new(id)
                             .anchor(Anchor::TopLeft)
-                            .open(true)
+                            .open_delay(Duration::from_millis(350))
+                            .close_delay(Duration::from_millis(300))
                             .trigger(button)
-                            .on_open_change(cx.listener(|this, open, _, cx| {
-                                if !open {
-                                    this.tool_settings.dismiss();
-                                    cx.notify();
-                                }
-                            }))
                             .content(move |_, window, cx| {
                                 view.update(cx, |this, cx| {
                                     this.tool_settings_content(key, window, cx)
                                 })
                                 .unwrap_or_else(|_| div().into_any_element())
                             })
-                            .into_any_element();
-                    }
-                    HoverCard::new(id)
-                        .anchor(Anchor::TopLeft)
-                        .open_delay(Duration::from_millis(350))
-                        .close_delay(Duration::from_millis(300))
-                        .trigger(button)
-                        .content(move |_, window, cx| {
-                            view.update(cx, |this, cx| this.tool_settings_content(key, window, cx))
-                                .unwrap_or_else(|_| div().into_any_element())
-                        })
-                        .into_any_element()
-                }),
-            ))
+                            .into_any_element()
+                    })),
+            )
             .child(div().flex_1().min_w_0())
+            .into_any_element()
+    }
+
+    fn annotation_actions(&self, cx: &mut Context<Self>) -> AnyElement {
+        let data = &self.books[self.active].annotations;
+        row()
+            .id("annotation-actions")
+            .test_support()
+            .flex_shrink_0()
+            .gap_1()
+            .child(
+                self.command(
+                    "undo",
+                    IconName::Undo2,
+                    tr!("Undo annotation"),
+                    &UndoAnnotation,
+                    cx,
+                )
+                .disabled(!data.history.can_undo()),
+            )
+            .child(
+                self.command(
+                    "redo",
+                    IconName::Redo2,
+                    tr!("Redo annotation"),
+                    &RedoAnnotation,
+                    cx,
+                )
+                .disabled(!data.history.can_redo()),
+            )
+            .child(
+                self.command(
+                    "save-sidecar",
+                    IconName::Save,
+                    tr!("Save annotations"),
+                    &SaveAnnotations,
+                    cx,
+                )
+                .disabled(!data.ready || data.saving || data.error.is_some()),
+            )
+            .child(self.command(
+                "save-sidecar-as",
+                IconName::FolderOpen,
+                tr!("Save annotations as"),
+                &SaveAnnotationsAs,
+                cx,
+            ))
             .into_any_element()
     }
 

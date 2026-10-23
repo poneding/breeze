@@ -81,6 +81,10 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         assert!(annotations.origin.x - information.right() >= px(4.));
         assert!(window.find("document-panel").bounds().right() <= window.viewport_size().width);
         window.click("document-panel-annotations", cx);
+        view.update(cx, |view, cx| {
+            view.books[0].state.mode = Mode::Annotate;
+            cx.notify();
+        });
         window.render_frame(cx);
         assert_eq!(view.read(cx).document_panel.tab, 1);
         let filter_row = window.find("annotation-filter-row").bounds();

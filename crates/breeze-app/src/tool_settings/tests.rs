@@ -15,6 +15,12 @@ fn annotation_toolbar_puts_select_first_and_keeps_note_and_shape_tools(cx: &mut 
                 .try_find(("tool", annotation_editing::SELECT_TOOL))
                 .is_none()
         );
+        assert!(
+            window
+                .within("tools")
+                .try_find("annotation-actions")
+                .is_none()
+        );
 
         view.update(cx, |view, _| view.books[0].state.mode = Mode::Annotate);
         window.render_frame(cx);
@@ -31,13 +37,20 @@ fn annotation_toolbar_puts_select_first_and_keeps_note_and_shape_tools(cx: &mut 
         let select = window.find(("tool", annotation_editing::SELECT_TOOL));
         assert!(select.visible());
         assert!(select.bounds().left() < window.find(("tool", 0usize)).bounds().left());
+        let actions = window.find("annotation-actions").bounds();
         let divider = window.find("annotation-actions-divider").bounds();
-        let last_tool = window.find(("tool", 10usize)).bounds();
         let undo = window.find("undo").bounds();
+        let redo = window.find("redo").bounds();
+        let save = window.find("save-sidecar").bounds();
+        let save_as = window.find("save-sidecar-as").bounds();
         assert_eq!(divider.size.width, px(1.));
         assert_eq!(divider.size.height, px(20.));
-        assert!(last_tool.right() < divider.left());
-        assert!(divider.right() < undo.left());
+        assert!(actions.left() <= undo.left());
+        assert!(undo.right() < redo.left());
+        assert!(redo.right() < save.left());
+        assert!(save.right() < save_as.left());
+        assert!(save_as.right() < divider.left());
+        assert!(divider.right() < select.bounds().left());
         window.click(("tool", annotation_editing::SELECT_TOOL), cx);
         window.render_frame(cx);
         assert_eq!(view.read(cx).tool, annotation_editing::SELECT_TOOL);
@@ -68,9 +81,7 @@ fn annotation_tool_group_is_centered_in_its_row(cx: &mut TestAppContext) {
         view.update(cx, |view, _| view.books[0].state.mode = Mode::Annotate);
         window.render_frame(cx);
         let row = window.find("tools").bounds();
-        let first = window
-            .find(("tool", annotation_editing::SELECT_TOOL))
-            .bounds();
+        let first = window.find("annotation-actions").bounds();
         let last = window.find(("tool", 10usize)).bounds();
         let leading = first.left() - row.left();
         let trailing = row.right() - last.right();
