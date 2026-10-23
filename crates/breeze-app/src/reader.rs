@@ -141,6 +141,7 @@ impl Breeze {
                             ),
                     )
                     .child(self.tools(mode, cx))
+                    .child(self.annotation_actions(mode, cx))
                     .child(
                         self.command(
                             "reader-search",
@@ -230,6 +231,67 @@ impl Breeze {
                     }),
             )
     }
+
+    fn annotation_actions(&self, mode: Mode, cx: &mut Context<Self>) -> AnyElement {
+        let data = &self.books[self.active].annotations;
+        let p = self.p(cx);
+        row()
+            .id("annotation-actions")
+            .test_support()
+            .flex_shrink_0()
+            .gap_1()
+            .when(mode == Mode::Annotate, |actions| {
+                actions.child(
+                    div()
+                        .id("annotation-actions-divider")
+                        .test_support()
+                        .w(px(1.))
+                        .h(px(20.))
+                        .mx_1()
+                        .flex_shrink_0()
+                        .bg(p.line),
+                )
+            })
+            .child(
+                self.command(
+                    "undo",
+                    IconName::Undo2,
+                    tr!("Undo annotation"),
+                    &UndoAnnotation,
+                    cx,
+                )
+                .disabled(!data.history.can_undo()),
+            )
+            .child(
+                self.command(
+                    "redo",
+                    IconName::Redo2,
+                    tr!("Redo annotation"),
+                    &RedoAnnotation,
+                    cx,
+                )
+                .disabled(!data.history.can_redo()),
+            )
+            .child(
+                self.command(
+                    "save-sidecar",
+                    IconName::Save,
+                    tr!("Save annotations"),
+                    &SaveAnnotations,
+                    cx,
+                )
+                .disabled(!data.ready || data.saving || data.error.is_some()),
+            )
+            .child(self.command(
+                "save-sidecar-as",
+                IconName::FolderOpen,
+                tr!("Save annotations as"),
+                &SaveAnnotationsAs,
+                cx,
+            ))
+            .into_any_element()
+    }
+
     pub(super) fn navigation_outline(&self) -> Option<Arc<Vec<breeze_pdf::Outline>>> {
         self.preview
             .as_ref()

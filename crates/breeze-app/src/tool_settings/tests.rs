@@ -31,6 +31,13 @@ fn annotation_toolbar_puts_select_first_and_keeps_note_and_shape_tools(cx: &mut 
         let select = window.find(("tool", annotation_editing::SELECT_TOOL));
         assert!(select.visible());
         assert!(select.bounds().left() < window.find(("tool", 0usize)).bounds().left());
+        let divider = window.find("annotation-actions-divider").bounds();
+        let last_tool = window.find(("tool", 10usize)).bounds();
+        let undo = window.find("undo").bounds();
+        assert_eq!(divider.size.width, px(1.));
+        assert_eq!(divider.size.height, px(20.));
+        assert!(last_tool.right() < divider.left());
+        assert!(divider.right() < undo.left());
         window.click(("tool", annotation_editing::SELECT_TOOL), cx);
         window.render_frame(cx);
         assert_eq!(view.read(cx).tool, annotation_editing::SELECT_TOOL);

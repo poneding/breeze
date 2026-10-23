@@ -91,6 +91,27 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         assert!(kind_filter.right() < current_page_label.left());
         assert!(current_page_label.right() <= filter_row.right());
         assert!(filter_row.right() - current_page_label.right() <= px(1.));
+        assert!(window.within("reader-toolbar").find("undo").visible());
+        assert!(window.within("reader-toolbar").find("redo").visible());
+        assert!(
+            window
+                .within("reader-toolbar")
+                .find("save-sidecar")
+                .visible()
+        );
+        assert!(
+            window
+                .within("reader-toolbar")
+                .find("save-sidecar-as")
+                .visible()
+        );
+        assert!(window.within("document-panel").try_find("undo").is_none());
+        assert!(
+            window
+                .within("document-panel")
+                .try_find("save-sidecar")
+                .is_none()
+        );
         assert!(window.find(("annotation-item", 0usize)).visible());
         assert!(window.find(("annotation-item", 1usize)).visible());
         window.click("annotation-kind-filter", cx);
