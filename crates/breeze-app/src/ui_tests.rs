@@ -192,6 +192,49 @@ fn status_page_position_opens_an_integer_field(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+#[gpui_kit::test]
+fn status_controls_are_muted_until_their_own_hover(cx: &mut TestAppContext) {
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let p = view.read(cx).p(cx);
+        for key in [
+            "page-position",
+            "rotate-left",
+            "layout",
+            "zoom",
+            "zoom-out",
+            "zoom-percent",
+            "zoom-in",
+            "fullscreen",
+        ] {
+            assert_eq!(
+                view.read(cx).status_color(key, cx),
+                p.muted,
+                "{key} was not muted at rest"
+            );
+        }
+
+        window.hover("zoom", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).status_hovered, Some("zoom"));
+        assert_eq!(view.read(cx).status_color("zoom", cx), p.text);
+        assert_eq!(view.read(cx).status_color("layout", cx), p.muted);
+
+        window.hover("page-position", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).status_hovered, Some("page-position"));
+        assert_eq!(view.read(cx).status_color("page-position", cx), p.text);
+        assert_eq!(view.read(cx).status_color("zoom", cx), p.muted);
+
+        window.hover("status-scroll", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).status_hovered, None);
+    })
+    .unwrap();
+}
+
 #[gpui_kit::test]
 fn resizing_respects_bounds_and_keeps_width_on_collapse(cx: &mut TestAppContext) {
     let (handle, view) = app(cx);
@@ -3026,6 +3069,15 @@ fn reflow_chrome_keeps_the_reader_layout(cx: &mut TestAppContext) {
                 "{id} {control:?} still sits in the toolbar {toolbar:?}"
             );
         }
+
+        let p = view.read(cx).p(cx);
+        assert_eq!(view.read(cx).status_color("text-smaller", cx), p.muted);
+        assert_eq!(view.read(cx).status_color("text-larger", cx), p.muted);
+        window.hover("text-larger", cx);
+        window.render_frame(cx);
+        assert_eq!(view.read(cx).status_hovered, Some("text-larger"));
+        assert_eq!(view.read(cx).status_color("text-larger", cx), p.text);
+        assert_eq!(view.read(cx).status_color("text-smaller", cx), p.muted);
 
         // The document panel header labels itself with the information icon.
         window.click("document-panel-toggle", cx);

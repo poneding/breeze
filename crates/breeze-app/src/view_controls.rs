@@ -1,54 +1,102 @@
 //! Status controls share the same mutations as keyboard and pointer zoom commands.
 use crate::*;
 use gpui_kit::component::{
-    Side,
+    Icon, Side,
     menu::{DropdownMenu, PopupMenuItem},
 };
 
 impl Breeze {
+    pub(super) fn status_color(&self, key: &'static str, cx: &App) -> Hsla {
+        let p = self.p(cx);
+        if self.status_hovered == Some(key) {
+            p.text
+        } else {
+            p.muted
+        }
+    }
+
+    pub(super) fn status_control<E: IntoElement>(
+        &self,
+        key: &'static str,
+        element: E,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        div()
+            .id((key, 0usize))
+            .flex()
+            .flex_shrink_0()
+            .items_center()
+            .on_hover(cx.listener(move |this, hovered, _, cx| {
+                if *hovered {
+                    if this.status_hovered != Some(key) {
+                        this.status_hovered = Some(key);
+                        cx.notify();
+                    }
+                } else if this.status_hovered == Some(key) {
+                    this.status_hovered = None;
+                    cx.notify();
+                }
+            }))
+            .child(element)
+            .into_any_element()
+    }
+
     /// One quarter turn per click; the reader's rotation is view-only state.
-    pub(super) fn rotate_button(&self, clockwise: bool, cx: &mut Context<Self>) -> Button {
+    pub(super) fn rotate_button(
+        &self,
+        clockwise: bool,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let label = if clockwise {
             tr!("Rotate 90° right")
         } else {
             tr!("Rotate 90° left")
         };
-        Button::new(if clockwise {
+        let key = if clockwise {
             "rotate-right"
         } else {
             "rotate-left"
-        })
-        .ghost()
-        .small()
-        .icon(if clockwise {
-            IconName::RotateCw
-        } else {
-            IconName::RotateCcw
-        })
-        .accessibility_label(label)
-        .tooltip(label)
-        .on_click(cx.listener(move |this, _, _, cx| this.rotate(clockwise, cx)))
+        };
+        let color = self.status_color(key, cx);
+        let button = Button::new(key)
+            .ghost()
+            .small()
+            .icon(if clockwise {
+                IconName::RotateCw
+            } else {
+                IconName::RotateCcw
+            })
+            .accessibility_label(label)
+            .tooltip(label)
+            .on_click(cx.listener(move |this, _, _, cx| this.rotate(clockwise, cx)))
+            .text_color(color);
+        self.status_control(key, button, cx)
     }
 
-    pub(super) fn fullscreen_button(&self, cx: &mut Context<Self>) -> Button {
+    pub(super) fn fullscreen_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let immersive = self.full_screen;
-        self.command(
-            "fullscreen",
-            if immersive {
-                IconName::Shrink
-            } else {
-                IconName::Fullscreen
-            },
-            tr!("Fullscreen reading"),
-            &ToggleFullScreen,
-            cx,
-        )
+        let color = self.status_color("fullscreen", cx);
+        let button = self
+            .command(
+                "fullscreen",
+                if immersive {
+                    IconName::Shrink
+                } else {
+                    IconName::Fullscreen
+                },
+                tr!("Fullscreen reading"),
+                &ToggleFullScreen,
+                cx,
+            )
+            .text_color(color);
+        self.status_control("fullscreen", button, cx)
     }
 
     pub(super) fn layout_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let view = cx.entity();
         let selected = self.books[self.active].state.layout;
-        Button::new("layout")
+        let color = self.status_color("layout", cx);
+        let control = Button::new("layout")
             .ghost()
             .small()
             .icon(if selected.is_continuous() {
@@ -61,6 +109,7 @@ impl Breeze {
             .label(tr!(selected.label()))
             .accessibility_label(tf!("Reading layout: {}", tr!(selected.label())))
             .tooltip_with_action(tr!("Change reading layout"), &CycleLayout, Some("Breeze"))
+            .text_color(color)
             .dropdown_menu(move |menu, window, _| {
                 menu.check_side(Side::Right)
                     .item(
@@ -98,7 +147,8 @@ impl Breeze {
                                 );
                             })),
                     )
-            })
+            });
+        self.status_control("layout", control, cx)
     }
 
     pub(super) fn zoom_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -110,13 +160,15 @@ impl Breeze {
             Zoom::ActualSize => (IconName::Scan, tr!("Actual size").into()),
             Zoom::Percent(_) => (IconName::SlidersHorizontal, tr!("Custom zoom").into()),
         };
-        Button::new("zoom")
+        let color = self.status_color("zoom", cx);
+        let control = Button::new("zoom")
             .ghost()
             .small()
             .icon(icon)
             .label(label)
             .accessibility_label(tr!("Zoom options"))
             .tooltip(tr!("Choose zoom mode"))
+            .text_color(color)
             .dropdown_menu(move |menu, window, _| {
                 menu.check_side(Side::Right)
                     .item(
@@ -158,7 +210,8 @@ impl Breeze {
                                 this.set_zoom(Zoom::Percent(percent), cx);
                             })),
                     )
-            })
+            });
+        self.status_control("zoom", control, cx)
     }
 
     pub(super) fn zoom_percent_button(
@@ -169,13 +222,19 @@ impl Breeze {
         let selected = self.books[self.active].state.zoom;
         let current = self.display_zoom(window).round() as u16;
         let view = cx.entity();
-        Button::new("zoom-percent")
+        let color = self.status_color("zoom-percent", cx);
+        let control = Button::new("zoom-percent")
             .ghost()
             .small()
-            .label(format!("{current}%"))
-            .dropdown_caret(true)
             .accessibility_label(tr!("Zoom options"))
             .tooltip(tr!("Choose zoom mode"))
+            .child(
+                row()
+                    .gap_1()
+                    .child(format!("{current}%"))
+                    .child(Icon::new(IconName::ChevronDown).xsmall()),
+            )
+            .text_color(color)
             .dropdown_menu(move |menu, window, _| {
                 let mut menu = menu.check_side(Side::Right);
                 for percent in Zoom::PERCENT_OPTIONS {
@@ -188,7 +247,8 @@ impl Breeze {
                     );
                 }
                 menu
-            })
+            });
+        self.status_control("zoom-percent", control, cx)
     }
 
     pub(super) fn set_zoom(&mut self, zoom: Zoom, cx: &mut Context<Self>) {

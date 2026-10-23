@@ -1514,6 +1514,7 @@ impl Breeze {
                                 .test_support()
                                 .min_w(px(56.))
                                 .text_size(px(12.))
+                                .text_color(p.muted)
                                 // The visible text is a page count; name it for
                                 // assistive technology and for the tests that pin it.
                                 .aria_label(position.clone())
@@ -1563,8 +1564,9 @@ impl Breeze {
                         // Two-page reading is a view state: the button keeps the
                         // pressed look while the spread is on.
                         let spread = self.books[self.active].reflow.spread;
-                        bar.child(
-                            Button::new("reflow-spread")
+                        bar.child({
+                            let color = self.status_color("reflow-spread", cx);
+                            let button = Button::new("reflow-spread")
                                 .ghost()
                                 .small()
                                 .icon(IconName::Columns2)
@@ -1584,13 +1586,16 @@ impl Breeze {
                                 })
                                 .on_click(
                                     cx.listener(|this, _, _, cx| this.toggle_reflow_spread(cx)),
-                                ),
-                        )
+                                )
+                                .text_color(if spread { p.text } else { color });
+                            self.status_control("reflow-spread", button, cx)
+                        })
                     })
                     .when(!epub, |bar| {
                         let full_width = self.books[self.active].reflow.full_width;
-                        bar.child(
-                            Button::new("reflow-width")
+                        bar.child({
+                            let color = self.status_color("reflow-width", cx);
+                            let button = Button::new("reflow-width")
                                 .ghost()
                                 .small()
                                 .icon(if full_width {
@@ -1613,21 +1618,24 @@ impl Breeze {
                                     let full = &mut this.books[this.active].reflow.full_width;
                                     *full = !*full;
                                     cx.notify();
-                                })),
-                        )
+                                }))
+                                .text_color(if full_width { p.text } else { color });
+                            self.status_control("reflow-width", button, cx)
+                        })
                     })
-                    .child(
-                        Button::new("text-smaller")
+                    .child({
+                        let color = self.status_color("text-smaller", cx);
+                        let button = Button::new("text-smaller")
                             .ghost()
                             .small()
                             .icon(IconName::Minus)
                             .accessibility_label(tr!("Decrease text size"))
                             .tooltip(tr!("Decrease text size"))
                             .disabled(self.books[self.active].reflow.font_size <= 12)
-                            .on_click(
-                                cx.listener(|this, _, _, cx| this.resize_reflow_text(-1, cx)),
-                            ),
-                    )
+                            .on_click(cx.listener(|this, _, _, cx| this.resize_reflow_text(-1, cx)))
+                            .text_color(color);
+                        self.status_control("text-smaller", button, cx)
+                    })
                     .child(
                         div()
                             .id("text-size")
@@ -1635,18 +1643,22 @@ impl Breeze {
                             .min_w(px(48.))
                             .text_center()
                             .text_size(px(12.))
+                            .text_color(p.muted)
                             .child(format!("{} px", self.books[self.active].reflow.font_size)),
                     )
-                    .child(
-                        Button::new("text-larger")
+                    .child({
+                        let color = self.status_color("text-larger", cx);
+                        let button = Button::new("text-larger")
                             .ghost()
                             .small()
                             .icon(IconName::Plus)
                             .accessibility_label(tr!("Increase text size"))
                             .tooltip(tr!("Increase text size"))
                             .disabled(self.books[self.active].reflow.font_size >= 32)
-                            .on_click(cx.listener(|this, _, _, cx| this.resize_reflow_text(1, cx))),
-                    )
+                            .on_click(cx.listener(|this, _, _, cx| this.resize_reflow_text(1, cx)))
+                            .text_color(color);
+                        self.status_control("text-larger", button, cx)
+                    })
                     .child(self.fullscreen_button(cx)),
             );
         let center = if self.sidebar {

@@ -1,3 +1,27 @@
+## October 23 Status bar stays muted until hover
+
+PDF and reflowable status bars had mixed foreground colors: page and zoom
+values were muted, while buttons inherited Kit's normal foreground and became
+brighter only through Kit's hover surface. Every status value and control now
+starts in the palette's muted foreground. A small status-hover owner tracks the
+single control under the pointer and renders only that control with normal
+foreground, including icon buttons, text labels, and the zoom dropdown arrow.
+Selected view toggles retain normal contrast, and the active page input remains
+normally legible.
+
+The treatment covers the PDF page position, page-submit icon, rotation, layout,
+fit mode, zoom steps, percentage menu, and fullscreen controls. EPUB/Markdown
+position, text-size, width, spread, and fullscreen controls use the same path,
+with status text such as character count and text size remaining muted.
+
+`cargo fmt --all -- --check`, `cargo test --workspace --locked` (255 app tests
+plus every other workspace suite), and `cargo clippy --workspace --all-targets
+--locked -- -D warnings` pass. Component tests verify PDF and reflow controls
+are muted at rest and that hovering one control promotes only that control.
+Native macOS inspection with isolated `BREEZE_DATA_DIR` values confirmed the
+muted PDF and Markdown status bars and normal foreground plus tooltip on a
+hovered zoom control. Windows and Linux remain unverified.
+
 ## October 23 Annotation controls follow reader scrolling
 
 The selected-annotation controls could keep an old above/below decision after

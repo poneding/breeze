@@ -483,26 +483,33 @@ impl Breeze {
                 .small()
                 .w(px(68.))
                 .aria_label(tr!("Go to page"))
-                .suffix(
-                    Button::new("jump")
+                .suffix({
+                    let color = self.status_color("jump", cx);
+                    let button = Button::new("jump")
                         .ghost()
                         .small()
                         .tab_stop(false)
                         .icon(IconName::CornerDownLeft)
-                        .text_color(p.muted)
                         .accessibility_label(tr!("Go to entered page"))
                         .tooltip(tr!("Go to entered page"))
-                        .on_click(cx.listener(|this, _, window, cx| this.submit_page(window, cx))),
-                )
+                        .on_click(cx.listener(|this, _, window, cx| this.submit_page(window, cx)))
+                        .text_color(color);
+                    self.status_control("jump", button, cx)
+                })
                 .into_any_element()
         } else {
-            Button::new("page-position")
-                .ghost()
-                .small()
-                .label(format!("{page} / {total}"))
-                .tooltip_with_action(tr!("Go to page"), &FocusPage, Some("Breeze"))
-                .on_click(cx.listener(|this, _, window, cx| this.begin_page_edit(window, cx)))
-                .into_any_element()
+            {
+                let color = self.status_color("page-position", cx);
+                let button = Button::new("page-position")
+                    .ghost()
+                    .small()
+                    .label(format!("{page} / {total}"))
+                    .tooltip_with_action(tr!("Go to page"), &FocusPage, Some("Breeze"))
+                    .on_click(cx.listener(|this, _, window, cx| this.begin_page_edit(window, cx)))
+                    .text_color(color);
+                self.status_control("page-position", button, cx)
+            }
+            .into_any_element()
         };
         row()
             .id("status-scroll")
@@ -531,9 +538,21 @@ impl Breeze {
             .child(self.rotate_button(true, cx))
             .child(self.layout_button(cx))
             .child(self.zoom_button(cx))
-            .child(self.command("zoom-out", IconName::Minus, tr!("Zoom out"), &ZoomOut, cx))
+            .child({
+                let color = self.status_color("zoom-out", cx);
+                let button = self
+                    .command("zoom-out", IconName::Minus, tr!("Zoom out"), &ZoomOut, cx)
+                    .text_color(color);
+                self.status_control("zoom-out", button, cx)
+            })
             .child(self.zoom_percent_button(window, cx))
-            .child(self.command("zoom-in", IconName::Plus, tr!("Zoom in"), &ZoomIn, cx))
+            .child({
+                let color = self.status_color("zoom-in", cx);
+                let button = self
+                    .command("zoom-in", IconName::Plus, tr!("Zoom in"), &ZoomIn, cx)
+                    .text_color(color);
+                self.status_control("zoom-in", button, cx)
+            })
             .child(self.fullscreen_button(cx))
             .into_any_element()
     }
