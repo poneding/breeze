@@ -250,7 +250,6 @@ catalog! {
     "Text" => ("文字", "文字"),
     "Characters in the Markdown text" => ("Markdown 正文的字符数量", "Markdown 正文的字元數量"),
     "Reading progress" => ("阅读进度", "閱讀進度"),
-    "Read-only document" => ("只读文档", "唯讀文件"),
     "{} characters" => ("{} 个字符", "{} 個字元"),
     "{} matching sections" => ("{} 个匹配章节", "{} 個符合章節"),
     "Decrease text size" => ("减小字号", "縮小字號"),

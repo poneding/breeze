@@ -877,11 +877,6 @@ impl Breeze {
                     self.reflow.images.failures.to_string(),
                 ))
             })
-            .child(
-                div()
-                    .text_size(px(11.))
-                    .text_color(p.muted)
-                    .child(tr!("Read-only document")),
             );
         column()
             .id("document-panel")
