@@ -90,11 +90,11 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
         let filter_row = window.find("annotation-filter-row").bounds();
         let kind_filter = window.find("annotation-kind-filter").bounds();
         let current_page = window.find("annotations-current-page").bounds();
-        let current_page_label = window.find("annotations-current-page-label").bounds();
         assert!((kind_filter.center().y - current_page.center().y).abs() <= px(1.));
-        assert!(kind_filter.right() < current_page_label.left());
-        assert!(current_page_label.right() <= filter_row.right());
-        assert!(filter_row.right() - current_page_label.right() <= px(1.));
+        assert!(kind_filter.right() < current_page.left());
+        assert!(current_page.right() <= filter_row.right());
+        assert!(filter_row.right() - current_page.right() <= px(1.));
+        assert!(window.try_find("annotations-current-page-label").is_none());
         assert!(window.within("reader-toolbar").find("undo").visible());
         assert!(window.within("reader-toolbar").find("redo").visible());
         assert!(
@@ -300,6 +300,7 @@ fn annotations_footer_only_reports_unfinished_work(cx: &mut TestAppContext) {
         window.render_frame(cx);
         // A loaded and saved sidecar is not news, so the footer stays empty.
         assert!(window.try_find("annotation-status").is_none());
+        assert!(window.try_find("annotation-footer").is_none());
         view.update(cx, |view, cx| {
             view.books[0]
                 .annotations
@@ -311,6 +312,7 @@ fn annotations_footer_only_reports_unfinished_work(cx: &mut TestAppContext) {
         window.render_frame(cx);
         // An unsaved change is: it explains why saving is still pending.
         assert!(window.find("annotation-status").visible());
+        assert!(window.find("annotation-footer").visible());
         view.update(cx, |view, cx| {
             view.books[0].annotations.history.items = items.clone();
             view.books[0].annotations.ready = false;

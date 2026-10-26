@@ -3,6 +3,7 @@ use crate::*;
 use breeze_core::annotations::{Annotation, Kind};
 use gpui_kit::component::{
     Icon, Theme,
+    empty::{Empty, EmptyHeader, EmptyTitle},
     menu::{DropdownMenu, PopupMenuItem},
     switch::Switch,
     tooltip::Tooltip,
@@ -267,6 +268,29 @@ impl Breeze {
         );
         let count = indices.len();
         let total = data.history.items.len();
+        let footer_status = if data.saving {
+            Some(tr!("Saving…"))
+        } else if data.dirty() {
+            Some(tr!("Unsaved annotations"))
+        } else if data.ready {
+            // A loaded, saved sidecar needs no announcement.
+            None
+        } else {
+            Some(tr!("Annotations are not ready"))
+        };
+        let show_footer = footer_status.is_some()
+            || data.error.is_some()
+            || data.source_conflict
+            || data.dirty()
+            || data.recovery_path.is_some()
+            || data.recovery_notice.is_some();
+        let empty_message = if !data.ready && data.error.is_none() {
+            tr!("Loading annotations…")
+        } else if total == 0 {
+            tr!("No annotations")
+        } else {
+            tr!("No matching annotations")
+        };
         column()
             .flex_1()
             .h_full()
@@ -287,48 +311,33 @@ impl Breeze {
                         )
                         .child(div().flex_1())
                         .child(
-                            row()
-                                .flex_shrink_0()
-                                .gap_2()
-                                .child(
-                                    Switch::new("annotations-current-page")
-                                        .small()
-                                        .checked(self.document_panel.current_page_only)
-                                        .on_change(cx.listener(|this, value, _, cx| {
-                                            this.document_panel.current_page_only = *value;
-                                            this.document_panel
-                                                .scroll
-                                                .scroll_to_item(0, ScrollStrategy::Top);
-                                            cx.notify();
-                                        })),
-                                )
-                                .child(
-                                    div()
-                                        .id("annotations-current-page-label")
-                                        .test_support()
-                                        .text_size(px(11.))
-                                        .text_color(muted)
-                                        .child(tr!("Current page only")),
-                                ),
+                            Switch::new("annotations-current-page")
+                                .small()
+                                .checked(self.document_panel.current_page_only)
+                                .accessibility_label(tr!("Current page only"))
+                                .tooltip(tr!("Current page only"))
+                                .on_change(cx.listener(|this, value, _, cx| {
+                                    this.document_panel.current_page_only = *value;
+                                    this.document_panel
+                                        .scroll
+                                        .scroll_to_item(0, ScrollStrategy::Top);
+                                    cx.notify();
+                                })),
                         ),
                 ),
             )
             .child(if indices.is_empty() {
-                div()
+                column()
                     .id("annotations-empty")
                     .test_support()
                     .flex_1()
                     .min_h_0()
-                    .p_3()
-                    .text_size(px(12.))
-                    .text_color(muted)
-                    .child(if !data.ready && data.error.is_none() {
-                        tr!("Loading annotations…")
-                    } else if total == 0 {
-                        tr!("No annotations")
-                    } else {
-                        tr!("No matching annotations")
-                    })
+                    .p_2()
+                    .child(
+                        Empty::new().flex_1().text_color(muted).header(
+                            EmptyHeader::new().title(EmptyTitle::new().child(empty_message)),
+                        ),
+                    )
                     .into_any_element()
             } else {
                 uniform_list(
@@ -347,25 +356,17 @@ impl Breeze {
                 .min_h_0()
                 .into_any_element()
             })
-            .child(
-                column()
-                    .p_2()
-                    .gap_2()
-                    .flex_shrink_0()
-                    .border_t_1()
-                    .border_color(border)
-                    .when_some(
-                        if data.saving {
-                            Some(tr!("Saving…"))
-                        } else if data.dirty() {
-                            Some(tr!("Unsaved annotations"))
-                        } else if data.ready {
-                            // A loaded, saved sidecar needs no announcement.
-                            None
-                        } else {
-                            Some(tr!("Annotations are not ready"))
-                        },
-                        |content, status| {
+            .when(show_footer, |panel| {
+                panel.child(
+                    column()
+                        .id("annotation-footer")
+                        .test_support()
+                        .p_2()
+                        .gap_2()
+                        .flex_shrink_0()
+                        .border_t_1()
+                        .border_color(border)
+                        .when_some(footer_status, |content, status| {
                             content.child(
                                 div()
                                     .id("annotation-status")
@@ -374,18 +375,18 @@ impl Breeze {
                                     .text_color(muted)
                                     .child(status),
                             )
-                        },
-                    )
-                    .when_some(data.error.as_ref(), |content, error| {
-                        content.child(
-                            div()
-                                .text_size(px(11.))
-                                .text_color(rgb(0xdc2626))
-                                .child(error.clone()),
-                        )
-                    })
-                    .child(self.annotation_recovery_controls(cx)),
-            )
+                        })
+                        .when_some(data.error.as_ref(), |content, error| {
+                            content.child(
+                                div()
+                                    .text_size(px(11.))
+                                    .text_color(rgb(0xdc2626))
+                                    .child(error.clone()),
+                            )
+                        })
+                        .child(self.annotation_recovery_controls(cx)),
+                )
+            })
     }
 
     fn annotation_kind_filter(&self, cx: &mut Context<Self>) -> impl IntoElement {
