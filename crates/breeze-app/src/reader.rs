@@ -403,6 +403,8 @@ impl Breeze {
             Some(tf!("Annotation error: {}", error))
         } else if self.raster.page_failed(book.state.navigation.page()) {
             Some(tr!("Page rendering failed; some content could not be displayed").into())
+        } else if let Some(notice) = &self.export_notice {
+            Some(notice.clone())
         } else if !self.message.is_empty() {
             Some(self.message.clone())
         } else if book.annotations.dirty() {

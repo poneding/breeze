@@ -116,6 +116,12 @@ fn toolbar_sidebar_and_filtered_annotation_actions_work(cx: &mut TestAppContext)
                 .try_find("save-sidecar")
                 .is_none()
         );
+        assert!(
+            window
+                .within("document-panel")
+                .try_find("export-pdf")
+                .is_none()
+        );
         assert!(window.find(("annotation-item", 0usize)).visible());
         assert!(window.find(("annotation-item", 1usize)).visible());
         window.click("annotation-kind-filter", cx);

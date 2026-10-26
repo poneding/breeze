@@ -140,7 +140,7 @@ Click sidecar annotations in Reading or Annotate mode to select them; selection 
 
 Use the same eight fixed colors for category tags and annotation swatches: red `#EF4444`, orange `#F97316`, amber `#F59E0B`, green `#22C55E`, teal `#14B8A6`, blue `#3B82F6`, violet `#8B5CF6`, and pink `#EC4899`. These colors are independent of application appearance. Annotation opacity is exactly the displayed percentage; new text/area highlights default to 40% amber, while strokes and notes default to 100%. Existing stored annotations retain their color and opacity.
 
-Show annotation load/save/conflict state, undo/redo, Save, Save As, and export controls in the Annotations sidebar. Surface annotation errors in the reader status as well. Never imply successful file changes.
+Show annotation load/save/conflict state and recovery controls in the Annotations sidebar. Undo, redo, and Save live in the reader toolbar. Export remains available through its keyboard shortcut and reports through the reader status. Never imply successful file changes.
 
 ## Tooltips, accessibility, and shortcuts
 

@@ -136,12 +136,4 @@ impl Breeze {
         .detach();
         cx.notify();
     }
-    pub(super) fn export_controls(&self, cx: &mut Context<Self>) -> Div {
-        let p = self.p(cx);
-        column().gap_2()
-            .child(self.command("export-pdf",IconName::Download,tr!("Export annotated PDF (restricted)"),&ExportPdf,cx).label(if self.export_busy{tr!("Exporting…")}else{tr!("Export PDF · Restricted")}).disabled(!self.can_export_pdf()))
-            .child(div().text_size(px(11.)).text_color(p.muted).child(tr!("Creates a new file. Notes export as icons with full text in popups. Forms, signatures and encrypted documents are unsupported.")))
-            .when_some(self.export_notice.clone(),|d,message|d.child(div().text_size(px(12.)).child(message)))
-            .when_some(self.last_export.clone(),|d,path|d.child(Button::new("reveal-export").ghost().small().icon(IconName::FolderOpen).label(tr!("Show last export")).on_click(move|_,_,cx|cx.reveal_path(&path))))
-    }
 }

@@ -384,8 +384,7 @@ impl Breeze {
                                 .child(error.clone()),
                         )
                     })
-                    .child(self.annotation_recovery_controls(cx))
-                    .child(self.export_controls(cx)),
+                    .child(self.annotation_recovery_controls(cx)),
             )
     }
 
