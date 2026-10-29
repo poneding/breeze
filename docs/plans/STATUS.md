@@ -695,6 +695,44 @@ session has no Accessibility or Screen Recording authorization, so synthetic
 input and window capture were refused. `CGWindowListCopyWindowInfo` confirmed the
 reader window opened at 1340×901. Native Windows and Linux acceptance, including
 the caption interaction and the taskbar/dock icon, remains pending.
+## October 19 Annotation history moves into the reader toolbar
+
+The annotation sidebar no longer carries its own Undo, Redo, Save, and Save As
+row. Those commands now sit in the reader toolbar's left half, immediately after
+the Read/Annotate tabs and ahead of the centered tool group, so editing does not
+depend on the document panel being open and Save stays reachable in both modes.
+In Annotate mode a 1 px divider separates the history group from the annotation
+tool icons; Read mode omits the separator because no tools follow it. Command ids
+are unchanged (`undo`, `redo`, `save-sidecar`, `save-sidecar-as`). The sidebar
+footer keeps the unsaved/not-ready status, annotation errors, recovery actions,
+and PDF export.
+
+Validation: formatting and all-target Clippy with warnings denied pass. The
+component test asserts the group stays inside `reader-toolbar` with all four
+controls visible while the document panel is closed. A native capture of the
+isolated reader confirmed the left-aligned Undo/Redo/Save/Save As group after
+the mode tabs; this session's Windows window renders at 2x into a smaller
+window whose right side is clipped, so the Annotate-mode divider was not
+captured natively.
+
+## October 19 The annotation list keeps one hover surface
+
+Deleting an annotation is now a borderless trailing action inside the row button
+instead of a sibling outside it, so the row's hover fill covers the delete icon.
+That button paints no background of its own: only its trash icon changes, from
+the secondary foreground to the destructive color while the button itself is
+hovered. Disabled rows keep a dimmed icon and no hover change, and the delete
+click stops propagation so deleting never also navigates to the annotation's
+page.
+
+Validation: formatting and all-target Clippy pass. Component checks assert the
+row button's bounds contain the delete action and that deleting leaves the
+navigation page and generation unchanged. The workspace suite reaches 221
+passing app tests; three EPUB/reflow tests fail identically on the unmodified
+checkout in this Windows session (the recorded Windows EPUB layout hang), and
+two PDF timing probes pass when rerun serially. The row's hover and icon colors
+were not captured natively; this session clips the reader window's right side,
+where the annotation panel sits.
 
 ## October 17 Windows lays out Chinese prose an order of magnitude slower
 
