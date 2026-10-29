@@ -1161,7 +1161,7 @@ fn categories_are_user_owned_and_layout_roundtrips(cx: &mut TestAppContext) {
             assert_eq!(view.categories.len(), 1);
             assert_eq!(view.categories[0].id, 2);
             assert_eq!(view.books[0].categories, vec![2]);
-            assert_eq!(view.snapshot().version, 10);
+            assert_eq!(view.snapshot().version, 11);
         });
     })
     .unwrap();
@@ -2993,7 +2993,7 @@ fn markdown_reader_scrolls_and_records_its_position(cx: &mut TestAppContext) {
         window.focus(&view.read(cx).focus.clone(), cx);
         window.press("secondary-=", cx);
         window.render_frame(cx);
-        assert_eq!(view.read(cx).books[0].reflow.font_size, 19);
+        assert_eq!(view.read(cx).books[0].reflow.font_size, 16);
     })
     .unwrap();
 }
@@ -3422,10 +3422,11 @@ fn markdown_reading_previews_the_unsaved_draft(cx: &mut TestAppContext) {
     .unwrap();
 }
 
-/// TextView supplies all Markdown rendering, while Breeze adds the content
-/// inset and hides Kit's scrollbar overlay without intercepting scroll events.
+/// TextView supplies all Markdown rendering. Breeze insets the text inside the
+/// full-size preview viewport and paints the draggable scrollbar on the content
+/// panel's outer right border.
 #[gpui_kit::test]
-fn markdown_text_view_padding_scrollbar_and_toc_navigation(cx: &mut TestAppContext) {
+fn markdown_text_view_panel_scrollbar_and_toc_navigation(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("toc.md");
     let mut source = String::from("[TOC]\n\n");
@@ -3450,25 +3451,64 @@ fn markdown_text_view_padding_scrollbar_and_toc_navigation(cx: &mut TestAppConte
         window.render_frame(cx);
         let document = window.find("markdown-document").bounds();
         let viewport = window.find("markdown-text-viewport").bounds();
-        assert!(
-            viewport.top() >= document.top() + px(12.),
-            "{viewport:?} {document:?}"
+        let column = window.find("markdown-column").bounds();
+        let panel = window.find("reflow-viewport").bounds();
+        assert_eq!(
+            document, viewport,
+            "outer padding must not shrink the scroll viewport"
         );
-        assert!(
-            viewport.left() >= document.left() + px(12.),
-            "{viewport:?} {document:?}"
+        assert_eq!(
+            column.right(),
+            panel.right(),
+            "the Markdown layout must fill the content panel"
         );
-        assert!(
-            viewport.right() <= document.right() - px(12.),
-            "{viewport:?} {document:?}"
-        );
-        assert!(
-            viewport.bottom() <= document.bottom() - px(12.),
-            "{viewport:?} {document:?}"
-        );
-        assert!(window.find("markdown-scrollbar-cover").visible());
 
         let markdown = view.read(cx).reflow.markdown.clone().unwrap();
+        let text_viewport = markdown.state.read(cx).list_state().viewport_bounds();
+        let cover_element = window.find("markdown-scrollbar-cover");
+        assert!(cover_element.visible());
+        let cover = cover_element.bounds();
+        assert!(
+            text_viewport.left() >= viewport.left() + px(16.),
+            "the text {text_viewport:?} must stay inside the left content inset {viewport:?}"
+        );
+        assert!(
+            text_viewport.right() <= viewport.right() - px(16.),
+            "the text {text_viewport:?} must stay clear of the right scrollbar {viewport:?}"
+        );
+        assert_eq!(
+            text_viewport.size.height, viewport.size.height,
+            "content insets must not shrink the scrollable reading viewport"
+        );
+        assert_eq!(
+            cover.right(),
+            viewport.right(),
+            "the cover must paint over the private track at the viewport edge"
+        );
+        assert_eq!(cover.size.width, px(16.));
+
+        let list = markdown.state.read(cx).list_state().clone();
+        let content_blocks = markdown.metadata.block_starts.len();
+        assert_eq!(
+            list.item_count(),
+            content_blocks + 2,
+            "the content has one scrollable inset block at each end"
+        );
+        let top_inset = list.bounds_for_item(0).expect("the top inset is laid out");
+        let first = list
+            .bounds_for_item(1)
+            .expect("the first content block is laid out");
+        assert!(
+            top_inset.size.height >= px(48.) && first.top() >= viewport.top() + px(48.),
+            "the first content block {first:?} must start below the top inset {top_inset:?}"
+        );
+
+        let scrollbar_element = window.find("markdown-scrollbar");
+        assert!(scrollbar_element.visible());
+        let scrollbar = scrollbar_element.bounds();
+        assert_eq!(scrollbar.right(), panel.right());
+        assert_eq!(scrollbar.size.width, px(16.));
+
         let before = markdown
             .state
             .read(cx)
@@ -3488,6 +3528,21 @@ fn markdown_text_view_padding_scrollbar_and_toc_navigation(cx: &mut TestAppConte
             "TOC did not reveal its target: {before:?} -> {after:?}"
         );
         assert!(view.read(cx).books[0].reflow.markdown_offset > 0);
+
+        let mut end = list.scroll_px_offset_for_scrollbar();
+        end.y = -list.max_offset_for_scrollbar().y;
+        list.set_offset_from_scrollbar(end);
+        window.render_frame(cx);
+        let last = list
+            .bounds_for_item(content_blocks)
+            .expect("the last content block is laid out");
+        let bottom_inset = list
+            .bounds_for_item(content_blocks + 1)
+            .expect("the bottom inset is laid out");
+        assert!(
+            last.bottom() <= viewport.bottom() - px(48.) && bottom_inset.size.height >= px(48.),
+            "the last content block {last:?} must stay above the bottom inset {bottom_inset:?}"
+        );
     })
     .unwrap();
 }
@@ -3626,6 +3681,63 @@ fn markdown_text_view_plugins_render_extended_constructs(cx: &mut TestAppContext
     .unwrap();
 }
 
+/// Wide Mermaid sequence diagrams must be fitted to the reading column before
+/// rasterization. The fitted SVG scales its strokes by the same factor, so a
+/// rectangle does not collapse into isolated top-left or bottom-right edges.
+#[gpui_kit::test]
+fn markdown_wide_sequence_fits_the_reading_measure(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("wide-sequence.md");
+    let mut source = String::from("# Wide sequence\n\n```mermaid\nsequenceDiagram\n");
+    for index in 1..=10 {
+        source.push_str(&format!(
+            "    participant P{index} as Participant {index}\n"
+        ));
+    }
+    for index in 1..=9 {
+        source.push_str(&format!("    P{index}->>P{}: Message {index}\n", index + 1));
+    }
+    source.push_str("```\n");
+    std::fs::write(&path, source).unwrap();
+
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "wide-sequence.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    for _ in 0..3 {
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| window.render_frame(cx))
+            .unwrap();
+    }
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        let viewport = window.find("markdown-text-viewport").bounds();
+        let diagram = window.find("markdown-mermaid").bounds();
+        let image = window.find("markdown-mermaid-image").bounds();
+        assert!(
+            diagram.left() >= viewport.left() && diagram.right() <= viewport.right(),
+            "the diagram block {diagram:?} left the reading viewport {viewport:?}"
+        );
+        assert!(
+            image.left() >= viewport.left() && image.right() <= viewport.right(),
+            "the fitted diagram image {image:?} overflowed the reading viewport {viewport:?}"
+        );
+        assert!(
+            image.size.width <= viewport.size.width,
+            "the diagram image is {} wide inside a {} viewport",
+            image.size.width,
+            viewport.size.width
+        );
+    })
+    .unwrap();
+}
+
 /// A Markdown file above the reading parse ceiling still edits: the reader
 /// names the limit while the source editor opens with every byte intact.
 #[gpui_kit::test]
@@ -3704,6 +3816,8 @@ fn markdown_shows_images_named_with_spaces(cx: &mut TestAppContext) {
     )
     .unwrap();
     let (handle, view) = app(cx);
+    let mut image_before = None;
+    let mut state_before = None;
     cx.update_window(handle, |_, _, cx| {
         view.update(cx, |view, cx| {
             view.books[0].source = Source::File(notes.clone());
@@ -3731,6 +3845,70 @@ fn markdown_shows_images_named_with_spaces(cx: &mut TestAppContext) {
             view.read(cx).message.is_empty(),
             "the reader reported {}",
             view.read(cx).message
+        );
+        image_before = Some(
+            view.read(cx)
+                .reflow
+                .images
+                .cached("my%20shot.jpg")
+                .expect("the image decoded before the edit"),
+        );
+        state_before = Some(
+            view.read(cx)
+                .reflow
+                .markdown
+                .as_ref()
+                .expect("the Markdown preview loaded")
+                .state
+                .entity_id(),
+        );
+
+        window.within("markdown-modes").click(1usize, cx);
+        window.render_frame(cx);
+        window.input("Draft text\n\n", cx);
+        window.within("markdown-modes").click(0usize, cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+
+    for _ in 0..4 {
+        cx.run_until_parked();
+        cx.update_window(handle, |_, window, cx| window.render_frame(cx))
+            .unwrap();
+    }
+    let image_before = image_before.expect("the image decoded before the edit");
+    let state_before = state_before.expect("the reading preview loaded");
+    cx.update_window(handle, |_, window, cx| {
+        let document = view
+            .read(cx)
+            .reflow
+            .markdown
+            .clone()
+            .expect("the edited draft preview did not reload");
+        assert_ne!(
+            document.state.entity_id(),
+            state_before,
+            "edited source must produce a fresh preview"
+        );
+        assert!(
+            document
+                .state
+                .read(cx)
+                .rendered_text()
+                .as_str()
+                .contains("Draft text"),
+            "the edited preview did not contain the draft"
+        );
+        window.render_frame(cx);
+        let image_after = view
+            .read(cx)
+            .reflow
+            .images
+            .cached("my%20shot.jpg")
+            .expect("the decoded image was kept across the preview rebuild");
+        assert!(
+            std::sync::Arc::ptr_eq(&image_before, &image_after),
+            "editing the draft decoded the same local image again"
         );
     })
     .unwrap();
@@ -4294,6 +4472,14 @@ fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppCon
         assert!(!view.read(cx).books[0].markdown_editing);
         assert!(window.try_find("markdown-measure").is_some());
         assert!(window.try_find("markdown-editor").is_none());
+        let reading_state = view
+            .read(cx)
+            .reflow
+            .markdown
+            .as_ref()
+            .expect("the reading preview loaded")
+            .state
+            .entity_id();
 
         // Entering edit mode keeps the reader chrome and mounts the surface in
         // the same content region.
@@ -4313,11 +4499,66 @@ fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppCon
             "the status bar reports a reading position for a draft"
         );
         assert!(window.try_find("markdown-editor").is_some());
-        assert!(window.try_find("markdown-measure").is_some());
+        assert!(window.try_find("markdown-measure").is_none());
+        let panel = window.find("reflow-viewport").bounds();
+        let editor = window.find("markdown-editor").bounds();
+        assert_eq!(
+            editor.right(),
+            panel.right(),
+            "the editor scrollbar must stay on the content panel's right border"
+        );
+        let scrollbar = window.find("markdown-editor-scrollbar").bounds();
+        assert_eq!(
+            scrollbar.right(),
+            panel.right(),
+            "the source scrollbar must follow the outer content border in standard width"
+        );
+        assert_eq!(scrollbar.size.width, px(16.));
+        assert!(!view.read(cx).books[0].reflow.full_width);
         let session = view.read(cx).books[0]
             .markdown_edit
             .clone()
             .expect("entering edit mode creates the session");
+        window.render_frame(cx);
+        let standard = session
+            .read(cx)
+            .text_width(cx)
+            .expect("the source editor has laid out");
+        assert!(
+            standard <= 760.,
+            "the default source measure is {standard}px wide"
+        );
+
+        window.click("reflow-width", cx);
+        window.render_frame(cx);
+        window.render_frame(cx);
+        assert!(view.read(cx).books[0].reflow.full_width);
+        let full = session
+            .read(cx)
+            .text_width(cx)
+            .expect("the full-width editor has laid out");
+        assert!(
+            full > standard,
+            "full-width editing {} must be wider than the standard measure {}",
+            full,
+            standard
+        );
+        let editor = window.find("markdown-editor").bounds();
+        assert_eq!(
+            editor.right(),
+            panel.right(),
+            "the full-width editor scrollbar must stay on the content panel's right border"
+        );
+        assert_eq!(
+            window.find("markdown-editor-scrollbar").bounds().right(),
+            panel.right(),
+            "the source scrollbar must follow the outer content border in full width"
+        );
+
+        window.click("reflow-width", cx);
+        window.render_frame(cx);
+        window.render_frame(cx);
+        assert!(!view.read(cx).books[0].reflow.full_width);
         assert!(!session.read(cx).dirty(cx));
 
         // The status bar counts the text the draft shows rather than the file
@@ -4348,6 +4589,107 @@ fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppCon
         assert!(
             view.read(cx).books[0].markdown_edit.is_some(),
             "the draft session must survive leaving edit mode"
+        );
+        assert_eq!(
+            view.read(cx)
+                .reflow
+                .markdown
+                .as_ref()
+                .expect("the reading preview is still mounted")
+                .state
+                .entity_id(),
+            reading_state,
+            "an unchanged draft must reuse the parsed TextView and image cache"
+        );
+    })
+    .unwrap();
+}
+
+/// Switching between Markdown reading and editing keeps the visible source
+/// position instead of returning either surface to the top.
+#[gpui_kit::test]
+fn markdown_modes_preserve_the_current_source_position(cx: &mut TestAppContext) {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("position.md");
+    let mut source = String::new();
+    for index in 0..140 {
+        source.push_str(&format!("## Section {index}\n\nParagraph {index:03}.\n\n"));
+    }
+    std::fs::write(&path, &source).unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "position.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    let mut reading_offset = 0;
+    let mut editor_offset = 0;
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.render_frame(cx);
+        for _ in 0..28 {
+            window.scroll("markdown-document", ScrollDelta::Lines(point(0., -8.)), cx);
+        }
+        window.render_frame(cx);
+        reading_offset = view.read(cx).books[0].reflow.markdown_offset;
+        assert!(reading_offset > 0, "the reading fixture did not scroll");
+
+        window.within("markdown-modes").click(1usize, cx);
+        for _ in 0..3 {
+            window.render_frame(cx);
+        }
+        let session = view.read(cx).books[0]
+            .markdown_edit
+            .clone()
+            .expect("edit mode creates the source session");
+        let opened_at = session.read(cx).source_offset_at_viewport(cx);
+        assert!(
+            opened_at > 0 && opened_at.abs_diff(reading_offset) <= 512,
+            "editing opened at {opened_at}, not the reading position {reading_offset}"
+        );
+
+        for _ in 0..8 {
+            window.scroll("markdown-editor", ScrollDelta::Lines(point(0., -8.)), cx);
+        }
+        window.render_frame(cx);
+        let scrolled = session.read(cx).source_offset_at_viewport(cx);
+        assert!(
+            scrolled > opened_at,
+            "scrolling the source editor kept the old viewport offset {scrolled}"
+        );
+
+        editor_offset = scrolled;
+
+        window.within("markdown-modes").click(0usize, cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        for _ in 0..3 {
+            window.render_frame(cx);
+        }
+        let returned = view.read(cx).books[0].reflow.markdown_offset;
+        assert!(
+            returned.abs_diff(editor_offset) <= 512,
+            "reading returned to {returned}, not the editor position {editor_offset}"
+        );
+
+        window.within("markdown-modes").click(1usize, cx);
+        for _ in 0..3 {
+            window.render_frame(cx);
+        }
+        let session = view.read(cx).books[0]
+            .markdown_edit
+            .clone()
+            .expect("the source session survives the round trip");
+        let reopened_at = session.read(cx).source_offset_at_viewport(cx);
+        assert!(
+            reopened_at > reading_offset && reopened_at.abs_diff(editor_offset) <= 512,
+            "editing reopened at {reopened_at}, not the reading position {editor_offset}"
         );
     })
     .unwrap();

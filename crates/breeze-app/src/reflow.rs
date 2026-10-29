@@ -2,9 +2,19 @@
 use crate::*;
 
 /// Comfortable measure for Markdown text in logical pixels.
-const MARKDOWN_MAX_WIDTH: f32 = 760.;
+pub(super) const MARKDOWN_MAX_WIDTH: f32 = 760.;
+/// Scrollable blank content above the first and below the last Markdown block.
+pub(super) const MARKDOWN_VERTICAL_PADDING: f32 = 48.;
+/// Kit's overlay scrollbar track and the matching content inset.
+pub(super) const MARKDOWN_HORIZONTAL_PADDING: f32 = 16.;
+const MARKDOWN_TOP_INSET_MARKER: &str = "<!--breeze:content-top-->";
+const MARKDOWN_BOTTOM_INSET_MARKER: &str = "<!--breeze:content-bottom-->";
+/// Wide Mermaid diagrams are fitted to the reading measure. Rewriting their
+/// strokes with the same scale keeps one-point SVG outlines from collapsing
+/// below a device pixel and appearing only on isolated edges.
+const MERMAID_READING_WIDTH: f32 = MARKDOWN_MAX_WIDTH - 2. * MARKDOWN_HORIZONTAL_PADDING;
 use breeze_reflow::{EpubWorker, epub, markdown};
-use gpui_kit::base::{TextView, TextViewState};
+use gpui_kit::base::{Scrollbar, TextView, TextViewState};
 use gpui_kit::component::{
     ElementExt, h_resizable,
     menu::{DropdownMenu, PopupMenuItem},
@@ -22,11 +32,105 @@ use std::collections::{HashMap, HashSet};
 #[derive(Clone)]
 pub(super) struct MarkdownView {
     pub source: Arc<str>,
+    /// Source passed to Kit, including invisible content-inset blocks.
+    render_source: Arc<str>,
+    render_map: MarkdownRenderMap,
     pub metadata: Arc<markdown::Metadata>,
     pub state: Entity<TextViewState>,
     pub extensions: MarkdownExtensions,
     /// A source offset the state must reveal once Kit's parser commits it.
     pending_reveal: Option<usize>,
+}
+
+/// Maps original Markdown offsets to the source handed to Kit after an inset
+/// marker is inserted. The marker follows leading front matter so the front
+/// matter remains at byte zero, where Markdown parsers recognize it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct MarkdownRenderMap {
+    inserted_at: usize,
+    inserted_bytes: usize,
+}
+
+impl MarkdownRenderMap {
+    fn source_offset(&self, offset: usize) -> usize {
+        if offset >= self.inserted_at {
+            offset.saturating_add(self.inserted_bytes)
+        } else {
+            offset
+        }
+    }
+
+    fn source_range(&self, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
+        self.source_offset(range.start)..self.source_offset(range.end)
+    }
+}
+
+/// Adds scrollable breathing room without shrinking the reader viewport.
+#[derive(Clone)]
+struct ContentInsetPlugin;
+
+impl MarkdownPlugin for ContentInsetPlugin {
+    fn is_block(&self) -> bool {
+        true
+    }
+
+    fn name(&self) -> &str {
+        "breeze-content-inset"
+    }
+
+    fn parse(&self, node: &mdast::Node, cx: &MarkdownParseContext<'_>) -> Option<MarkdownNode> {
+        let mdast::Node::Html(html) = node else {
+            return None;
+        };
+        let position = node.position()?;
+        let height = match html.value.trim() {
+            MARKDOWN_TOP_INSET_MARKER => MARKDOWN_VERTICAL_PADDING,
+            MARKDOWN_BOTTOM_INSET_MARKER if position.end.offset == cx.source().len() => {
+                MARKDOWN_VERTICAL_PADDING
+            }
+            _ => return None,
+        };
+        Some(MarkdownNode::new(self.name(), height))
+    }
+
+    fn render(&self, node: &MarkdownNode, _: &mut Window, _: &mut App) -> impl IntoElement {
+        let height = node
+            .data::<f32>()
+            .copied()
+            .unwrap_or(MARKDOWN_VERTICAL_PADDING);
+        div().w_full().h(px(height))
+    }
+}
+
+fn markdown_render_source(
+    source: &str,
+    frontmatter_end: Option<usize>,
+) -> (String, MarkdownRenderMap) {
+    let inserted_at = frontmatter_end.unwrap_or(0).min(source.len());
+    let insertion = if inserted_at == 0 {
+        format!("{MARKDOWN_TOP_INSET_MARKER}\n\n")
+    } else {
+        format!("\n{MARKDOWN_TOP_INSET_MARKER}\n\n")
+    };
+    let mut rendered = String::with_capacity(
+        source.len() + insertion.len() + MARKDOWN_BOTTOM_INSET_MARKER.len() + 2,
+    );
+    rendered.push_str(&source[..inserted_at]);
+    rendered.push_str(&insertion);
+    rendered.push_str(&source[inserted_at..]);
+    rendered.push_str("\n\n");
+    rendered.push_str(MARKDOWN_BOTTOM_INSET_MARKER);
+    (
+        rendered,
+        MarkdownRenderMap {
+            inserted_at,
+            inserted_bytes: insertion.len(),
+        },
+    )
+}
+
+fn rendered_source_block(item: usize, block_count: usize) -> usize {
+    item.saturating_sub(1).min(block_count.saturating_sub(1))
 }
 
 #[derive(Clone, Debug)]
@@ -91,7 +195,7 @@ impl ReflowTextSelection {
 /// A rasterized formula or diagram: the image plus its logical size.
 type RenderedImage = Option<(Arc<RenderImage>, f32, f32)>;
 type MathCache = HashMap<(String, u8, [u8; 3], u32), RenderedImage>;
-type MermaidCache = HashMap<(String, bool, u32), RenderedImage>;
+type MermaidCache = HashMap<(String, bool, u32, u32), RenderedImage>;
 
 pub(super) struct ReflowView {
     pub source: Option<Source>,
@@ -180,6 +284,17 @@ impl ReflowView {
     }
 
     pub fn clear(&mut self, cx: &mut App) {
+        self.clear_inner(cx, true);
+    }
+
+    /// Replace the Markdown view while retaining decoded image resources for
+    /// the same document. An edited draft must be reparsed, but its remote
+    /// badges and local pictures do not need to be fetched and decoded again.
+    fn clear_preserving_images(&mut self, cx: &mut App) {
+        self.clear_inner(cx, false);
+    }
+
+    fn clear_inner(&mut self, cx: &mut App, clear_images: bool) {
         self.epoch += 1;
         self.task = None;
         self.request = None;
@@ -202,7 +317,11 @@ impl ReflowView {
         self.scroll_accum = 0.;
         self.pending_turn = 0;
         self.worker = None;
-        self.images.clear(cx);
+        if clear_images {
+            self.images.clear(cx);
+        } else {
+            self.images.forget_failures();
+        }
         self.math_cache.clear();
         self.inline_math_cache.clear();
         self.mermaid_cache.clear();
@@ -454,6 +573,7 @@ impl Breeze {
         MarkdownExtensions::default()
             .frontmatter()
             .plugin(FrontmatterPlugin::new())
+            .plugin(ContentInsetPlugin)
             .plugin(ImagePlugin {
                 view: view.clone(),
                 definitions: Arc::new(metadata.image_definitions.clone()),
@@ -485,7 +605,7 @@ impl Breeze {
             return;
         };
         let rendered = markdown.state.read(cx).rendered_text();
-        if rendered.source() != markdown.source.as_ref() {
+        if rendered.source() != markdown.render_source.as_ref() {
             return;
         }
         let block = markdown.metadata.block_at_offset(offset);
@@ -496,7 +616,10 @@ impl Breeze {
             .find(|heading| heading.source.contains(&offset))
             .map(|heading| heading.source.clone())
             .or_else(|| markdown.metadata.block_ranges.get(block).cloned());
-        let Some(range) = source_range.and_then(|range| rendered.range_for_source(range)) else {
+        let Some(range) = source_range
+            .map(|range| markdown.render_map.source_range(range))
+            .and_then(|range| rendered.range_for_source(range))
+        else {
             return;
         };
         let _ = markdown
@@ -669,7 +792,20 @@ impl Breeze {
     ) -> AnyElement {
         let theme = Theme::global(cx).clone();
         let scale = window.scale_factor().max(1.0);
-        let key = (source.to_owned(), theme.is_dark(), scale.to_bits());
+        let (available_width, _) = self.reading_viewport_size(window);
+        let content_width = available_width - 2. * MARKDOWN_HORIZONTAL_PADDING;
+        let display_width = if self.books[self.active].reflow.full_width {
+            content_width.max(320.)
+        } else {
+            content_width.clamp(320., MERMAID_READING_WIDTH)
+        };
+        let width_bucket = ((display_width / 32.).floor() as u32).max(10);
+        let key = (
+            source.to_owned(),
+            theme.is_dark(),
+            scale.to_bits(),
+            width_bucket,
+        );
         let rendered = self
             .reflow
             .mermaid_cache
@@ -677,6 +813,7 @@ impl Breeze {
             .or_insert_with(|| {
                 let svg = mermaid_rs_renderer::render(source).ok()?;
                 let svg = strip_mermaid_background(&svg);
+                let svg = fit_svg_to_width(&svg, width_bucket as f32 * 32.);
                 let image = crate::reflow_images::svg_image(svg.as_bytes(), scale).ok()?;
                 let size = image.size(0);
                 Some((
@@ -694,7 +831,15 @@ impl Breeze {
                 .flex()
                 .justify_center()
                 .py_2()
-                .child(img(image).w(px(width)).h(px(height)))
+                .child(
+                    img(image)
+                        .object_fit(ObjectFit::Contain)
+                        .id("markdown-mermaid-image")
+                        .test_support()
+                        .max_w(relative(1.))
+                        .w(px(width))
+                        .h(px(height)),
+                )
                 .into_any_element(),
             None => div()
                 .id("markdown-mermaid")
@@ -876,8 +1021,7 @@ impl Breeze {
                     tr!("Images not shown"),
                     self.reflow.images.failures.to_string(),
                 ))
-            })
-            );
+            });
         column()
             .id("document-panel")
             .test_support()
@@ -933,6 +1077,14 @@ impl Breeze {
             .into_any_element()
     }
     pub(super) fn load_reflow(&mut self, cx: &mut Context<Self>) {
+        self.load_reflow_inner(cx, false);
+    }
+
+    fn load_reflow_preserving_images(&mut self, cx: &mut Context<Self>) {
+        self.load_reflow_inner(cx, true);
+    }
+
+    fn load_reflow_inner(&mut self, cx: &mut Context<Self>, preserve_images: bool) {
         self.pending_window_policy = false;
         self.preview = None;
         self.reading.release_images(cx);
@@ -944,7 +1096,11 @@ impl Breeze {
             cx.notify();
             return;
         }
-        self.reflow.clear(cx);
+        if preserve_images {
+            self.reflow.clear_preserving_images(cx);
+        } else {
+            self.reflow.clear(cx);
+        }
         self.reflow.source = Some(source.clone());
         self.loading = true;
         let Source::File(path) = source else { return };
@@ -1001,8 +1157,10 @@ impl Breeze {
                             Ok((source, metadata)) => {
                                 let metadata = Arc::new(metadata);
                                 let extensions = this.markdown_extensions(cx, &metadata);
+                                let (render_source, render_map) =
+                                    markdown_render_source(&source, metadata.frontmatter_end);
                                 let state = cx.new(|cx| {
-                                    TextViewState::markdown(&source, cx)
+                                    TextViewState::markdown(&render_source, cx)
                                         .selectable(true)
                                         .scrollable(true)
                                 });
@@ -1034,6 +1192,8 @@ impl Breeze {
                                 this._subscriptions.push(observer);
                                 this.reflow.markdown = Some(MarkdownView {
                                     source: Arc::from(source),
+                                    render_source: Arc::from(render_source),
+                                    render_map,
                                     metadata,
                                     state,
                                     extensions,
@@ -1283,14 +1443,15 @@ impl Breeze {
         let list = markdown.state.read(cx).list_state();
         let top = list.logical_scroll_top().item_ix;
         let at_end = list.is_scrolled_to_end() == Some(true);
+        let block = rendered_source_block(top, markdown.metadata.block_starts.len());
         let offset = markdown
             .metadata
             .block_starts
-            .get(top)
+            .get(block)
             .copied()
             .unwrap_or_else(|| {
                 let source = markdown.source.len().max(1);
-                (markdown.metadata.source_bytes as f32 * top as f32
+                (markdown.metadata.source_bytes as f32 * block as f32
                     / list.item_count().max(1) as f32) as usize
                     * source
                     / markdown.metadata.source_bytes.max(1)
@@ -1349,6 +1510,19 @@ impl Breeze {
             editor.update(cx, |editor, cx| editor.set_font_size(font_size, cx));
         }
         self.request_epub(0, 0., None, cx);
+        cx.notify();
+    }
+
+    pub(super) fn toggle_reflow_width(&mut self, cx: &mut Context<Self>) {
+        if self.books[self.active].format() != Some(DocumentFormat::Markdown) {
+            return;
+        }
+        let full_width = &mut self.books[self.active].reflow.full_width;
+        *full_width = !*full_width;
+        let full_width = *full_width;
+        if let Some(editor) = self.books[self.active].markdown_edit.clone() {
+            editor.update(cx, |editor, cx| editor.set_full_width(full_width, cx));
+        }
         cx.notify();
     }
 
@@ -1609,11 +1783,9 @@ impl Breeze {
                                 } else {
                                     tr!("Use the full window width")
                                 })
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    let full = &mut this.books[this.active].reflow.full_width;
-                                    *full = !*full;
-                                    cx.notify();
-                                }))
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.toggle_reflow_width(cx)),
+                                )
                                 .text_color(if full_width { p.text } else { color });
                             self.status_control("reflow-width", button, cx)
                         })
@@ -2114,16 +2286,49 @@ impl Breeze {
             return;
         }
         if self.books[self.active].markdown_editing {
+            let draft = self.books[self.active]
+                .markdown_edit
+                .as_ref()
+                .map(|editor| editor.read(cx).source_text(cx));
+            let offset = if let Some(editor) = self.books[self.active].markdown_edit.as_ref() {
+                let offset = editor.read(cx).source_offset_at_viewport(cx);
+                let source_bytes = draft.as_ref().map_or(1, |draft| draft.len().max(1));
+                let position = &mut self.books[self.active].reflow;
+                position.markdown_offset = offset.min(source_bytes.saturating_sub(1));
+                position.progress = offset as f32 / source_bytes as f32;
+                Some(offset)
+            } else {
+                None
+            };
             self.books[self.active].markdown_editing = false;
-            if self.books[self.active].markdown_edit.is_some() {
+            if let (Some(draft), Some(offset)) = (draft, offset) {
+                if self
+                    .reflow
+                    .markdown
+                    .as_ref()
+                    .is_some_and(|markdown| markdown.source.as_ref() == draft.as_str())
+                {
+                    // An unchanged preview already owns the parsed document and
+                    // decoded images. Reuse it; rebuilding the TextView here made
+                    // every mode switch reparse the file and refetch remote badges.
+                    self.jump_markdown_source(offset, cx);
+                    cx.notify();
+                    return;
+                }
                 // The reader is the preview of the draft: re-read it instead of
                 // the file on disk.
                 self.reflow.source = None;
-                self.load_reflow(cx);
+                self.reflow.scroll_accum = 0.;
+                self.load_reflow_preserving_images(cx);
             }
             cx.notify();
             return;
         }
+        // The reader's scroll handler records the top visible source block. Use
+        // that checkpoint so entering the editor does not jump back to the file
+        // start, even when the editor session already exists.
+        self.remember_markdown_position(cx);
+        let offset = self.books[self.active].reflow.markdown_offset;
         if self.books[self.active].markdown_edit.is_none() {
             let Source::File(path) = self.books[self.active].source.clone() else {
                 self.message = tr!("Editing needs a Markdown file on disk").into();
@@ -2131,13 +2336,19 @@ impl Breeze {
                 return;
             };
             let body = self.books[self.active].reflow.font_size;
-            let editor = cx.new(|cx| markdown_editor::MarkdownEditor::open(path, body, window, cx));
+            let full_width = self.books[self.active].reflow.full_width;
+            let editor = cx.new(|cx| {
+                markdown_editor::MarkdownEditor::open(path, body, full_width, window, cx)
+            });
             self.books[self.active].markdown_edit = Some(editor);
         }
         self.books[self.active].markdown_editing = true;
         if let Some(editor) = self.books[self.active].markdown_edit.clone() {
             let focus = editor.read(cx).focus_handle();
             window.focus(&focus, cx);
+            editor.update(cx, |editor, cx| {
+                editor.reveal_source_offset(offset, window, cx)
+            });
         }
         cx.notify();
     }
@@ -2419,7 +2630,9 @@ impl Breeze {
                             })
                             .capture_any_mouse_down(cx.listener(
                                 move |this, event: &MouseDownEvent, _, cx| {
-                                    this.begin_reflow_text_selection(index, event.position, cx);
+                                    if event.button == MouseButton::Left {
+                                        this.begin_reflow_text_selection(index, event.position, cx);
+                                    }
                                 },
                             ))
                             .capture_any_mouse_up(cx.listener(
@@ -2479,27 +2692,15 @@ impl Breeze {
             .then(|| self.books[self.active].markdown_edit.clone())
             .flatten()
         {
-            // Editing replaces the read-only text inside the same centred
-            // measure; the reader's chrome and navigation stay untouched.
-            let full_width = self.books[self.active].reflow.full_width;
+            // The editor owns the complete content panel so its scrollbar stays
+            // at the outer edge. Its source column applies the standard measure.
             content = content.child(
                 div()
                     .id("markdown-column")
                     .test_support()
-                    .flex()
                     .size_full()
                     .min_h_0()
-                    .justify_center()
-                    .child(
-                        div()
-                            .id("markdown-measure")
-                            .test_support()
-                            .h_full()
-                            .min_h_0()
-                            .w_full()
-                            .when(!full_width, |column| column.max_w(px(MARKDOWN_MAX_WIDTH)))
-                            .child(editor),
-                    ),
+                    .child(editor),
             );
         } else if let Some(markdown) = self.reflow.markdown.clone() {
             // One TextView owns the complete Markdown document: parsing,
@@ -2519,20 +2720,21 @@ impl Breeze {
                 .read(cx)
                 .list_state()
                 .set_scroll_handler(move |event, _, cx| {
-                    let first = event
-                        .visible_range
-                        .start
-                        .min(block_starts.len().saturating_sub(1));
+                    let first =
+                        rendered_source_block(event.visible_range.start, block_starts.len());
                     let source_offset = block_starts.get(first).copied().unwrap_or(0);
                     let at_end = event.visible_range.end >= event.count;
                     let _ = scroll_view.update(cx, |this, cx| {
                         this.record_markdown_progress(source_offset, source_bytes, at_end, cx)
                     });
                 });
+            let list_state = state.read(cx).list_state().clone();
+            let scrollbar_cover_color = p.bg;
             content = content.child(
                 div()
                     .id("markdown-column")
                     .test_support()
+                    .relative()
                     .flex()
                     .size_full()
                     .min_h_0()
@@ -2551,7 +2753,6 @@ impl Breeze {
                                     .id("markdown-document")
                                     .test_support()
                                     .size_full()
-                                    .p_4()
                                     .on_prepaint({
                                         let scroll_state = state.clone();
                                         let scroll_view = cx.entity().downgrade();
@@ -2575,10 +2776,13 @@ impl Breeze {
                                             .relative()
                                             .size_full()
                                             .min_h_0()
-                                            .pr_4()
                                             .child(
                                                 TextView::new(&state)
                                                     .scrollable(true)
+                                                    // Padding keeps text clear of the
+                                                    // overlay scrollbar. Vertical inset
+                                                    // blocks scroll with the document.
+                                                    .px(px(MARKDOWN_HORIZONTAL_PADDING))
                                                     .style(markdown_style::text_style(cx, body))
                                                     .markdown_extensions(extensions)
                                                     .image_source(move |uri| {
@@ -2613,9 +2817,10 @@ impl Breeze {
                                                             })
                                                     }),
                                             )
-                                            // TextView owns its scrollbar without a visibility
-                                            // override. Cover only its 16 px overlay track,
-                                            // leaving wheel and keyboard scrolling intact.
+                                            // Kit paints its overlay scrollbar at the
+                                            // TextView edge. Cover that private track; the
+                                            // visible, draggable scrollbar below sits on
+                                            // the panel's outer edge.
                                             .child(
                                                 div()
                                                     .id("markdown-scrollbar-cover")
@@ -2624,10 +2829,44 @@ impl Breeze {
                                                     .top_0()
                                                     .right_0()
                                                     .bottom_0()
-                                                    .w(px(16.))
-                                                    .bg(p.bg),
+                                                    .w(px(MARKDOWN_HORIZONTAL_PADDING))
+                                                    .child(
+                                                        canvas(
+                                                            |_, _, _| (),
+                                                            move |bounds, _, window, _| {
+                                                                // TextView paints its scrollbar
+                                                                // into an overlay layer, so the
+                                                                // cover must use that layer too.
+                                                                window.paint_layer(
+                                                                    bounds,
+                                                                    |window| {
+                                                                        window.paint_quad(fill(
+                                                                            bounds,
+                                                                            scrollbar_cover_color,
+                                                                        ));
+                                                                    },
+                                                                );
+                                                            },
+                                                        )
+                                                        .size_full(),
+                                                    ),
                                             ),
                                     ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .id("markdown-scrollbar")
+                            .test_support()
+                            .absolute()
+                            .top_0()
+                            .right_0()
+                            .bottom_0()
+                            .w(px(MARKDOWN_HORIZONTAL_PADDING))
+                            .child(
+                                Scrollbar::vertical(&list_state)
+                                    .id("markdown-scrollbar-control")
+                                    .viewport_from_layout(),
                             ),
                     ),
             );
@@ -2677,6 +2916,122 @@ fn reflow_search_result_text(title: &str, href: &str, snippet: &str) -> String {
     } else {
         format!("{title} · {snippet}")
     }
+}
+
+/// Fit a generated Mermaid SVG to the available reading width while preserving
+/// its viewBox and visual stroke weight. Without the stroke rewrite, a wide SVG
+/// is reduced below one device pixel per outline in places, so some rectangle
+/// edges disappear while others survive.
+fn fit_svg_to_width(svg: &str, target_width: f32) -> String {
+    let Some((root_start, root_end)) = svg_root_bounds(svg) else {
+        return svg.to_owned();
+    };
+    let root = &svg[root_start..root_end];
+    let Some(width) = svg_length_attribute(root, "width") else {
+        return svg.to_owned();
+    };
+    let Some(height) = svg_length_attribute(root, "height") else {
+        return svg.to_owned();
+    };
+    if width <= 0. || height <= 0. || target_width <= 0. || width <= target_width {
+        return svg.to_owned();
+    }
+
+    let factor = width / target_width;
+    let fitted_height = height / factor;
+    let Some(root) = replace_svg_attribute(root, "width", &svg_number(target_width)) else {
+        return svg.to_owned();
+    };
+    let Some(root) = replace_svg_attribute(&root, "height", &svg_number(fitted_height)) else {
+        return svg.to_owned();
+    };
+    let mut fitted = String::with_capacity(svg.len());
+    fitted.push_str(&svg[..root_start]);
+    fitted.push_str(&root);
+    fitted.push_str(&svg[root_end..]);
+    let fitted = scale_svg_numeric_attribute(fitted, "stroke-width", factor, false);
+    scale_svg_numeric_attribute(fitted, "stroke-dasharray", factor, true)
+}
+
+fn svg_root_bounds(svg: &str) -> Option<(usize, usize)> {
+    let start = svg.find("<svg")?;
+    let end = start + svg[start..].find('>')? + 1;
+    Some((start, end))
+}
+
+fn svg_length_attribute(tag: &str, name: &str) -> Option<f32> {
+    let value = svg_attribute(tag, name)?;
+    value
+        .trim_end_matches("px")
+        .parse::<f32>()
+        .ok()
+        .filter(|value| value.is_finite())
+}
+
+fn svg_attribute<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
+    let needle = format!(" {name}=\"");
+    let start = tag.find(&needle)? + needle.len();
+    let end = start + tag[start..].find('"')?;
+    Some(&tag[start..end])
+}
+
+fn replace_svg_attribute(tag: &str, name: &str, value: &str) -> Option<String> {
+    let needle = format!(" {name}=\"");
+    let value_start = tag.find(&needle)? + needle.len();
+    let value_end = value_start + tag[value_start..].find('"')?;
+    let mut replaced = String::with_capacity(tag.len() + value.len());
+    replaced.push_str(&tag[..value_start]);
+    replaced.push_str(value);
+    replaced.push_str(&tag[value_end..]);
+    Some(replaced)
+}
+
+fn svg_number(value: f32) -> String {
+    let formatted = format!("{value:.3}");
+    formatted
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_owned()
+}
+
+fn scale_svg_numeric_attribute(mut svg: String, name: &str, factor: f32, list: bool) -> String {
+    let needle = format!(" {name}=\"");
+    let mut search_from = 0;
+    while let Some(relative) = svg[search_from..].find(&needle) {
+        let value_start = search_from + relative + needle.len();
+        let Some(relative_end) = svg[value_start..].find('"') else {
+            break;
+        };
+        let value_end = value_start + relative_end;
+        let value = &svg[value_start..value_end];
+        let scaled = if list {
+            let numbers = value
+                .split([' ', '\t', ','])
+                .filter(|number| !number.is_empty())
+                .map(|number| {
+                    number
+                        .parse::<f32>()
+                        .ok()
+                        .filter(|number| number.is_finite())
+                        .map(|number| svg_number(number * factor))
+                })
+                .collect::<Option<Vec<_>>>();
+            numbers.map(|numbers| numbers.join(" "))
+        } else {
+            value
+                .parse::<f32>()
+                .ok()
+                .filter(|number| number.is_finite())
+                .map(|number| svg_number(number * factor))
+        };
+        if let Some(scaled) = scaled {
+            svg.replace_range(value_start..value_end, &scaled);
+            search_from = value_start + scaled.len();
+        } else {
+            search_from = value_end + 1;
+        }
+    }
+    svg
 }
 
 fn strip_mermaid_background(svg: &str) -> String {
@@ -2947,8 +3302,10 @@ fn visible_active_outline(visible: &[usize], active: Option<usize>) -> Option<us
 #[cfg(test)]
 mod tests {
     use super::{
-        ReflowTextSelection, contained_page_bounds, grouped_characters, reflow_search_result_text,
-        strip_mermaid_background,
+        MARKDOWN_TOP_INSET_MARKER, ReflowTextSelection, contained_page_bounds, fit_svg_to_width,
+        grouped_characters, markdown_render_source, reflow_search_result_text,
+        scale_svg_numeric_attribute, strip_mermaid_background, svg_attribute, svg_length_attribute,
+        svg_root_bounds,
     };
     use crate::{Mode, Source, texture};
     use breeze_reflow::epub::{TextGlyph, TextLayer, TextLine};
@@ -2991,6 +3348,62 @@ mod tests {
         let stripped = strip_mermaid_background(svg);
         assert!(!stripped.contains("fill=\"#FFFFFF\""));
         assert!(stripped.contains("fill=\"#F8FAFC\""));
+    }
+
+    #[test]
+    fn frontmatter_stays_at_the_start_of_the_rendered_markdown() {
+        let source = "---\ntitle: 格式测试\n---\n\n# 标题\n";
+        let frontmatter_end = source.find("\n\n#").unwrap();
+        let (rendered, map) = markdown_render_source(source, Some(frontmatter_end));
+
+        assert!(rendered.starts_with(&source[..frontmatter_end]));
+        assert!(!rendered.starts_with(MARKDOWN_TOP_INSET_MARKER));
+        assert!(rendered[frontmatter_end..].contains(MARKDOWN_TOP_INSET_MARKER));
+        assert_eq!(
+            map.source_offset(frontmatter_end + 2),
+            rendered.find("# 标题").unwrap()
+        );
+    }
+
+    #[test]
+    fn markdown_without_frontmatter_keeps_its_leading_inset() {
+        let source = "# 标题\n";
+        let (rendered, map) = markdown_render_source(source, None);
+
+        assert!(rendered.starts_with(MARKDOWN_TOP_INSET_MARKER));
+        assert_eq!(map.source_offset(0), MARKDOWN_TOP_INSET_MARKER.len() + 2);
+        assert_eq!(
+            &rendered[map.source_offset(0)..map.source_offset(source.len())],
+            source
+        );
+    }
+
+    #[test]
+    fn wide_mermaid_svg_preserves_stroke_weights_when_fitted() {
+        let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="2050" height="587" viewBox="-50 -10 2050 587"><rect x="0" y="0" width="150" height="65" stroke-width="1.0"/><path stroke-width="1.5" stroke-dasharray="3 3"/></svg>"##;
+        let fitted = fit_svg_to_width(svg, 512.);
+        let (start, end) = svg_root_bounds(&fitted).unwrap();
+        let root = &fitted[start..end];
+        assert!((svg_length_attribute(root, "width").unwrap() - 512.).abs() < 0.001);
+        let fitted_height = svg_length_attribute(root, "height").unwrap();
+        assert!(
+            (fitted_height - 146.586).abs() < 0.1,
+            "height is {fitted_height}"
+        );
+
+        let rect = &fitted[fitted.find("<rect").unwrap()..fitted.find("/>").unwrap()];
+        let stroke = svg_attribute(rect, "stroke-width").unwrap();
+        assert!((stroke.parse::<f32>().unwrap() - 4.004).abs() < 0.01);
+        assert!(fitted.contains("stroke-dasharray=\"12.012 12.012\""));
+        assert_eq!(fit_svg_to_width(svg, 2050.), svg);
+    }
+
+    #[test]
+    fn svg_attribute_scaling_leaves_unrelated_numbers_alone() {
+        let svg = r#"<svg width="20"><rect x="10" stroke-width="1.5"/></svg>"#.to_owned();
+        let scaled = scale_svg_numeric_attribute(svg, "stroke-width", 2., false);
+        assert!(scaled.contains("x=\"10\""));
+        assert!(scaled.contains("stroke-width=\"3\""));
     }
 
     #[test]

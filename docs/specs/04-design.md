@@ -214,3 +214,21 @@ width to reach the window's right edge. The left-hand group takes the remaining
 width, which cannot fall below its pane, and the header's trailing space sits on
 the right-hand group rather than on the row so the row's own bounds end at that
 chrome.
+
+## October 26 Markdown widths and content insets
+
+Markdown reading and source editing share a 760 logical-pixel standard measure
+and the status bar's full-width toggle. The editor must reflow at the chosen
+measure without moving the toggle or other reader chrome. Both surfaces reserve
+16 logical pixels beside the content for Kit's overlay scrollbar and a draggable
+scrollbar at the content panel's outer edge. Reading content also keeps 48
+logical pixels above its first block and below its last block. Those end insets
+are scrollable content, not viewport padding: the viewport keeps its full height
+and text may touch the top or bottom edge during scrolling. Text must never
+paint beneath either scrollbar.
+
+Switching between reading and editing preserves the visible source position.
+The reader's top visible block determines the editor reveal target, while the
+editor's top visible source line becomes the preview's restore target. The
+source editor must not retain Kit's default half-viewport of empty trailing
+scroll range beyond the last line.

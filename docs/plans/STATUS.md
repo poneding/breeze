@@ -1,3 +1,85 @@
+## October 27 Markdown image and Mermaid edge rendering
+
+The apparent borders around Markdown images and Mermaid sequence diagrams are
+not drawn by Breeze. The visible fragments came from bitmap minification. Wide
+generated SVGs were fitted into the reading column after their original
+dimensions had fixed one-point strokes; at scales below 1x, axis-aligned edges
+landed between device pixels inconsistently, so some disappeared or became
+disconnected. Large raster screenshots went through GPU bilinear minification
+for the same reason, which could skip a thin source border.
+
+Mermaid SVGs now rewrite their root width and height to the available reading
+width before rasterization. Every `stroke-width` and dashed-stroke length is
+scaled by the same inverse factor, preserving an approximately one-logical-pixel
+outline at the fitted size. The width bucket is part of the Mermaid cache key, so
+resizing or switching between standard and full width rasterizes the correct
+variant. The image now fills a correctly proportioned fitted box rather than
+leaving natural-size height around a flex-shrunk width.
+
+Large raster images are now area-resized before texture upload to at most 4096
+pixels on either axis and 8 million pixels total, while their original dimensions
+remain the logical display size. Small images keep their bytes unchanged. The
+existing 32 MiB decoded-image budget, 16 MiB input limit, count limit and
+per-URI cache remain in force.
+
+`cargo fmt --all -- --check`, the complete `cargo test --workspace --locked`
+suite (264 app tests plus every crate and integration suite), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. New tests
+cover fitted SVG dimensions, stroke and dash scaling, large-raster downsampling,
+logical-size retention, a continuous one-pixel raster border after downsampling,
+and a ten-participant sequence diagram fitting inside the reading viewport.
+Native confirmation of the corrected pixels was not performed:
+macOS locked the screen before the final review bundle could be inspected.
+Windows and Linux remain unverified.
+
+## October 26 Markdown reading insets and shared editing widths
+
+Markdown reading no longer lets its private Kit scrollbar cover the last column
+of text. The scroll surface now reserves the 16 px overlay track as horizontal
+content padding and paints its draggable scrollbar at the outer content-panel
+edge. Invisible inset blocks give the first and last document blocks 48 px of
+breathing room without shrinking the reading viewport; the insets scroll with
+the content, so text may reach the top and bottom edges while scrolling.
+
+Markdown source editing now uses the same standard 760 px measure and full-width
+toggle as reading. The width button applies immediately in either mode, and the
+source text stays within that measure while the editor scrollbar remains fixed
+to the outer content-panel border. Kit's default half-viewport of trailing
+editor scroll space is disabled, so the source cannot scroll far past its last
+line.
+
+Switching modes now preserves the visible source position. Reading uses its top
+visible Markdown block to reveal the corresponding editor line; editing maps its
+top visible source line back to the reading position before rebuilding the
+preview. Component tests assert text clearance from the private scrollbar,
+scrollable top and bottom insets, the full reading viewport height, the
+standard-to-full width transition, and both position mappings. Native macOS
+inspection with an isolated `BREEZE_DATA_DIR` confirmed the reading surface,
+both editor widths, and the reduced trailing scroll extent. Windows and Linux
+remain unverified.
+
+The top inset marker now follows leading YAML or TOML front matter. Markdown
+recognizes front matter only at byte zero, so prefixing the marker had made
+`FrontmatterPlugin` fall back to ordinary content. Rendering offsets account for
+the marker's variable insertion point.
+
+Reading/editing switches no longer rebuild an unchanged preview. Returning from
+the editor reuses the parsed `TextViewState`, decoded images and scroll model; a
+changed draft still reparses for an accurate preview but retains the same
+document's bounded image cache. SVG decoding also loads system fonts once and
+reuses that tree for size inspection and rasterization, instead of scanning
+fonts twice for every badge.
+
+Validation for these fixes: `cargo fmt --all -- --check`, the complete
+`cargo test --workspace --locked` suite (256 app tests plus every crate and
+integration suite), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. Native
+macOS inspection with an isolated `BREEZE_DATA_DIR`
+confirmed three front matter entries as a property list and both requested
+Shields badges as images. Switching to source and immediately back to reading
+restored the rendered badges without a loading state. Windows and Linux remain
+unverified.
+
 ## October 23 Page submit icon matches Close density
 
 The page input's Enter affordance occupied a full Small icon-button square and

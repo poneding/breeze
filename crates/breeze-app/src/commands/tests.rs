@@ -194,7 +194,11 @@ fn vertical_arrows_scroll_markdown_and_preserve_search_input(cx: &mut TestAppCon
         }
         assert!(view.read(cx).books[0].reflow.markdown_offset > 0);
         assert!(view.read(cx).books[0].reflow.progress > 0.);
-        assert_eq!(view.read(cx).reflow.active_block, position(cx).0);
+        assert_eq!(
+            view.read(cx).reflow.active_block + 1,
+            position(cx).0,
+            "the rendered list has one leading content-inset block"
+        );
 
         window.press("secondary-f", cx);
         let before = position(cx);
@@ -210,7 +214,7 @@ fn vertical_arrows_scroll_markdown_and_preserve_search_input(cx: &mut TestAppCon
         let end = position(cx);
         window.press("down", cx);
         assert_eq!(position(cx), end);
-        assert_eq!(view.read(cx).reflow.active_block, end.0);
+        assert_eq!(view.read(cx).reflow.active_block + 1, end.0);
         assert_eq!(view.read(cx).books[0].reflow.progress, 1.);
         window.press("up", cx);
         assert!(position(cx) < end);

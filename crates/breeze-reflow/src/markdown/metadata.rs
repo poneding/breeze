@@ -29,6 +29,8 @@ pub struct Heading {
 #[derive(Clone, Debug)]
 pub struct Metadata {
     pub headings: Vec<Heading>,
+    /// Byte offset immediately after leading YAML or TOML front matter.
+    pub frontmatter_end: Option<usize>,
     /// Source offset of each top-level block, in TextView block order.
     pub block_starts: Vec<usize>,
     /// Full source range of each top-level block.
@@ -60,8 +62,12 @@ impl Metadata {
         let mut block_ranges = Vec::new();
         let mut image_definitions = HashMap::new();
         let mut anchors = HashMap::<String, usize>::new();
+        let mut frontmatter_end = None;
         for (block, node) in root.children().into_iter().flatten().enumerate() {
             let span = ast::span(node).context("A Markdown block has no position")?;
+            if block == 0 && matches!(node, Node::Yaml(_) | Node::Toml(_)) {
+                frontmatter_end = Some(span.end);
+            }
             block_starts.push(span.start);
             block_ranges.push(span.clone());
             if let Node::Definition(definition) = node {
@@ -75,6 +81,7 @@ impl Metadata {
 
         Ok(Self {
             headings,
+            frontmatter_end,
             block_starts,
             block_ranges,
             image_definitions,
@@ -215,6 +222,20 @@ mod tests {
         assert_eq!(
             resolve_image(document, "shots/my%20shot.png?raw=1#page=2").unwrap(),
             PathBuf::from("/notes/shots/my shot.png")
+        );
+    }
+
+    #[test]
+    fn metadata_tracks_leading_frontmatter() {
+        let source = "---\ntitle: Test\n---\n\n# Heading\n";
+        let metadata = Metadata::parse(source).unwrap();
+        let end = metadata
+            .frontmatter_end
+            .expect("YAML front matter starts the document");
+        assert_eq!(&source[..end], "---\ntitle: Test\n---");
+        assert_eq!(
+            Metadata::parse("# Heading\n").unwrap().frontmatter_end,
+            None
         );
     }
 }

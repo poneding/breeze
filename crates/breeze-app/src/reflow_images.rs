@@ -15,6 +15,8 @@ use std::{
 const IMAGE_BUDGET: usize = 32 * 1024 * 1024;
 const IMAGE_COUNT: usize = 64;
 const MAX_IMAGE_BYTES: usize = 16 * 1024 * 1024;
+const MAX_TEXTURE_DIMENSION: u32 = 4096;
+const MAX_TEXTURE_PIXELS: u64 = (IMAGE_BUDGET / 4) as u64;
 
 type CachedLogicalImage = (Arc<RenderImage>, Option<(f32, f32)>);
 
@@ -134,6 +136,16 @@ impl Images {
         self.entries.iter().any(|entry| entry.uri == uri)
     }
 
+    /// Keep reusable decoded pixels but let the rebuilt Markdown view decide
+    /// which references still fail. A removed image must not remain in the
+    /// current document's failure count.
+    pub(super) fn forget_failures(&mut self) {
+        self.entries
+            .retain(|entry| matches!(entry.loaded, Loaded::Image(_)));
+        self.failures = 0;
+        self.last_failure = None;
+    }
+
     fn insert(&mut self, cx: &mut App, entry: Entry) {
         let bytes = entry.bytes;
         while self.entries.len() >= IMAGE_COUNT
@@ -241,10 +253,14 @@ fn decode(document: Option<&Path>, uri: &str) -> Result<(Pixels, Option<(f32, f3
         bytes
     };
     if looks_like_svg(&bytes) {
-        let logical_size = svg_logical_size(&bytes)?;
-        Ok((rasterize_svg(&bytes, 2.0)?, Some(logical_size)))
+        let tree = svg_tree(&bytes)?;
+        let size = tree.size();
+        Ok((
+            rasterize_svg_tree(&tree, 2.0)?,
+            Some((size.width(), size.height())),
+        ))
     } else {
-        Ok((decode_raster(bytes)?, None))
+        decode_raster(bytes)
     }
 }
 
@@ -279,22 +295,23 @@ fn looks_like_svg(bytes: &[u8]) -> bool {
     text.starts_with("<svg") || text.starts_with("<?xml") && text.contains("<svg")
 }
 
-fn svg_logical_size(bytes: &[u8]) -> Result<(f32, f32)> {
+fn svg_tree(bytes: &[u8]) -> Result<resvg::usvg::Tree> {
     let mut options = resvg::usvg::Options::default();
     options.fontdb_mut().load_system_fonts();
     let tree = resvg::usvg::Tree::from_data(bytes, &options)?;
     let size = tree.size();
     anyhow::ensure!(size.width() > 0. && size.height() > 0., "empty SVG");
-    Ok((size.width(), size.height()))
+    Ok(tree)
 }
 
 /// Rasterize an SVG for the shared TextView image path.
 pub(super) fn rasterize_svg(bytes: &[u8], scale: f32) -> Result<Pixels> {
-    let mut options = resvg::usvg::Options::default();
-    options.fontdb_mut().load_system_fonts();
-    let tree = resvg::usvg::Tree::from_data(bytes, &options)?;
+    let tree = svg_tree(bytes)?;
+    rasterize_svg_tree(&tree, scale)
+}
+
+fn rasterize_svg_tree(tree: &resvg::usvg::Tree, scale: f32) -> Result<Pixels> {
     let size = tree.size();
-    anyhow::ensure!(size.width() > 0. && size.height() > 0., "empty SVG");
     let scale = scale.clamp(0.5, 3.0);
     let width = (size.width() * scale).ceil() as u32;
     let height = (size.height() * scale).ceil() as u32;
@@ -305,7 +322,7 @@ pub(super) fn rasterize_svg(bytes: &[u8], scale: f32) -> Result<Pixels> {
     let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
         .context("the SVG is larger than the pixel budget")?;
     resvg::render(
-        &tree,
+        tree,
         resvg::tiny_skia::Transform::from_scale(scale, scale),
         &mut pixmap.as_mut(),
     );
@@ -331,7 +348,7 @@ pub(super) fn svg_image(bytes: &[u8], scale: f32) -> Result<Arc<RenderImage>> {
     texture(rasterize_svg(bytes, scale)?)
 }
 
-fn decode_raster(bytes: Vec<u8>) -> Result<Pixels> {
+fn decode_raster(bytes: Vec<u8>) -> Result<(Pixels, Option<(f32, f32)>)> {
     let mut reader = image::ImageReader::new(Cursor::new(bytes)).with_guessed_format()?;
     let mut limits = image::Limits::default();
     limits.max_alloc = Some(IMAGE_BUDGET as u64);
@@ -339,6 +356,7 @@ fn decode_raster(bytes: Vec<u8>) -> Result<Pixels> {
     limits.max_image_height = Some(8192);
     reader.limits(limits);
     let image = reader.decode()?.into_rgba8();
+    let (image, logical_size) = fit_raster_image(image);
     let (width, height) = image.dimensions();
     let mut bgra = image.into_raw();
     anyhow::ensure!(
@@ -352,11 +370,39 @@ fn decode_raster(bytes: Vec<u8>) -> Result<Pixels> {
         }
         pixel.swap(0, 2);
     }
-    Ok(Pixels {
-        width,
-        height,
-        bgra,
-    })
+    Ok((
+        Pixels {
+            width,
+            height,
+            bgra,
+        },
+        logical_size,
+    ))
+}
+
+/// Keep large screenshots below the point where GPU minification skips most
+/// source pixels. Bilinear downscaling straight from a multi-megapixel source
+/// made one-pixel borders disappear in isolated places; an area-style resize
+/// first keeps those outlines continuous when the image is fitted to the page.
+fn fit_raster_image(image: image::RgbaImage) -> (image::RgbaImage, Option<(f32, f32)>) {
+    let (width, height) = image.dimensions();
+    let dimension_scale = f64::from(MAX_TEXTURE_DIMENSION) / f64::from(width.max(height));
+    let area_scale =
+        (MAX_TEXTURE_PIXELS as f64 / (u64::from(width) * u64::from(height)) as f64).sqrt();
+    let scale = dimension_scale.min(area_scale).min(1.);
+    if scale >= 0.999 {
+        return (image, None);
+    }
+
+    let target_width = (f64::from(width) * scale).round().max(1.) as u32;
+    let target_height = (f64::from(height) * scale).round().max(1.) as u32;
+    let resized = image::imageops::resize(
+        &image,
+        target_width,
+        target_height,
+        image::imageops::FilterType::Triangle,
+    );
+    (resized, Some((width as f32, height as f32)))
 }
 
 #[cfg(test)]
@@ -373,6 +419,45 @@ mod tests {
             b"<?xml version=\"1.0\"?><svg xmlns=\"http://www.w3.org/2000/svg\"></svg>"
         ));
         assert!(!looks_like_svg(b"\x89PNG\r\n\x1a\n"));
+    }
+
+    #[test]
+    fn oversized_raster_images_are_downsampled_before_texture_upload() {
+        let image = image::RgbaImage::from_fn(5000, 100, |x, _| {
+            image::Rgba([(x % 255) as u8, 20, 30, 255])
+        });
+        let (fitted, logical_size) = fit_raster_image(image);
+        assert_eq!(logical_size, Some((5000., 100.)));
+        assert_eq!(fitted.width(), MAX_TEXTURE_DIMENSION);
+        assert_eq!(fitted.height(), 82);
+
+        let small = image::RgbaImage::from_pixel(32, 24, image::Rgba([1, 2, 3, 255]));
+        let (unchanged, logical_size) = fit_raster_image(small);
+        assert_eq!(logical_size, None);
+        assert_eq!(unchanged.dimensions(), (32, 24));
+    }
+
+    #[test]
+    fn a_thin_raster_border_remains_continuous_after_fit() {
+        let mut image = image::RgbaImage::from_pixel(5000, 100, image::Rgba([255, 255, 255, 255]));
+        for x in 0..5000 {
+            image.put_pixel(x, 0, image::Rgba([0, 0, 0, 255]));
+            image.put_pixel(x, 99, image::Rgba([0, 0, 0, 255]));
+        }
+        for y in 0..100 {
+            image.put_pixel(0, y, image::Rgba([0, 0, 0, 255]));
+            image.put_pixel(4999, y, image::Rgba([0, 0, 0, 255]));
+        }
+        let (fitted, _) = fit_raster_image(image);
+        let (width, height) = fitted.dimensions();
+        for x in 0..width {
+            assert!(fitted.get_pixel(x, 0)[0] < 250);
+            assert!(fitted.get_pixel(x, height - 1)[0] < 250);
+        }
+        for y in 0..height {
+            assert!(fitted.get_pixel(0, y)[0] < 250);
+            assert!(fitted.get_pixel(width - 1, y)[0] < 250);
+        }
     }
 
     #[test]

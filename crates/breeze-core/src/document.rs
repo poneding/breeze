@@ -80,7 +80,7 @@ impl Default for ReflowState {
             markdown_offset: 0,
             scroll_offset: 0.,
             progress: 0.,
-            font_size: 18,
+            font_size: 15,
             full_width: false,
             spread: false,
         }

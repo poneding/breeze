@@ -69,6 +69,33 @@ diagram.
 - A regression test covers TOC reveal, padding and the hidden scrollbar. A
   component test asserts that Kit installed its code highlighter.
 
+## Front matter and mode-switch fixes (October 26, 2026)
+
+- The leading invisible content-inset block now follows YAML or TOML front
+  matter. Markdown only recognizes front matter at byte zero, so the old prefix
+  silently downgraded it to ordinary content and bypassed `FrontmatterPlugin`.
+  Source ranges account for the marker's variable insertion point.
+- Returning from an unchanged editor draft reuses the existing parsed
+  `TextViewState`, decoded images and scroll model instead of rebuilding the
+  entire preview. An edited draft still produces a fresh preview, but keeps the
+  same document's bounded image cache.
+- SVG decoding builds one `usvg` tree and loads system fonts once per image;
+  badge logical-size inspection no longer duplicates that work before
+  rasterization.
+
+## Image and Mermaid edge rendering (October 27, 2026)
+
+- Breeze does not add a decorative border to Markdown images or Mermaid blocks.
+  Missing or disconnected outlines came from bitmap minification: wide Mermaid
+  SVGs were fitted without scaling their strokes, so one-point rectangle edges
+  fell below a device pixel in some positions and disappeared.
+- Mermaid SVGs are now rewritten to the available reading width before
+  rasterization. Their `width`, `height`, `stroke-width` and stroke-dash values
+  change together, and the target-width bucket is part of the render cache key.
+- Large raster images are area-resized to a bounded texture before upload while
+  retaining their original logical size. This avoids the sparse GPU sampling
+  that could skip a one-pixel source border on a multi-megapixel screenshot.
+
 ## Search and navigation
 
 Search reads `TextViewState::rendered_text`, paints matches with
