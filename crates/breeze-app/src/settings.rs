@@ -114,12 +114,13 @@ impl Breeze {
                     p,
                 ))
                 .child(Self::setting_row(
-                    tr!("Default PDF app"),
-                    // Breeze declares PDF to the OS so file managers offer it
-                    // under Open With. Which application is the default stays a
-                    // system-owned choice this app must not fake or force.
+                    tr!("Default document app"),
+                    // Breeze declares every readable format to the OS so file
+                    // managers offer it under Open With. Which application is
+                    // the default stays a system-owned choice this app must
+                    // not fake or force.
                     div()
-                        .id("default-pdf-app")
+                        .id("default-document-app")
                         .test_support()
                         .text_color(p.muted)
                         .child(tr!(

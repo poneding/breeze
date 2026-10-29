@@ -325,6 +325,36 @@ an isolated `BREEZE_DATA_DIR` and a fixture covering headings, lists, quotes,
 tables, code, images, footnotes and raw HTML, and component tests cover the same
 content. Windows and Linux remain unverified.
 
+## October 20 EPUB and Markdown file associations
+
+OS registration still declared only PDF after the reader gained EPUB and
+Markdown support, so Finder, File Explorer and Linux file managers never
+offered Breeze for those formats. Both packaging paths now register every
+format `DocumentFormat` accepts:
+
+- macOS: `CFBundleDocumentTypes` entries for `com.adobe.pdf`,
+  `org.idpf.epub-container` and `net.daringfireball.markdown` (`.pdf`,
+  `.epub`, `.md`, `.markdown`), each with role `Viewer` and
+  `LSHandlerRank` `Alternate`, in `scripts/bundle-macos.sh` and
+  `scripts/release.py`.
+- Windows: `Breeze.Document`, `Breeze.Epub` and `Breeze.Markdown` ProgIDs,
+  `OpenWithProgids` values for all four extensions, and those extensions under
+  `Applications\breeze-app.exe\SupportedTypes` in both the MSI and Inno
+  sources.
+- Linux: `MimeType=application/pdf;application/epub+zip;text/markdown;`.
+
+No extension's default value is written, so changing the default stays an OS
+decision. The Settings row now reads "Default document app" instead of "Default
+PDF app". `scripts/test_release.py` compares the local macOS bundle with the
+release registrations so the two packaging paths cannot drift.
+
+`cargo fmt --all -- --check`, the complete `cargo test --workspace --locked`
+suite (264 app tests plus every crate and integration suite),
+`cargo clippy --workspace --all-targets --locked -- -D warnings`, and all 16
+`scripts/test_release.py` cases pass. The native macOS Launch Services check
+was not repeated in this commit pass; Windows and Linux registration remain
+unverified.
+
 ## October 20 Split tabs start on the pane divider
 
 Reported on macOS: after dragging a tab to split the reader, the right pane's

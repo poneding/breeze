@@ -20,6 +20,7 @@ notices under `licenses/`.
 """
 
 import argparse
+from dataclasses import dataclass
 import hashlib
 import os
 from pathlib import Path
@@ -58,19 +59,49 @@ APP_NAME = "Breeze"
 DISPLAY_NAME = "Breeze"
 EXECUTABLE = "Breeze"
 LINUX_EXECUTABLE = "breeze-app"
-# PDF registration. Breeze declares that it can *view* this type so every file
-# manager lists it under "Open with"; none of these entries take the default
-# handler over, because only the user may change that through the OS.
-PDF_CONTENT_TYPE = "com.adobe.pdf"
-PDF_PROGID = "Breeze.Document"
-WINDOWS_PDF_EXTENSION = ".pdf"
+# Document registration. Breeze declares that it can *view* these formats so
+# every file manager lists it under "Open with"; none of these entries take the
+# default handler over, because only the user may change that through the OS.
+@dataclass(frozen=True)
+class DocumentType:
+    """One readable format, named as each platform's registry expects."""
+
+    # Human-readable type name shown by file managers.
+    name: str
+    # Apple's uniform type identifier.
+    content_type: str
+    # Extensions without the leading dot; the first one names the type.
+    extensions: tuple[str, ...]
+    # Windows ProgID; the PDF one predates the reflow formats.
+    progid: str
+    # MIME type used by Linux desktop environments.
+    mime_type: str
+
+
+DOCUMENT_TYPES = (
+    DocumentType(
+        "PDF Document", "com.adobe.pdf", ("pdf",), "Breeze.Document", "application/pdf"
+    ),
+    DocumentType(
+        "EPUB Document",
+        "org.idpf.epub-container",
+        ("epub",),
+        "Breeze.Epub",
+        "application/epub+zip",
+    ),
+    DocumentType(
+        "Markdown Document",
+        "net.daringfireball.markdown",
+        ("md", "markdown"),
+        "Breeze.Markdown",
+        "text/markdown",
+    ),
+)
 WINDOWS_EXECUTABLE = "breeze-app.exe"
 # PE optional-header subsystem of a Windows GUI program. A console program (3)
 # makes Windows open a terminal beside the application, and closing that terminal
 # ends it, so the shipped executable must be the GUI subsystem.
 WINDOWS_GUI_SUBSYSTEM = 2
-# Linux names the same format through the shared MIME database.
-PDF_MIME_TYPE = "application/pdf"
 LINUX_PACKAGE = "breeze"
 PUBLISHER = "Pone Ding <poneding@gmail.com>"
 HOMEPAGE = "https://github.com/poneding/breeze"
@@ -211,11 +242,13 @@ def _write_documents(destination: Path, version: str) -> None:
 def desktop_entry() -> str:
     """The Linux desktop entry shared by the deb and the AppImage.
 
-    `MimeType` declares the PDF documents Breeze can view, which is what makes
-    file managers offer it under "Open with". The desktop environment's own
-    chooser still owns the default handler. `%F` passes one or more selected
-    files, matching the command-line arguments the application accepts.
+    `MimeType` declares the document formats Breeze can view, which is what
+    makes file managers offer it under "Open with". The desktop environment's
+    own chooser still owns the default handler. `%F` passes one or more
+    selected files, matching the command-line arguments the application
+    accepts.
     """
+    mime_types = "".join(f"{document.mime_type};" for document in DOCUMENT_TYPES)
     return (
         "[Desktop Entry]\n"
         "Type=Application\n"
@@ -228,7 +261,7 @@ def desktop_entry() -> str:
         f"StartupWMClass={LINUX_PACKAGE}\n"
         "Terminal=false\n"
         "Categories=Office;Viewer;\n"
-        f"MimeType={PDF_MIME_TYPE};\n"
+        f"MimeType={mime_types}\n"
     )
 
 
@@ -327,53 +360,83 @@ def wix_source(version: str, target: str, payload: Path, icon: Path) -> str:
 
     emit(payload, Path("."), 5)
 
-    # Shell registration. Both components keep a registry value as their key
-    # path, so Windows Installer removes the PDF association on uninstall
+    # Shell registration. Every component keeps a registry value as its key
+    # path, so Windows Installer removes Breeze's own entries on uninstall
     # without touching the user's chosen default application.
     shortcut = _identifier("cmp", f"{target}/shortcut")
-    progid = _identifier("cmp", f"{target}/pdf-progid")
-    open_with = _identifier("cmp", f"{target}/pdf-open-with")
+    application = _identifier("cmp", f"{target}/application")
     command = f'"[INSTALLFOLDER]{WINDOWS_EXECUTABLE}" "%1"'
     # Python 3.11 rejects a backslash inside an f-string expression, and the
     # release tooling supports 3.11+, so every registry key is assembled here
     # rather than inside the interpolations below.
     classes = "Software\\Classes"
-    progid_key = f"{classes}\\{PDF_PROGID}"
-    progid_icon_key = f"{progid_key}\\DefaultIcon"
-    progid_command_key = f"{progid_key}\\shell\\open\\command"
-    open_with_key = f"{classes}\\{WINDOWS_PDF_EXTENSION}\\OpenWithProgids"
     application_key = f"{classes}\\Applications\\{WINDOWS_EXECUTABLE}"
     supported_types_key = f"{application_key}\\SupportedTypes"
     application_command_key = f"{application_key}\\shell\\open\\command"
-    lines.extend(
+    shell_components = [application]
+    shell: list[str] = []
+    for document in DOCUMENT_TYPES:
+        stem = document.extensions[0]
+        progid = _identifier("cmp", f"{target}/{stem}-progid")
+        open_with = _identifier("cmp", f"{target}/{stem}-open-with")
+        shell_components.extend((progid, open_with))
+        progid_key = f"{classes}\\{document.progid}"
+        progid_icon_key = f"{progid_key}\\DefaultIcon"
+        progid_command_key = f"{progid_key}\\shell\\open\\command"
+        display_name = f"Breeze {document.name}"
+        icon = f"[INSTALLFOLDER]{WINDOWS_EXECUTABLE},0"
+        shell.extend(
+            [
+                f"          <Component Id={_attr(progid)} "
+                f"Guid={_attr(_guid('registry', target, f'{stem}-progid'))}>",
+                f'            <RegistryValue Root="HKLM" '
+                f'Key={_attr(progid_key)} Type="string" '
+                f'Value={_attr(display_name)} KeyPath="yes" />',
+                f'            <RegistryValue Root="HKLM" '
+                f'Key={_attr(progid_icon_key)} '
+                f'Type="string" Value={_attr(icon)} />',
+                f'            <RegistryValue Root="HKLM" '
+                f'Key={_attr(progid_command_key)} '
+                f'Type="string" Value={_attr(command)} />',
+                "          </Component>",
+                f"          <Component Id={_attr(open_with)} "
+                f"Guid={_attr(_guid('registry', target, f'{stem}-open-with'))}>",
+            ]
+        )
+        for index, extension in enumerate(document.extensions):
+            open_with_key = f"{classes}\\.{extension}\\OpenWithProgids"
+            key_path = ' KeyPath="yes"' if index == 0 else ""
+            shell.append(
+                f'            <RegistryValue Root="HKLM" '
+                f'Key={_attr(open_with_key)} '
+                f'Name={_attr(document.progid)} Type="string" Value=""{key_path} />'
+            )
+        shell.append("          </Component>")
+    shell.extend(
         [
-            f"          <Component Id={_attr(progid)} "
-            f"Guid={_attr(_guid('registry', target, 'pdf-progid'))}>",
-            f'            <RegistryValue Root="HKLM" '
-            f'Key={_attr(progid_key)} Type="string" '
-            f'Value="Breeze PDF Document" KeyPath="yes" />',
-            f'            <RegistryValue Root="HKLM" '
-            f'Key={_attr(progid_icon_key)} '
-            f'Type="string" Value={_attr(f"[INSTALLFOLDER]{WINDOWS_EXECUTABLE},0")} />',
-            f'            <RegistryValue Root="HKLM" '
-            f'Key={_attr(progid_command_key)} '
-            f'Type="string" Value={_attr(command)} />',
-            "          </Component>",
-            f"          <Component Id={_attr(open_with)} "
-            f"Guid={_attr(_guid('registry', target, 'pdf-open-with'))}>",
-            f'            <RegistryValue Root="HKLM" '
-            f'Key={_attr(open_with_key)} '
-            f'Name={_attr(PDF_PROGID)} Type="string" Value="" KeyPath="yes" />',
-            f'            <RegistryValue Root="HKLM" '
-            f'Key={_attr(supported_types_key)} '
-            f'Name={_attr(WINDOWS_PDF_EXTENSION)} Type="string" Value="" />',
+            f"          <Component Id={_attr(application)} "
+            f"Guid={_attr(_guid('registry', target, 'application'))}>",
             f'            <RegistryValue Root="HKLM" '
             f'Key={_attr(application_key)} '
             f'Name="FriendlyAppName" Type="string" Value={_attr(DISPLAY_NAME)} />',
             f'            <RegistryValue Root="HKLM" '
             f'Key={_attr(application_command_key)} '
             f'Type="string" Value={_attr(command)} />',
-            "          </Component>",
+        ]
+    )
+    for index, document in enumerate(DOCUMENT_TYPES):
+        for extension in document.extensions:
+            first = index == 0 and extension == document.extensions[0]
+            key_path = ' KeyPath="yes"' if first else ""
+            shell.append(
+                f'            <RegistryValue Root="HKLM" '
+                f'Key={_attr(supported_types_key)} '
+                f'Name={_attr(f".{extension}")} Type="string" Value=""{key_path} />'
+            )
+    shell.append("          </Component>")
+    lines.extend(shell)
+    lines.extend(
+        [
             "        </Directory>",
             "      </Directory>",
             '      <Directory Id="ProgramMenuFolder">',
@@ -399,8 +462,8 @@ def wix_source(version: str, target: str, payload: Path, icon: Path) -> str:
     for component in components:
         lines.append(f'      <ComponentRef Id="{component}" />')
     lines.append(f'      <ComponentRef Id="{shortcut}" />')
-    lines.append(f'      <ComponentRef Id="{progid}" />')
-    lines.append(f'      <ComponentRef Id="{open_with}" />')
+    for component in shell_components:
+        lines.append(f'      <ComponentRef Id="{component}" />')
     lines.extend(["    </Feature>", "  </Product>", "</Wix>", ""])
     return "\n".join(lines)
 
@@ -412,35 +475,52 @@ def inno_script(version: str, target: str, payload: Path, icon: Path, output: Pa
     needs the documented `{{GUID}` spelling, and the AppId must stay identical
     across versions for an upgrade to replace an installed copy. The registry
     block matches the MSI's shell registration: Breeze appears under "Open
-    with" and is never installed as the PDF default handler.
+    with" for every readable format and is never installed as a default handler.
     """
     core = _version_parts(version)["core"]
     app_id = "{{" + str(uuid.uuid5(GUID_NAMESPACE, f"inno-{target}")).upper() + "}"
     executable = r"{app}\breeze-app.exe"
     command = f'""{executable}"" ""%1""'
     classes = r"Software\Classes"
-    registry = [
-        f'Root: HKLM; Subkey: "{classes}\\{PDF_PROGID}"; ValueType: string; '
-        f'ValueName: ""; ValueData: "Breeze PDF Document"; Flags: uninsdeletekey',
-        f'Root: HKLM; Subkey: "{classes}\\{PDF_PROGID}\\DefaultIcon"; '
-        f'ValueType: string; ValueName: ""; ValueData: "{executable},0"; '
-        "Flags: uninsdeletekey",
-        f'Root: HKLM; Subkey: "{classes}\\{PDF_PROGID}\\shell\\open\\command"; '
-        f'ValueType: string; ValueName: ""; ValueData: "{command}"; '
-        "Flags: uninsdeletekey",
-        f'Root: HKLM; Subkey: "{classes}\\{WINDOWS_PDF_EXTENSION}\\OpenWithProgids"; '
-        f'ValueType: string; ValueName: "{PDF_PROGID}"; ValueData: ""; '
-        "Flags: uninsdeletevalue",
-        f'Root: HKLM; Subkey: "{classes}\\Applications\\{WINDOWS_EXECUTABLE}"; '
-        f'ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{DISPLAY_NAME}"; '
-        "Flags: uninsdeletekey",
-        f'Root: HKLM; Subkey: "{classes}\\Applications\\{WINDOWS_EXECUTABLE}\\SupportedTypes"; '
-        f'ValueType: string; ValueName: "{WINDOWS_PDF_EXTENSION}"; ValueData: ""; '
-        "Flags: uninsdeletevalue",
-        f'Root: HKLM; Subkey: "{classes}\\Applications\\{WINDOWS_EXECUTABLE}\\shell\\open\\command"; '
-        f'ValueType: string; ValueName: ""; ValueData: "{command}"; '
-        "Flags: uninsdeletekey",
-    ]
+    registry: list[str] = []
+    for document in DOCUMENT_TYPES:
+        progid_key = f"{classes}\\{document.progid}"
+        registry.extend(
+            [
+                f'Root: HKLM; Subkey: "{progid_key}"; ValueType: string; '
+                f'ValueName: ""; ValueData: "Breeze {document.name}"; '
+                "Flags: uninsdeletekey",
+                f'Root: HKLM; Subkey: "{progid_key}\\DefaultIcon"; '
+                f'ValueType: string; ValueName: ""; ValueData: "{executable},0"; '
+                "Flags: uninsdeletekey",
+                f'Root: HKLM; Subkey: "{progid_key}\\shell\\open\\command"; '
+                f'ValueType: string; ValueName: ""; ValueData: "{command}"; '
+                "Flags: uninsdeletekey",
+            ]
+        )
+        for extension in document.extensions:
+            registry.append(
+                f'Root: HKLM; Subkey: "{classes}\\.{extension}\\OpenWithProgids"; '
+                f'ValueType: string; ValueName: "{document.progid}"; ValueData: ""; '
+                "Flags: uninsdeletevalue"
+            )
+    registry.extend(
+        [
+            f'Root: HKLM; Subkey: "{classes}\\Applications\\{WINDOWS_EXECUTABLE}"; '
+            f'ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{DISPLAY_NAME}"; '
+            "Flags: uninsdeletekey",
+            f'Root: HKLM; Subkey: "{classes}\\Applications\\{WINDOWS_EXECUTABLE}\\shell\\open\\command"; '
+            f'ValueType: string; ValueName: ""; ValueData: "{command}"; '
+            "Flags: uninsdeletekey",
+        ]
+    )
+    for document in DOCUMENT_TYPES:
+        for extension in document.extensions:
+            registry.append(
+                f'Root: HKLM; Subkey: "{classes}\\Applications\\{WINDOWS_EXECUTABLE}\\SupportedTypes"; '
+                f'ValueType: string; ValueName: ".{extension}"; ValueData: ""; '
+                "Flags: uninsdeletevalue"
+            )
     return (
         "[Setup]\n"
         f"AppId={app_id}\n"
@@ -513,12 +593,13 @@ def build_payload(version: str, target: str, binary: Path, staging: Path) -> Pat
             # over; changing the default stays a Finder user decision.
             "CFBundleDocumentTypes": [
                 {
-                    "CFBundleTypeName": "PDF Document",
+                    "CFBundleTypeName": document.name,
                     "CFBundleTypeRole": "Viewer",
                     "LSHandlerRank": "Alternate",
-                    "LSItemContentTypes": [PDF_CONTENT_TYPE],
-                    "CFBundleTypeExtensions": ["pdf"],
+                    "LSItemContentTypes": [document.content_type],
+                    "CFBundleTypeExtensions": list(document.extensions),
                 }
+                for document in DOCUMENT_TYPES
             ],
             # Apple's bundle version fields cannot contain SemVer suffixes.
             "CFBundleShortVersionString": core,

@@ -37,13 +37,29 @@ cat > "$bundle/Contents/Info.plist" <<'PLIST'
 <key>LSMinimumSystemVersion</key><string>15.0</string>
 <!-- A viewer claim puts Breeze in Finder's Open With menu. The Alternate
      handler rank means Launch Services never takes the default over. -->
-<key>CFBundleDocumentTypes</key><array><dict>
+<key>CFBundleDocumentTypes</key><array>
+<dict>
 <key>CFBundleTypeName</key><string>PDF Document</string>
 <key>CFBundleTypeRole</key><string>Viewer</string>
 <key>LSHandlerRank</key><string>Alternate</string>
 <key>LSItemContentTypes</key><array><string>com.adobe.pdf</string></array>
 <key>CFBundleTypeExtensions</key><array><string>pdf</string></array>
-</dict></array>
+</dict>
+<dict>
+<key>CFBundleTypeName</key><string>EPUB Document</string>
+<key>CFBundleTypeRole</key><string>Viewer</string>
+<key>LSHandlerRank</key><string>Alternate</string>
+<key>LSItemContentTypes</key><array><string>org.idpf.epub-container</string></array>
+<key>CFBundleTypeExtensions</key><array><string>epub</string></array>
+</dict>
+<dict>
+<key>CFBundleTypeName</key><string>Markdown Document</string>
+<key>CFBundleTypeRole</key><string>Viewer</string>
+<key>LSHandlerRank</key><string>Alternate</string>
+<key>LSItemContentTypes</key><array><string>net.daringfireball.markdown</string></array>
+<key>CFBundleTypeExtensions</key><array><string>md</string><string>markdown</string></array>
+</dict>
+</array>
 </dict></plist>
 PLIST
 # IconServices caches an application icon against the bundle's own modification

@@ -178,10 +178,15 @@ class ReleaseTests(unittest.TestCase):
                         claim["LSItemContentTypes"][0]: claim
                         for claim in plist["CFBundleDocumentTypes"]
                     }
-                    pdf = claims["com.adobe.pdf"]
-                    self.assertEqual(pdf["CFBundleTypeRole"], "Viewer")
-                    self.assertEqual(pdf["LSHandlerRank"], "Alternate")
-                    self.assertIn("pdf", pdf["CFBundleTypeExtensions"])
+                    for document in release.DOCUMENT_TYPES:
+                        claim = claims[document.content_type]
+                        self.assertEqual(claim["CFBundleTypeName"], document.name)
+                        self.assertEqual(claim["CFBundleTypeRole"], "Viewer")
+                        self.assertEqual(claim["LSHandlerRank"], "Alternate")
+                        for extension in document.extensions:
+                            self.assertIn(
+                                extension, claim["CFBundleTypeExtensions"], extension
+                            )
                     self.assertIn("Contents/Resources/Breeze.icns", files)
                     documents = "Contents/Resources"
                 elif target.endswith("windows-msvc"):
@@ -215,6 +220,28 @@ class ReleaseTests(unittest.TestCase):
                     (payload / documents / "VERSION").read_text(encoding="utf-8"),
                     version + "\n",
                 )
+
+    def test_local_macos_bundle_declares_every_document_type(self):
+        script = (release.ROOT / "scripts/bundle-macos.sh").read_text(encoding="utf-8")
+        _, _, plist_text = script.partition("<<'PLIST'\n")
+        plist_text, _, _ = plist_text.partition("\nPLIST\n")
+        self.assertTrue(plist_text, "the bundle script must contain its Info.plist")
+        plist = plistlib.loads(plist_text.encode("utf-8"))
+        claims = {
+            claim["LSItemContentTypes"][0]: claim
+            for claim in plist["CFBundleDocumentTypes"]
+        }
+        self.assertEqual(
+            set(claims), {document.content_type for document in release.DOCUMENT_TYPES}
+        )
+        for document in release.DOCUMENT_TYPES:
+            claim = claims[document.content_type]
+            self.assertEqual(claim["CFBundleTypeName"], document.name)
+            self.assertEqual(claim["CFBundleTypeRole"], "Viewer")
+            self.assertEqual(claim["LSHandlerRank"], "Alternate")
+            self.assertEqual(
+                claim["CFBundleTypeExtensions"], list(document.extensions)
+            )
 
     def test_generated_windows_sources_are_well_formed_and_stable(self):
         version = "1.2.3-rc.1"
@@ -261,31 +288,42 @@ class ReleaseTests(unittest.TestCase):
         shortcut = root.find(".//w:Shortcut", WIX)
         self.assertEqual(shortcut.get("Target"), "[INSTALLFOLDER]breeze-app.exe")
 
-        # Breeze lists itself as a PDF viewer. Every registry value has to agree
-        # with the Inno script, and no entry may claim the default handler.
+        # Breeze lists itself as a viewer for every readable format. Every
+        # registry value has to agree with the Inno script, and no entry may
+        # claim the default handler.
         registry = {
             (value.get("Key"), value.get("Name") or ""): value.get("Value") or ""
             for value in root.findall(".//w:RegistryValue", WIX)
         }
-        self.assertEqual(
-            registry[("Software\\Classes\\Breeze.Document", "")],
-            "Breeze PDF Document",
-        )
-        self.assertEqual(
-            registry[("Software\\Classes\\Breeze.Document\\shell\\open\\command", "")],
-            '"[INSTALLFOLDER]breeze-app.exe" "%1"',
-        )
-        self.assertEqual(
-            registry[("Software\\Classes\\Applications\\breeze-app.exe\\SupportedTypes", ".pdf")],
-            "",
-        )
-        self.assertIn(
-            ("Software\\Classes\\.pdf\\OpenWithProgids", "Breeze.Document"), registry
-        )
-        # The extension's own default value stays untouched: only the user can
-        # change the handler in Windows Settings.
-        self.assertNotIn(("Software\\Classes\\.pdf", ""), registry)
-        self.assertNotIn(("Software\\Classes\\.pdf\\shell\\open\\command", ""), registry)
+        for document in release.DOCUMENT_TYPES:
+            progid = f"Software\\Classes\\{document.progid}"
+            self.assertEqual(registry[(progid, "")], f"Breeze {document.name}")
+            self.assertEqual(
+                registry[(f"{progid}\\shell\\open\\command", "")],
+                '"[INSTALLFOLDER]breeze-app.exe" "%1"',
+            )
+            for extension in document.extensions:
+                self.assertIn(
+                    (f"Software\\Classes\\.{extension}\\OpenWithProgids", document.progid),
+                    registry,
+                )
+                self.assertEqual(
+                    registry[
+                        (
+                            "Software\\Classes\\Applications"
+                            "\\breeze-app.exe\\SupportedTypes",
+                            f".{extension}",
+                        )
+                    ],
+                    "",
+                )
+                # The extension's own default value stays untouched: only the
+                # user can change the handler in Windows Settings.
+                self.assertNotIn((f"Software\\Classes\\.{extension}", ""), registry)
+                self.assertNotIn(
+                    (f"Software\\Classes\\.{extension}\\shell\\open\\command", ""),
+                    registry,
+                )
 
         script = release.inno_script(version, WINDOWS, payload, icon, self.root)
         self.assertIn("AppId={{", script, "Inno needs an escaped literal brace")
@@ -298,26 +336,43 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("[Icons]", script)
         self.assertIn("[Registry]", script)
         self.assertIn("ChangesAssociations=yes", script)
-        for key in (
-            r"Software\Classes\Breeze.Document",
-            r"Software\Classes\.pdf\OpenWithProgids",
-            r"Software\Classes\Applications\breeze-app.exe\SupportedTypes",
-        ):
-            self.assertIn(key, script, key)
         self.assertIn(
-            'Subkey: "Software\\Classes\\.pdf\\OpenWithProgids"; '
-            'ValueType: string; ValueName: "Breeze.Document"; ValueData: ""',
+            r"Software\Classes\Applications\breeze-app.exe\SupportedTypes",
             script,
         )
+        for document in release.DOCUMENT_TYPES:
+            self.assertIn(
+                rf"Software\Classes\{document.progid}", script, document.progid
+            )
+            self.assertIn(
+                f'ValueData: "Breeze {document.name}"; Flags: uninsdeletekey',
+                script,
+                document.progid,
+            )
+            for extension in document.extensions:
+                self.assertIn(
+                    rf"Software\Classes\.{extension}\OpenWithProgids",
+                    script,
+                    extension,
+                )
+                self.assertIn(
+                    rf'Subkey: "Software\Classes\.{extension}\OpenWithProgids"; '
+                    f'ValueType: string; ValueName: "{document.progid}"; ValueData: ""',
+                    script,
+                    extension,
+                )
+                self.assertIn(
+                    f'Name: ".{extension}"', script, extension
+                )
+                self.assertNotIn(
+                    rf'Subkey: "Software\Classes\.{extension}";',
+                    script,
+                    f"the .{extension} default value must stay with the user",
+                )
         self.assertIn(
             'ValueData: ' + '"""' + r"{app}\breeze-app.exe" + '"" ""%1"""',
             script,
             "the open command must quote the executable and the document",
-        )
-        self.assertNotIn(
-            'Subkey: "Software\\Classes\\.pdf";',
-            script,
-            "the .pdf default value must stay with the user",
         )
 
     def test_debian_metadata_follows_policy(self):
@@ -341,7 +396,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("Exec=breeze-app %F", desktop)
         self.assertIn("Icon=breeze", desktop)
         self.assertIn("StartupWMClass=breeze", desktop)
-        self.assertIn("MimeType=application/pdf;", desktop)
+        self.assertIn("MimeType=application/pdf;application/epub+zip;text/markdown;", desktop)
         self.assertTrue((payload / "usr/bin/breeze-app").is_file())
         self.assertTrue((payload / "usr/share/icons/hicolor/256x256/apps/breeze.png").is_file())
 

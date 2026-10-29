@@ -16,9 +16,11 @@ SmartScreen warn before installation, and the Linux packages are only exercised
 against the Ubuntu 24.04 build baseline. Native Windows/Linux runtime
 acceptance, the complete dependency-license audit, and the rendering/fidelity/
 performance gates in `docs/plans/04-release.md` remain pending. A stable SemVer
-tag does not waive those gates. There is no automatic update feed or
-file-association registration, and the Linux desktop entry deliberately declares
-no MIME types.
+tag does not waive those gates. There is no automatic update feed. Installers
+register Breeze as an alternate viewer for PDF, EPUB and Markdown documents, so
+file managers offer it under "Open with"; the default handler remains a user
+choice in the operating system, and the Linux desktop entry declares all three
+MIME types.
 
 Two-page EPUB reading does not render in the Windows package: MuPDF's layout does
 not return for the half-width column, so the view never produces a frame.
