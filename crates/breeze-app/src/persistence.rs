@@ -46,6 +46,8 @@ pub(super) struct SavedState {
     #[serde(default)]
     pub library_grid: bool,
     pub sidebar: bool,
+    #[serde(default = "default_true")]
+    pub show_status_bar: bool,
     pub width: f32,
     pub thumbnails: bool,
     pub remember_files: bool,
@@ -59,10 +61,13 @@ pub(super) struct SavedState {
 fn first_category_id() -> usize {
     1
 }
+fn default_true() -> bool {
+    true
+}
 impl Default for SavedState {
     fn default() -> Self {
         Self {
-            version: 10,
+            version: 11,
             books: Vec::new(),
             active: 0,
             categories: Vec::new(),
@@ -72,6 +77,7 @@ impl Default for SavedState {
             legacy_dark: None,
             library_grid: false,
             sidebar: true,
+            show_status_bar: true,
             width: 208.,
             thumbnails: false,
             remember_files: true,
@@ -103,7 +109,7 @@ impl SavedState {
         };
     }
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(matches!(self.version, 1..=10), "Unsupported state version");
+        anyhow::ensure!(matches!(self.version, 1..=11), "Unsupported state version");
         anyhow::ensure!(self.books.len() <= 4096, "Too many library entries");
         anyhow::ensure!(
             self.width.is_finite() && (168.0..=360.0).contains(&self.width),
@@ -184,7 +190,7 @@ impl SavedState {
 impl Breeze {
     pub(super) fn snapshot(&self) -> SavedState {
         SavedState {
-            version: 10,
+            version: 11,
             books: self
                 .books
                 .iter()
@@ -223,6 +229,7 @@ impl Breeze {
             legacy_dark: None,
             library_grid: self.library_grid,
             sidebar: self.sidebar,
+            show_status_bar: self.status_bar_visible,
             width: self
                 .navigation_width
                 .clamp(reader::NAVIGATION_MIN_WIDTH, reader::NAVIGATION_MAX_WIDTH),
@@ -363,6 +370,7 @@ impl Breeze {
         self.theme_preference = state.preference;
         self.library_grid = state.library_grid;
         self.sidebar = state.sidebar;
+        self.status_bar_visible = state.show_status_bar;
         self.navigation_width = state.width.max(reader::NAVIGATION_MIN_WIDTH);
         self.thumbs = state.thumbnails;
         self.remember_files = state.remember_files;
@@ -717,6 +725,30 @@ mod tests {
             assert_eq!(serde_json::from_slice::<SavedState>(&bytes).unwrap(), state);
         }
     }
+    #[test]
+    fn status_bar_visibility_defaults_on_and_roundtrips() {
+        let state = SavedState::default();
+        assert!(state.show_status_bar);
+        let restored: SavedState =
+            serde_json::from_slice(&serde_json::to_vec(&state).unwrap()).unwrap();
+        assert!(restored.show_status_bar);
+
+        let hidden = SavedState {
+            show_status_bar: false,
+            ..Default::default()
+        };
+        let restored: SavedState =
+            serde_json::from_slice(&serde_json::to_vec(&hidden).unwrap()).unwrap();
+        assert!(!restored.show_status_bar);
+
+        let mut legacy = serde_json::to_value(SavedState::default()).unwrap();
+        legacy["version"] = 10.into();
+        legacy.as_object_mut().unwrap().remove("show_status_bar");
+        let restored: SavedState = serde_json::from_value(legacy).unwrap();
+        restored.validate().unwrap();
+        assert!(restored.show_status_bar);
+    }
+
     #[test]
     fn reading_preferences_roundtrip_and_legacy_layouts_survive() {
         let mut state = SavedState::default();

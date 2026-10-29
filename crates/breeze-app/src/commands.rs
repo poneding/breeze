@@ -1,7 +1,9 @@
 //! Bindings are the single source of truth for command buttons and Kit's Kbd tooltips.
 use crate::*;
 use gpui_kit::base::InteractiveElementExt as _;
-use gpui_kit::component::{ElementExt, TitleBar, button::ButtonCustomVariant};
+use gpui_kit::component::{
+    ElementExt, TitleBar, button::ButtonCustomVariant, menu::ContextMenuExt,
+};
 
 pub fn bind(cx: &mut App) {
     tool_settings::bind(cx);
@@ -401,6 +403,8 @@ impl Breeze {
             source: source.clone(),
             title: book.title.clone(),
         };
+        let can_reveal = matches!(source, Source::File(_));
+        let menu_view = cx.entity();
         row()
             .id(("draggable-tab", index))
             .h_full()
@@ -442,6 +446,16 @@ impl Breeze {
                         window.focus(&this.focus, cx);
                         this.open_book(index, cx);
                     }))
+                    .context_menu(move |menu, window, menu_cx| {
+                        context_menus::tab(
+                            menu,
+                            menu_view.clone(),
+                            index,
+                            can_reveal,
+                            window,
+                            menu_cx,
+                        )
+                    })
                     .child(
                         row()
                             .id(("document-tab-content", index))

@@ -1,3 +1,25 @@
+## October 27 Status bar visibility context control
+
+The document content context menu now includes an icon-and-text `Show status
+bar` toggle. It starts checked, uses an unchecked square after the bar is
+hidden, and calls the existing context menu even while the status bar is absent.
+PDF, EPUB, and Markdown reader layouts omit their 32 px status rows when the
+option is off, allowing the viewport to fill the released height. Split reading
+keeps both panes on the same preference.
+
+The preference persists as `show_status_bar` in session state schema version 11.
+Snapshots from version 10 and earlier default the missing field to enabled. A
+focused persistence test covers default-on migration and both serialized values.
+
+`cargo fmt --all -- --check`, the five context-menu component tests, the focused
+state-migration test, the complete `cargo test --workspace --locked` suite (259
+app tests plus every crate and integration suite), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. Native
+macOS inspection with a uniquely bundled app and isolated
+`BREEZE_DATA_DIR` confirmed the checked default, hidden layout, unchecked reopened
+menu item, and restoration through the context menu. Windows and Linux remain
+unverified.
+
 ## October 27 Markdown image and Mermaid edge rendering
 
 The apparent borders around Markdown images and Mermaid sequence diagrams are
@@ -79,6 +101,28 @@ confirmed three front matter entries as a property list and both requested
 Shields badges as images. Switching to source and immediately back to reading
 restored the rendered badges without a loading state. Windows and Linux remain
 unverified.
+
+## October 26 Tab and content context menus
+
+Document tabs now open an icon-and-text context menu with the platform file
+manager reveal action and a Close action bound to the clicked tab. File-backed
+documents enable reveal; the bundled in-memory sample shows the action disabled.
+Close continues through the existing annotation-save and Markdown-draft guards.
+
+The PDF content viewport now exposes the status bar's document-wide operations:
+page focus, rotation, layout, zoom steps and presets, fit modes, and fullscreen.
+EPUB and Markdown content expose spread or reading-width, text-size, and
+fullscreen controls. Each menu entry calls the existing status mutation and uses
+Kit's selected state and shortcut display. A right click on EPUB content no
+longer starts a text selection, so the context gesture remains separate from
+left-button selection.
+
+`cargo fmt --all -- --check`, the focused context-menu component tests,
+the complete `cargo test --workspace --locked` suite, and `cargo clippy
+--workspace --all-targets --locked -- -D warnings` pass. Native macOS inspection
+of the local review bundle used isolated `BREEZE_DATA_DIR` values for a PDF and a
+Markdown document and confirmed the tab, PDF content, and Markdown content
+menus. Windows and Linux remain unverified.
 
 ## October 23 Page submit icon matches Close density
 

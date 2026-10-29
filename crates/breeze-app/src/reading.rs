@@ -2,7 +2,7 @@
 use crate::*;
 use breeze_core::Rotation;
 use breeze_core::annotations::{PageGeometry, ViewGeometry};
-use gpui_kit::component::ElementExt;
+use gpui_kit::component::{ElementExt, menu::ContextMenuExt};
 use gpui_kit::component::{VirtualListScrollHandle, v_virtual_list};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -1111,7 +1111,7 @@ impl Breeze {
                 .into_any_element()
         }
     }
-    fn reading_viewport_size(&self, window: &Window) -> (f32, f32) {
+    pub(super) fn reading_viewport_size(&self, window: &Window) -> (f32, f32) {
         // Split readers fit against their own laid-out content cell. Window
         // dimensions would center the page outside a narrow pane's clip.
         if self.is_split()
@@ -1232,6 +1232,19 @@ impl Breeze {
         let (width, height) = self.reading_viewport_size(window);
         let p = self.p(cx);
         let view = cx.entity();
+        let menu_state = context_menus::ContentMenu::Pdf {
+            layout,
+            zoom,
+            displayed_zoom: self
+                .display_zoom(window)
+                .round()
+                .clamp(f32::from(Zoom::MIN_PERCENT), f32::from(Zoom::MAX_PERCENT))
+                as u16,
+            full_screen: self.full_screen,
+        };
+        let early_menu_view = cx.entity();
+        let continuous_menu_view = cx.entity();
+        let single_menu_view = cx.entity();
         let annotation_controls = self.annotation_selection_controls_overlay(cx);
         let viewport = div()
             .id("document-viewport")
@@ -1344,6 +1357,15 @@ impl Breeze {
                 } else {
                     self.message.clone()
                 }))
+                .context_menu(move |menu, window, menu_cx| {
+                    context_menus::content(
+                        menu,
+                        early_menu_view.clone(),
+                        menu_state,
+                        window,
+                        menu_cx,
+                    )
+                })
                 .into_any_element();
         }
         let sizes = if self.reading.sizes.is_empty() {
@@ -1485,6 +1507,15 @@ impl Breeze {
                         ),
                 )
                 .children(annotation_controls)
+                .context_menu(move |menu, window, menu_cx| {
+                    context_menus::content(
+                        menu,
+                        continuous_menu_view.clone(),
+                        menu_state,
+                        window,
+                        menu_cx,
+                    )
+                })
                 .into_any_element();
         }
         let range = layout.pages(page, sizes.len());
@@ -1527,6 +1558,9 @@ impl Breeze {
                     ),
             )
             .children(annotation_controls)
+            .context_menu(move |menu, window, menu_cx| {
+                context_menus::content(menu, single_menu_view.clone(), menu_state, window, menu_cx)
+            })
             .into_any_element()
     }
 }

@@ -232,3 +232,26 @@ The reader's top visible block determines the editor reveal target, while the
 editor's top visible source line becomes the preview's restore target. The
 source editor must not retain Kit's default half-viewport of empty trailing
 scroll range beyond the last line.
+
+## October 26 Tab and content context menus
+
+Right-clicking a document tab opens an icon-and-text menu for the tab under the
+pointer. File-backed documents expose the platform reveal command; the bundled
+in-binary sample keeps that row disabled. Close acts on the clicked tab even
+when it is not active and retains the existing dirty-annotation and unsaved
+Markdown guards.
+
+Right-clicking the document content exposes the document-wide operations also
+available in the status bar. PDF content provides page focus, page rotation,
+single/two-page and continuous layout choices, zoom steps, fit modes, discrete
+zoom percentages, and fullscreen reading. EPUB and Markdown content provides
+their spread or reading-width toggle, text-size steps, and fullscreen reading.
+The menus use Kit checks and shortcuts, and call the same state mutations as the
+visible controls so the two entry points cannot diverge.
+
+The content menu also owns a checked `Show status bar` preference. It defaults
+to on, remains available when the bar is hidden, and is saved with the rest of
+the workspace preferences. Turning it off removes the 32 px status bar and lets
+the document viewport consume that space; turning it on restores the bar. The
+preference applies to PDF, EPUB, and Markdown readers and is shared by both panes
+in split reading.

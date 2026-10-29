@@ -17,7 +17,7 @@ use breeze_reflow::{EpubWorker, epub, markdown};
 use gpui_kit::base::{Scrollbar, TextView, TextViewState};
 use gpui_kit::component::{
     ElementExt, h_resizable,
-    menu::{DropdownMenu, PopupMenuItem},
+    menu::{ContextMenuExt, DropdownMenu, PopupMenuItem},
     resizable_panel,
     tab::{Tab, TabBar},
     text::{
@@ -1641,193 +1641,199 @@ impl Breeze {
                     }),
             )
             .child(self.reflow_content(window, cx))
-            .child(
-                row()
-                    .id("reflow-status")
-                    .test_support()
-                    .h(px(32.))
-                    .flex_shrink_0()
-                    .px_2()
-                    .gap_1()
-                    .border_t_1()
-                    .border_color(p.line)
-                    .bg(p.bg)
-                    // Page turns stay on the keyboard; the status bar starts
-                    // with the draft's editor status when one is open.
-                    .when(
-                        self.books[self.active].markdown_editing
-                            && self.books[self.active].markdown_edit.is_some(),
-                        |bar| {
-                            let status = self.books[self.active]
-                                .markdown_edit
-                                .as_ref()
-                                .map(|editor| editor.read(cx).status(cx));
+            .when(self.status_bar_visible, |main| {
+                main.child(
+                    row()
+                        .id("reflow-status")
+                        .test_support()
+                        .h(px(32.))
+                        .flex_shrink_0()
+                        .px_2()
+                        .gap_1()
+                        .border_t_1()
+                        .border_color(p.line)
+                        .bg(p.bg)
+                        // Page turns stay on the keyboard; the status bar starts
+                        // with the draft's editor status when one is open.
+                        .when(
+                            self.books[self.active].markdown_editing
+                                && self.books[self.active].markdown_edit.is_some(),
+                            |bar| {
+                                let status = self.books[self.active]
+                                    .markdown_edit
+                                    .as_ref()
+                                    .map(|editor| editor.read(cx).status(cx));
+                                bar.child(
+                                    div()
+                                        .id("markdown-editor-status")
+                                        .test_support()
+                                        .text_size(px(11.))
+                                        .text_color(p.muted)
+                                        .when_some(status, |item, status| item.child(status)),
+                                )
+                            },
+                        )
+                        // Only a paginated EPUB has a page position. Markdown
+                        // scrolls without pages, so it reports no reading progress
+                        // here rather than a percentage that duplicates the
+                        // scrollbar.
+                        .when_some(self.reflow_position_text(), |bar, position| {
                             bar.child(
                                 div()
-                                    .id("markdown-editor-status")
+                                    .id("reflow-position")
                                     .test_support()
-                                    .text_size(px(11.))
+                                    .min_w(px(56.))
+                                    .text_size(px(12.))
                                     .text_color(p.muted)
-                                    .when_some(status, |item, status| item.child(status)),
+                                    // The visible text is a page count; name it for
+                                    // assistive technology and for the tests that pin it.
+                                    .aria_label(position.clone())
+                                    .child(position),
                             )
-                        },
-                    )
-                    // Only a paginated EPUB has a page position. Markdown
-                    // scrolls without pages, so it reports no reading progress
-                    // here rather than a percentage that duplicates the
-                    // scrollbar.
-                    .when_some(self.reflow_position_text(), |bar, position| {
-                        bar.child(
+                        })
+                        .when(!epub, |bar| match self.markdown_characters(cx) {
+                            Some(characters) => {
+                                // The accessibility label repeats the visible text
+                                // so tests and assistive technology read one value.
+                                let text: SharedString =
+                                    tf!("{} characters", grouped_characters(characters)).into();
+                                bar.child(
+                                    div()
+                                        .id("markdown-characters")
+                                        .test_support()
+                                        .flex_shrink_0()
+                                        .text_size(px(11.))
+                                        .text_color(p.muted)
+                                        .aria_label(text.clone())
+                                        .tooltip(|window, cx| {
+                                            Tooltip::new(tr!("Characters in the Markdown text"))
+                                                .build(window, cx)
+                                        })
+                                        .child(text),
+                                )
+                            }
+                            None => bar,
+                        })
+                        .child(
                             div()
-                                .id("reflow-position")
+                                .flex_1()
+                                .min_w(px(50.))
+                                .overflow_hidden()
+                                .text_size(px(11.))
+                                .text_color(p.muted)
+                                .when_some(self.reflow_notice(), |area, notice| {
+                                    area.child(
+                                        div()
+                                            .id("reflow-status-notice")
+                                            .test_support()
+                                            .child(notice),
+                                    )
+                                }),
+                        )
+                        .when(epub, |bar| {
+                            // Two-page reading is a view state: the button keeps the
+                            // pressed look while the spread is on.
+                            let spread = self.books[self.active].reflow.spread;
+                            bar.child({
+                                let color = self.status_color("reflow-spread", cx);
+                                let button = Button::new("reflow-spread")
+                                    .ghost()
+                                    .small()
+                                    .icon(IconName::Columns2)
+                                    // The pressed look and the toggle state are
+                                    // separate in Kit: one paints, one is announced.
+                                    .selected(spread)
+                                    .toggled(spread)
+                                    .accessibility_label(if spread {
+                                        tr!("Single-page reading")
+                                    } else {
+                                        tr!("Two-page reading")
+                                    })
+                                    .tooltip(if spread {
+                                        tr!("Single-page reading")
+                                    } else {
+                                        tr!("Two-page reading")
+                                    })
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.toggle_reflow_spread(cx)),
+                                    )
+                                    .text_color(if spread { p.text } else { color });
+                                self.status_control("reflow-spread", button, cx)
+                            })
+                        })
+                        .when(!epub, |bar| {
+                            let full_width = self.books[self.active].reflow.full_width;
+                            bar.child({
+                                let color = self.status_color("reflow-width", cx);
+                                let button = Button::new("reflow-width")
+                                    .ghost()
+                                    .small()
+                                    .icon(if full_width {
+                                        IconName::ChevronsRightLeft
+                                    } else {
+                                        IconName::ChevronsLeftRight
+                                    })
+                                    .selected(full_width)
+                                    .accessibility_label(if full_width {
+                                        tr!("Use the maximum reading width")
+                                    } else {
+                                        tr!("Use the full window width")
+                                    })
+                                    .tooltip(if full_width {
+                                        tr!("Use the maximum reading width")
+                                    } else {
+                                        tr!("Use the full window width")
+                                    })
+                                    .on_click(
+                                        cx.listener(|this, _, _, cx| this.toggle_reflow_width(cx)),
+                                    )
+                                    .text_color(if full_width { p.text } else { color });
+                                self.status_control("reflow-width", button, cx)
+                            })
+                        })
+                        .child({
+                            let color = self.status_color("text-smaller", cx);
+                            let button = Button::new("text-smaller")
+                                .ghost()
+                                .small()
+                                .icon(IconName::Minus)
+                                .accessibility_label(tr!("Decrease text size"))
+                                .tooltip(tr!("Decrease text size"))
+                                .disabled(self.books[self.active].reflow.font_size <= 12)
+                                .on_click(
+                                    cx.listener(|this, _, _, cx| this.resize_reflow_text(-1, cx)),
+                                )
+                                .text_color(color);
+                            self.status_control("text-smaller", button, cx)
+                        })
+                        .child(
+                            div()
+                                .id("text-size")
                                 .test_support()
-                                .min_w(px(56.))
+                                .min_w(px(48.))
+                                .text_center()
                                 .text_size(px(12.))
                                 .text_color(p.muted)
-                                // The visible text is a page count; name it for
-                                // assistive technology and for the tests that pin it.
-                                .aria_label(position.clone())
-                                .child(position),
+                                .child(format!("{} px", self.books[self.active].reflow.font_size)),
                         )
-                    })
-                    .when(!epub, |bar| match self.markdown_characters(cx) {
-                        Some(characters) => {
-                            // The accessibility label repeats the visible text
-                            // so tests and assistive technology read one value.
-                            let text: SharedString =
-                                tf!("{} characters", grouped_characters(characters)).into();
-                            bar.child(
-                                div()
-                                    .id("markdown-characters")
-                                    .test_support()
-                                    .flex_shrink_0()
-                                    .text_size(px(11.))
-                                    .text_color(p.muted)
-                                    .aria_label(text.clone())
-                                    .tooltip(|window, cx| {
-                                        Tooltip::new(tr!("Characters in the Markdown text"))
-                                            .build(window, cx)
-                                    })
-                                    .child(text),
-                            )
-                        }
-                        None => bar,
-                    })
-                    .child(
-                        div()
-                            .flex_1()
-                            .min_w(px(50.))
-                            .overflow_hidden()
-                            .text_size(px(11.))
-                            .text_color(p.muted)
-                            .when_some(self.reflow_notice(), |area, notice| {
-                                area.child(
-                                    div()
-                                        .id("reflow-status-notice")
-                                        .test_support()
-                                        .child(notice),
-                                )
-                            }),
-                    )
-                    .when(epub, |bar| {
-                        // Two-page reading is a view state: the button keeps the
-                        // pressed look while the spread is on.
-                        let spread = self.books[self.active].reflow.spread;
-                        bar.child({
-                            let color = self.status_color("reflow-spread", cx);
-                            let button = Button::new("reflow-spread")
+                        .child({
+                            let color = self.status_color("text-larger", cx);
+                            let button = Button::new("text-larger")
                                 .ghost()
                                 .small()
-                                .icon(IconName::Columns2)
-                                // The pressed look and the toggle state are
-                                // separate in Kit: one paints, one is announced.
-                                .selected(spread)
-                                .toggled(spread)
-                                .accessibility_label(if spread {
-                                    tr!("Single-page reading")
-                                } else {
-                                    tr!("Two-page reading")
-                                })
-                                .tooltip(if spread {
-                                    tr!("Single-page reading")
-                                } else {
-                                    tr!("Two-page reading")
-                                })
+                                .icon(IconName::Plus)
+                                .accessibility_label(tr!("Increase text size"))
+                                .tooltip(tr!("Increase text size"))
+                                .disabled(self.books[self.active].reflow.font_size >= 32)
                                 .on_click(
-                                    cx.listener(|this, _, _, cx| this.toggle_reflow_spread(cx)),
+                                    cx.listener(|this, _, _, cx| this.resize_reflow_text(1, cx)),
                                 )
-                                .text_color(if spread { p.text } else { color });
-                            self.status_control("reflow-spread", button, cx)
+                                .text_color(color);
+                            self.status_control("text-larger", button, cx)
                         })
-                    })
-                    .when(!epub, |bar| {
-                        let full_width = self.books[self.active].reflow.full_width;
-                        bar.child({
-                            let color = self.status_color("reflow-width", cx);
-                            let button = Button::new("reflow-width")
-                                .ghost()
-                                .small()
-                                .icon(if full_width {
-                                    IconName::ChevronsRightLeft
-                                } else {
-                                    IconName::ChevronsLeftRight
-                                })
-                                .selected(full_width)
-                                .accessibility_label(if full_width {
-                                    tr!("Use the maximum reading width")
-                                } else {
-                                    tr!("Use the full window width")
-                                })
-                                .tooltip(if full_width {
-                                    tr!("Use the maximum reading width")
-                                } else {
-                                    tr!("Use the full window width")
-                                })
-                                .on_click(
-                                    cx.listener(|this, _, _, cx| this.toggle_reflow_width(cx)),
-                                )
-                                .text_color(if full_width { p.text } else { color });
-                            self.status_control("reflow-width", button, cx)
-                        })
-                    })
-                    .child({
-                        let color = self.status_color("text-smaller", cx);
-                        let button = Button::new("text-smaller")
-                            .ghost()
-                            .small()
-                            .icon(IconName::Minus)
-                            .accessibility_label(tr!("Decrease text size"))
-                            .tooltip(tr!("Decrease text size"))
-                            .disabled(self.books[self.active].reflow.font_size <= 12)
-                            .on_click(cx.listener(|this, _, _, cx| this.resize_reflow_text(-1, cx)))
-                            .text_color(color);
-                        self.status_control("text-smaller", button, cx)
-                    })
-                    .child(
-                        div()
-                            .id("text-size")
-                            .test_support()
-                            .min_w(px(48.))
-                            .text_center()
-                            .text_size(px(12.))
-                            .text_color(p.muted)
-                            .child(format!("{} px", self.books[self.active].reflow.font_size)),
-                    )
-                    .child({
-                        let color = self.status_color("text-larger", cx);
-                        let button = Button::new("text-larger")
-                            .ghost()
-                            .small()
-                            .icon(IconName::Plus)
-                            .accessibility_label(tr!("Increase text size"))
-                            .tooltip(tr!("Increase text size"))
-                            .disabled(self.books[self.active].reflow.font_size >= 32)
-                            .on_click(cx.listener(|this, _, _, cx| this.resize_reflow_text(1, cx)))
-                            .text_color(color);
-                        self.status_control("text-larger", button, cx)
-                    })
-                    .child(self.fullscreen_button(cx)),
-            );
+                        .child(self.fullscreen_button(cx)),
+                )
+            });
         let center = if self.sidebar {
             h_resizable("reader-split")
                 .with_state(&self.navigation_split)
@@ -2519,6 +2525,14 @@ impl Breeze {
         let epub = self.books[self.active].format() == Some(DocumentFormat::Epub);
         let scale = window.scale_factor();
         let view = cx.entity().downgrade();
+        let menu_state = context_menus::ContentMenu::Reflow {
+            epub,
+            spread: self.books[self.active].reflow.spread,
+            full_width: self.books[self.active].reflow.full_width,
+            font_size: self.books[self.active].reflow.font_size,
+            full_screen: self.full_screen,
+        };
+        let menu_view = cx.entity();
         let mut content = div()
             .id("reflow-viewport")
             .test_support()
@@ -2878,7 +2892,11 @@ impl Breeze {
                 self.message.clone()
             }));
         }
-        content.into_any_element()
+        content
+            .context_menu(move |menu, window, menu_cx| {
+                context_menus::content(menu, menu_view.clone(), menu_state, window, menu_cx)
+            })
+            .into_any_element()
     }
 
     fn follow_reflow_link(&mut self, href: &str, cx: &mut Context<Self>) {

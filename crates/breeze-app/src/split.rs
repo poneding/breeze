@@ -179,6 +179,7 @@ impl Breeze {
             peer.language = self.language;
             peer.theme_preference = self.theme_preference.clone();
             peer.sidebar = self.sidebar;
+            peer.status_bar_visible = self.status_bar_visible;
             peer.navigation_width = self.navigation_width;
             peer.document_panel.open = self.document_panel.open;
             peer.reading_preferences = self.reading_preferences;

@@ -187,7 +187,9 @@ impl Breeze {
                     .items_stretch()
                     .child(self.pages_view(window, cx)),
             )
-            .child(self.status(window, cx));
+            .when(self.status_bar_visible, |main| {
+                main.child(self.status(window, cx))
+            });
         let center = if self.sidebar {
             h_resizable("reader-split")
                 .with_state(&self.navigation_split)

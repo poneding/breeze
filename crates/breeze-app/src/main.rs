@@ -24,6 +24,7 @@ use persistence::SavedState;
 mod categories;
 mod colors;
 mod commands;
+mod context_menus;
 mod covers;
 mod document_icons;
 mod document_panel;
@@ -258,6 +259,7 @@ struct Breeze {
     navigation_split: Entity<ResizableState>,
     navigation_width: f32,
     sidebar: bool,
+    status_bar_visible: bool,
     thumbs: bool,
     library_filter: usize,
     library_grid: bool,
@@ -466,6 +468,7 @@ impl Breeze {
             navigation_split,
             navigation_width: 208.,
             sidebar: true,
+            status_bar_visible: true,
             thumbs: false,
             library_filter: 0,
             library_grid: false,
@@ -1006,6 +1009,7 @@ impl Render for Breeze {
                 peer.categories = self.categories.clone();
                 peer.reading_preferences = self.reading_preferences;
                 peer.full_screen = self.full_screen;
+                peer.status_bar_visible = self.status_bar_visible;
             });
         }
         self.refresh_language(window, cx);
