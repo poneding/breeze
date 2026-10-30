@@ -349,7 +349,7 @@ impl Breeze {
                 .is_some_and(|editor| editor.read(cx).dirty(cx))
         }) {
             self.open_book(index, cx);
-            self.message = tr!("Unsaved Markdown drafts remain. Close their tabs explicitly before closing the window.").into();
+            self.message = tr!("Unsaved Markdown drafts remain. Save or explicitly close their tabs before closing the window.").into();
             cx.notify();
             return false;
         }

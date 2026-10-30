@@ -18,9 +18,11 @@ history, input and save contracts in this plan are unchanged.
 
 Research, design, P1, P2 and P3 are complete. **The editing surface runs inside
 the reader content area, parses on a worker with revision rejection, and shapes
-only the visible window.** P4–P7 are unstarted: there is no save workflow,
-recovery, table or image editing, and Markdown drafts cannot be saved from the
-application. The 16 MiB provisional-rebuild cost is a measured open limitation
+only the visible window.** Explicit Save now writes the draft back to its source
+file with conflict and permission checks; the editor toolbar also exposes Undo
+and Redo. On October 30, 2026 the user chose direct save to the source, superseding
+P4's earlier Save-As-first destination. Recovery, Save As, table and image editing
+remain unstarted. The 16 MiB provisional-rebuild cost is a measured open limitation
 recorded in [delivery status](STATUS.md).
 
 ## Delivery order and readiness
@@ -30,7 +32,7 @@ recorded in [delivery status](STATUS.md).
 | P1 Source model | Design baseline | Source-preserving buffer, transactions, history and source positions | G1 model tests and dependency checks | Complete (October 16) |
 | P2 Native feasibility | P1 | One native surface with live/source projection and Chinese composition | G2 prototype evidence; explicit feasibility decision | Complete (October 16, native macOS; Windows/Linux open) |
 | P3 Semantic/layout pipeline | P2 passes | Bounded parsing, projection invalidation, viewport and giant-block virtualization | G3 tests and first Release report | Complete except the 16 MiB provisional budget (October 16) |
-| P4 Save and session lifetime | P1; P2 for composition behavior | Conflict-checked saves/recovery and per-tab lifecycle guards | G4 storage and component tests | Storage layer complete; application wiring blocked by a concurrent reader refactor |
+| P4 Save and session lifetime | P1; P2 for composition behavior | Conflict-checked saves/recovery and per-tab lifecycle guards | G4 storage and component tests | Explicit source Save and editor toolbar wired (October 30); recovery and Save As remain open |
 | P5 Core authoring integration | P2, P3, P4 | Usable core live editing in the application | G1–G5 core authoring evidence | Not started |
 | P6 Tables and local images | P5 | Native structured editing and existing-file image references | G5 table/image matrix and regression checks | Not started |
 | P7 Acceptance | P6 | Full verification record, remaining limitations and platform status | G1–G6 evidence; production gates still open if unverified | Not started |
@@ -155,6 +157,10 @@ publication receipts and bounded recovery records. Reuse appropriate atomic
 write/fingerprint primitives; do not reuse PDF sidecar schemas or acknowledge
 PDF annotation saves. The parsed input and baseline fingerprint must describe
 the same read bytes.
+
+The October 30 destination decision keeps the storage contracts but removes the
+first-Save destination picker: Save targets the source file directly, while
+Save As and recovery records stay deferred.
 
 Introduce a per-`Book` session handle and connect save/close handling in
 `breeze-app` while retaining the normal editing-entry gate. Implement D6's first

@@ -119,9 +119,30 @@ fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 pub fn atomic_write(path: &Path, bytes: &[u8], replace: bool) -> Result<()> {
+    write_atomic(path, bytes, replace, None)
+}
+/// Atomically replace an existing regular file while keeping its permissions.
+///
+/// A replacement stages a private temporary file, so without this step an
+/// ordinary 0644 document would silently become owner-only. A read-only
+/// destination is refused before anything is staged.
+pub fn atomic_write_replacing(path: &Path, bytes: &[u8]) -> Result<()> {
+    let permissions = fs::metadata(path)?.permissions();
+    ensure!(!permissions.readonly(), "The destination is read-only");
+    write_atomic(path, bytes, true, Some(permissions))
+}
+fn write_atomic(
+    path: &Path,
+    bytes: &[u8],
+    replace: bool,
+    permissions: Option<fs::Permissions>,
+) -> Result<()> {
     let parent = path.parent().context("Missing destination directory")?;
     let mut file = tempfile::NamedTempFile::new_in(parent)?;
     file.write_all(bytes)?;
+    if let Some(permissions) = permissions {
+        file.as_file().set_permissions(permissions)?;
+    }
     file.as_file().sync_all()?;
     if replace {
         file.persist(path).map_err(|e| e.error)?;

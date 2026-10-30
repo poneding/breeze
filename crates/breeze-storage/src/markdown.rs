@@ -5,7 +5,7 @@
 //! source is read once and hashed from those same bytes, publication is
 //! conflict-checked against the destination the draft was started from, and a
 //! crash recovery record keeps whatever was not yet published.
-use crate::{atomic_write, bytes_fingerprint};
+use crate::{atomic_write, atomic_write_replacing, bytes_fingerprint};
 use anyhow::{Context, Result, ensure};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -105,9 +105,9 @@ pub fn publish(path: &Path, bytes: &[u8], target: &Target) -> Result<String> {
             let current = load(path)?.fingerprint;
             ensure!(
                 current == *fingerprint,
-                "The document changed on disk since this draft started; save to a new file"
+                "The document changed on disk since this draft started; save refused"
             );
-            atomic_write(path, bytes, true)?;
+            atomic_write_replacing(path, bytes)?;
         }
     }
     Ok(bytes_fingerprint(bytes))

@@ -39,9 +39,11 @@ a second Markdown renderer.
 
 ## Out of scope and follow-ups
 
-Save/recovery wiring from [work package 25](25-markdown-live-editing.md) P4–P7
-remains open. The mdast semantic/projection modules in `breeze-reflow` are no
-longer on the application path; a cleanup package may retire them once the
-reading model no longer needs the shared syntax helpers. Native visual
-inspection of the new surface was not performed in this session because the
-model cannot view images; Windows and Linux remain unverified.
+Explicit source Save, Undo and Redo were added to the source toolbar on October
+30, 2026 (direct save to the source file, as chosen by the user). Save As,
+crash recovery, and the remaining [work package 25](25-markdown-live-editing.md)
+P4–P7 authoring work remain open. The mdast semantic/projection modules in
+`breeze-reflow` are no longer on the application path; a cleanup package may
+retire them once the reading model no longer needs the shared syntax helpers.
+Native visual inspection of the new surface was not performed in this session
+because the model cannot view images; Windows and Linux remain unverified.

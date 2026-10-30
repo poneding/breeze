@@ -130,6 +130,23 @@ impl Breeze {
                 self.open_book(tabs[(current + step) % tabs.len()], cx);
             }
         } else if self.screen == Screen::Reader {
+            // Markdown editing reuses the document commands the PDF reader binds
+            // to its annotation tools. Undo/redo must reach Kit's editor history,
+            // and Save must write the draft rather than an annotation sidecar.
+            if self.books[self.active].markdown_editing {
+                if action.as_any().is::<SaveAnnotations>() {
+                    self.save_markdown(window, cx);
+                    return;
+                }
+                if action.as_any().is::<UndoAnnotation>() {
+                    self.markdown_history(false, window, cx);
+                    return;
+                }
+                if action.as_any().is::<RedoAnnotation>() {
+                    self.markdown_history(true, window, cx);
+                    return;
+                }
+            }
             if !self.books[self.active].is_pdf() {
                 if action.as_any().is::<ExportPdf>()
                     || action.as_any().is::<SaveAnnotations>()
@@ -289,20 +306,24 @@ impl Breeze {
             cx.notify();
             return;
         }
-        if self.books[index]
+        let markdown_dirty = self.books[index]
             .markdown_edit
             .as_ref()
-            .is_some_and(|editor| editor.read(cx).dirty(cx))
-        {
+            .is_some_and(|editor| editor.read(cx).dirty(cx));
+        if markdown_dirty {
             if self.pending_markdown_discard != Some(index) {
                 self.pending_markdown_discard = Some(index);
                 self.message = tr!(
-                    "This Markdown draft has unsaved changes. Closing again discards them; saving arrives in a later phase."
+                    "This Markdown draft has unsaved changes. Save it first, or close again to discard them."
                 )
                 .into();
                 cx.notify();
                 return;
             }
+            self.pending_markdown_discard = None;
+        } else if self.pending_markdown_discard == Some(index) {
+            // Saving or undoing back to the baseline cancels the pending
+            // discard so a later dirty draft cannot close on its first click.
             self.pending_markdown_discard = None;
         }
         self.books[index].opened = false;

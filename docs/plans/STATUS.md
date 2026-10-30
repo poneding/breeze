@@ -1,3 +1,41 @@
+## October 30 Markdown edit undo, redo, and source save
+
+Markdown edit mode now carries the same compact Undo, Redo, and Save icon group
+as the PDF annotation tools, immediately after the Reading/Edit switch. The
+buttons reuse the document commands bound to the reader, but dispatch by format:
+in Markdown editing they reach GPUI Kit's editor history or the Markdown save
+path; in PDF they keep the annotation history and sidecar behavior.
+
+Save writes the draft back to its source file, following the user's October 30
+choice of direct-to-source persistence over the earlier Save-As-first plan. The
+editor captures its text, acknowledged checkpoint, and the fingerprint of the
+bytes loaded from or last published to the file. A background publication
+stages and atomically replaces the file, refuses a destination that changed on
+disk, keeps the original permissions, and rejects a read-only file. Only the
+captured checkpoint is acknowledged, so typing during the write remains dirty.
+A failed load leaves Save disabled because there is no source fingerprint.
+Close and quit messages now direct the user to save rather than describing save
+as a later phase.
+
+Editor notices report load and save failures. The status line gains saving and
+saved states, while the existing modified state is now refreshed from Kit's
+change events. The save path never writes the reading preview or a PDF sidecar.
+
+Validation: `cargo fmt --all -- --check`,
+`cargo test --workspace --locked` (278 application tests plus every crate and
+integration suite), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. New
+component tests cover the toolbar actions, undo/redo through Kit's history,
+direct source publication, checkpoint cleanliness after save, and refusal of an
+externally changed source. Storage tests cover permission preservation and
+read-only refusal.
+
+Native visual inspection could not be completed: the isolated review instance
+launched, but its window was not reachable in the active desktop session while
+another Breeze instance owned the accessible window, and this session's model
+cannot view captured images. Windows and Linux remain unverified. Captures and
+scratch state stay under `target/markdown-save-review/` and are not committed.
+
 ## October 30 In-app update checks, banner, installation, and restart
 
 The reader asked for three changes on October 30: a check on every startup, a

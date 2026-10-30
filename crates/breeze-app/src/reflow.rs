@@ -1579,6 +1579,7 @@ impl Breeze {
                     // these controls stay inside the existing toolbar.
                     .when(self.books[self.active].is_markdown(), |bar| {
                         let editing = self.books[self.active].markdown_editing;
+                        let session = self.books[self.active].markdown_edit.clone();
                         bar.child(
                             TabBar::new("markdown-modes")
                                 .segmented()
@@ -1606,6 +1607,35 @@ impl Breeze {
                                         }),
                                 ),
                         )
+                        .when(editing, |bar| {
+                            let can_save = session
+                                .as_ref()
+                                .is_some_and(|editor| editor.read(cx).can_save());
+                            bar.child(self.command(
+                                "markdown-undo",
+                                IconName::Undo2,
+                                tr!("Undo Markdown edit"),
+                                &UndoAnnotation,
+                                cx,
+                            ))
+                            .child(self.command(
+                                "markdown-redo",
+                                IconName::Redo2,
+                                tr!("Redo Markdown edit"),
+                                &RedoAnnotation,
+                                cx,
+                            ))
+                            .child(
+                                self.command(
+                                    "markdown-save",
+                                    IconName::Save,
+                                    tr!("Save Markdown draft"),
+                                    &SaveAnnotations,
+                                    cx,
+                                )
+                                .disabled(!can_save),
+                            )
+                        })
                     })
                     .child(div().flex_1())
                     .child(

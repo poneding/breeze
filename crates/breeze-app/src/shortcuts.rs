@@ -63,6 +63,14 @@ pub(super) fn groups() -> Vec<(&'static str, Vec<Shortcut>)> {
             ],
         ),
         (
+            tr!("Markdown editing"),
+            vec![
+                row(tr!("Save Markdown draft"), vec![&SaveAnnotations]),
+                row(tr!("Undo Markdown edit"), vec![&UndoAnnotation]),
+                row(tr!("Redo Markdown edit"), vec![&RedoAnnotation]),
+            ],
+        ),
+        (
             tr!("Interface"),
             vec![
                 row(tr!("Home"), vec![&Home]),

@@ -177,6 +177,11 @@ The reading view is the rendered preview. Evidence for that choice:
   lightweight metadata scan remain the application-owned Markdown inputs.
 - The reading parse ceiling does not apply to editing: a larger file is read and
   edited as source, while the reader still reports its limit.
+- The source toolbar exposes Undo, Redo and Save. Save publishes the draft back
+  to its source file after a fingerprint check, using the same background
+  publication path as the storage layer; it never acknowledges text typed
+  during the write. The user chose direct-to-source save on October 30, 2026;
+  Save As and crash recovery remain deferred.
 
 ## Reading constructs (October 21, 2026)
 
@@ -223,9 +228,10 @@ change; a larger file is readable and editable as source.
 ## Out of scope
 
 Incremental or chunked parsing, a vendored markdown-rs patch, table-cell
-editing, math typesetting, image insertion, save/recovery wiring and rich
-clipboard conversion. [Work package 25](../plans/25-markdown-live-editing.md)
-P4–P7 keep their own gates.
+editing, math typesetting, image insertion, Save As, crash-recovery wiring and
+rich clipboard conversion. [Work package 25](../plans/25-markdown-live-editing.md)
+P4–P7 keep their own gates; explicit source Save and the editor toolbar were
+added on October 30, 2026.
 
 ## Verification
 

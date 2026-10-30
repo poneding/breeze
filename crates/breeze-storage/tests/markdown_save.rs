@@ -159,3 +159,41 @@ fn a_symlink_destination_is_refused() {
     );
     assert_eq!(std::fs::read_to_string(&real).unwrap(), "one\n");
 }
+
+#[cfg(unix)]
+#[test]
+fn replacement_preserves_permissions_and_refuses_read_only_destinations() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("notes.md");
+    std::fs::write(&path, b"one\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640)).unwrap();
+    let loaded = markdown::load(&path).unwrap();
+    markdown::publish(
+        &path,
+        b"two\n",
+        &Target::Existing {
+            fingerprint: loaded.fingerprint,
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o640,
+        "replacement must keep the document's permissions"
+    );
+
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o440)).unwrap();
+    let loaded = markdown::load(&path).unwrap();
+    let error = markdown::publish(
+        &path,
+        b"three\n",
+        &Target::Existing {
+            fingerprint: loaded.fingerprint,
+        },
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("read-only"), "{error:#}");
+    assert_eq!(std::fs::read(&path).unwrap(), b"two\n");
+}

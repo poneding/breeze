@@ -207,32 +207,35 @@ scope must accompany results.
 
 ## D6. Save, recovery and document lifetime
 
-Opening a Markdown file starts in Reading; choosing Edit creates a session whose
-default editing projection is Live. Source is an alternate editing projection.
-Reading the current draft is allowed without saving it. Leaving the editing
-surface, changing tabs, or going Home retains the session and dirty indicator.
+Opening a Markdown file starts in Reading; choosing Edit creates a source
+editing session. Reading the current draft is allowed without saving it.
+Leaving the editing surface, changing tabs, or going Home retains the session
+and dirty indicator.
 
-The first Save offers Save As with a new filename. Choosing an existing target
-requires an explicit replacement choice. Later Save uses that chosen target;
-the original is never an automatic save target. There is no additional prompt
-for every ordinary save. Save As adopts the new destination only after success,
-and file identity/library bookkeeping updates atomically in application state.
+**Save destination revision (October 30, 2026).** The user chose direct save to
+the source file. Save writes the current draft back to the file the session was
+loaded from; it does not open a destination picker and does not create a draft
+copy in application data. Save As, replacement prompts for a new destination,
+and crash-recovery records remain deferred. The earlier first-Save-Save-As
+contract is superseded.
 
 | Event/state | Required outcome |
 |---|---|
-| Save requested | Resolve composition; capture session, content checkpoint, source snapshot and expected target identity/hash. A second explicit save is coalesced as a pending intent, not another full snapshot. |
-| Publication succeeds | Acknowledge exactly that checkpoint and target fingerprint. Later typing remains dirty; an old result cannot acknowledge a different session or target. |
-| Target changed/deleted | Retain draft, stop replacement and offer Save As or explicit reload/discard. No automatic merge or force overwrite. |
-| Close/quit/remove library entry | Save, Discard, or Cancel. Wait for admitted saves; a recovery snapshot is not a successful Save. Failures leave the document open. |
-| Crash recovery available | Offer restoring a draft against recorded source/target fingerprints; never overwrite a file on restore. |
+| Save requested | Capture the session's content checkpoint, source snapshot and the fingerprint of the bytes loaded from or last published to the source. Publication runs off the UI thread and a second save is refused while the first is in flight. |
+| No changes | Save is a no-op; an unchanged draft is not rewritten. |
+| Publication succeeds | Acknowledge exactly that checkpoint and the published fingerprint. Later typing remains dirty; an old result cannot acknowledge a different session or snapshot. |
+| Source changed/deleted | Retain the draft, refuse replacement and report the failure. No automatic merge or force overwrite. |
+| Load failure | Keep Save unavailable because there is no source fingerprint; never publish empty text over a file that could not be read. |
+| Close/quit/remove library entry | Save, Discard, or Cancel. A recovery snapshot is not a successful Save, and close guards keep working until the draft is published or explicitly discarded. Recovery is not yet available. |
+| Crash recovery available | Offer restoring a draft against recorded source/target fingerprints; never overwrite a file on restore. Deferred. |
 
 The storage worker captures the actual load bytes and their fingerprint together
 and detects concurrent replacement, rather than parsing one read and hashing a
 different read. On save, acquire a Breeze target lock, inspect identity, stage
 beside the destination, flush, recheck the expected fingerprint and atomically
-publish. Preserve permissions where supported. Initially reject replacement
-through symbolic links and multiply linked files; offer a new regular file.
-Non-clobber publication is mandatory for a new destination.
+publish. Preserve permissions where supported, and refuse a read-only
+destination. Reject replacement through symbolic links and multiply linked
+files. Non-clobber publication remains mandatory for a future new destination.
 
 Advisory locks and a pre-publication hash cannot exclude every external-editor
 race. Retain last-saved content and the draft as recovery data, verify publication
@@ -251,14 +254,14 @@ records first and never silently delete the only unsaved recovery. If capacity
 or I/O fails, retain the in-memory draft and visibly report that recovery is
 unavailable. Normal source saves remain explicit.
 
-Moving Save As to another directory must not silently retarget relative links
-or images. In the first authoring scope, allow cross-directory Save As only when
-there are no relative resource destinations whose meaning would change. Otherwise
-identify the affected references and request a same-folder destination. Automatic
-resource copying/reference rewriting is deferred to a separate transaction
-design; do not rewrite source during an in-flight save. Same-directory saves
-never normalize reference syntax. This initial limitation must be visible in
-the destination flow and covered by tests.
+Direct Save never changes the document's directory, so relative links and
+images keep their meaning. Future Save As must not silently retarget relative
+resources: allow a cross-directory destination only when there are no relative
+destinations whose meaning would change, otherwise identify the affected
+references and request a same-folder destination. Automatic resource
+copying/reference rewriting is deferred to a separate transaction design; do
+not rewrite source during an in-flight save. Same-directory saves never
+normalize reference syntax.
 
 ## D7. Authoring scope and UI integration
 

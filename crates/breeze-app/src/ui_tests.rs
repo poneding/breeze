@@ -4605,6 +4605,166 @@ fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppCon
     .unwrap();
 }
 
+/// Edit mode exposes the same compact history and save actions as the PDF
+/// annotation tools, and Save publishes the draft to its source file.
+#[gpui_kit::test]
+async fn markdown_edit_toolbar_undoes_redoes_and_saves_the_source(cx: &mut TestAppContext) {
+    use gpui_kit::test::TestAppContextExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("draft.md");
+    let original = "# Title\n\nOriginal body\n";
+    std::fs::write(&path, original).unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "draft.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.within("markdown-modes").click(1usize, cx);
+        window.render_frame(cx);
+        assert!(
+            window
+                .within("reader-toolbar")
+                .find("markdown-undo")
+                .visible(),
+            "edit mode must expose undo"
+        );
+        assert!(
+            window
+                .within("reader-toolbar")
+                .find("markdown-redo")
+                .visible(),
+            "edit mode must expose redo"
+        );
+        assert!(
+            window
+                .within("reader-toolbar")
+                .find("markdown-save")
+                .visible(),
+            "edit mode must expose save"
+        );
+        window.input("New ", cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    let session = cx
+        .update(|cx| view.read(cx).books[0].markdown_edit.clone())
+        .expect("entering edit mode creates the session");
+    let edited = format!("New {original}");
+    cx.update(|cx| {
+        assert_eq!(session.read(cx).source_text(cx), edited);
+        assert!(session.read(cx).dirty(cx));
+    });
+
+    cx.update_window(handle, |_, window, cx| {
+        window.click("markdown-undo", cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            session.read(cx).source_text(cx),
+            original,
+            "the toolbar undo must reach Kit's editor history"
+        );
+        window.click("markdown-redo", cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(session.read(cx).source_text(cx), edited);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            original,
+            "editing alone must not write the source"
+        );
+        window.click("markdown-save", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, std::time::Duration::from_secs(10), |_, cx| {
+        !session.read(cx).is_saving()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), edited);
+        assert!(
+            !session.read(cx).dirty(cx),
+            "the published checkpoint must be clean"
+        );
+        assert!(window.try_find("markdown-save-error").is_none());
+    })
+    .unwrap();
+}
+
+/// A save never overwrites a file that changed after the draft was loaded.
+#[gpui_kit::test]
+async fn markdown_save_refuses_a_source_changed_on_disk(cx: &mut TestAppContext) {
+    use gpui_kit::test::TestAppContextExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("conflict.md");
+    std::fs::write(&path, "# Original\n").unwrap();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "conflict.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        window.within("markdown-modes").click(1usize, cx);
+        window.render_frame(cx);
+        window.input("Local edit ", cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    let session = cx
+        .update(|cx| view.read(cx).books[0].markdown_edit.clone())
+        .expect("entering edit mode creates the session");
+    std::fs::write(&path, "external change\n").unwrap();
+    cx.update_window(handle, |_, window, cx| {
+        window.click("markdown-save", cx);
+    })
+    .unwrap();
+    cx.wait_for(handle, std::time::Duration::from_secs(10), |_, cx| {
+        !session.read(cx).is_saving()
+    })
+    .await;
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert!(
+            window.find("markdown-save-error").visible(),
+            "the conflict must be reported"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "external change\n",
+            "a conflicting save must not overwrite the changed file"
+        );
+        assert!(
+            session.read(cx).dirty(cx),
+            "the refused draft must stay dirty"
+        );
+    })
+    .unwrap();
+}
+
 /// Switching between Markdown reading and editing keeps the visible source
 /// position instead of returning either surface to the top.
 #[gpui_kit::test]
