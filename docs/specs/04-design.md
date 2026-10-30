@@ -74,8 +74,10 @@ About shows the bundled Breeze logo, the application name, the installed version
 the update check with its localized status, the author, and the public repository
 address. The brand tile is decoded once from `assets/brand/breeze-icon.png` into a
 bounded BGRA texture; it is never fetched over the network. An available release
-still offers its GitHub page, and the window-level update banner is suppressed while
-a non-library Home page already shows that state.
+offers Update now (or Restart now after installation), the release page, and the
+checksum-verified platform package; manual and automatic checks share the same
+state. The window-level update banner is suppressed while a non-library Home page
+already shows that state.
 
 Installed application identity uses each platform's own icon channel rather than a
 second in-window logo: the Windows executable embeds `breeze.ico` as icon resource 1,
@@ -124,7 +126,7 @@ Use one GPUI Kit Select labeled Theme, replacing the segmented mode control and 
 - Primary+Shift+T cycles the same choices and keeps the settings selection synchronized.
 - Moving the dropdown cursor with the up/down arrow keys previews the highlighted theme immediately, including rows that a search query has filtered to. The theme is committed only by confirming the row (Enter or a click), which is also when the preference is persisted; Escape, an outside click, or focus loss restores the committed theme. The trigger and the row checkmark keep showing the committed choice while a preview is on screen.
 
-PDF pages are not inverted, tinted, or rerendered by theme selection. Theme preference, library state, and restoration switches persist locally. Legacy states retain Follow System or migrate explicit Light/Dark to the corresponding built-in name; retired palette fields are accepted on read but omitted from new snapshots. The language dropdown applies English, Simplified Chinese, or Traditional Chinese to application chrome immediately and persists the choice; user names, paths, document content, and official theme names are preserved. Update checks use the user-designated `poneding/breeze` stable GitHub Releases source. Manual is the default, Automatic checks once per startup, and Never prevents background checks. Explicit checks remain available in every policy. A newer release offers its GitHub page; automatic download/install is unavailable. Opening-window policies are implemented separately from page zoom and applied once for new/restored active documents.
+PDF pages are not inverted, tinted, or rerendered by theme selection. Theme preference, library state, and restoration switches persist locally. Legacy states retain Follow System or migrate explicit Light/Dark to the corresponding built-in name; retired palette fields are accepted on read but omitted from new snapshots. The language dropdown applies English, Simplified Chinese, or Traditional Chinese to application chrome immediately and persists the choice; user names, paths, document content, and official theme names are preserved. Update checks use the user-designated `poneding/breeze` stable GitHub Releases source. Automatic is the default and checks once on every startup; Manual skips the automatic request. Explicit checks remain available in every policy. A newer release shows a full-width banner tinted with the theme's base blue and offers Update now: the application downloads the platform package over HTTPS, verifies its published SHA-256 checksum, and installs it on macOS and a running AppImage; on Windows it stages the matching setup package for the restart. That phase ends with a modal restart prompt. Package-manager `.deb` installs only reveal the downloaded file because installation needs root. The dialog is shown once per install, and restarting keeps the normal state-save and unsaved-work checks. See [work package 32](../plans/32-in-app-updates.md). Opening-window policies are implemented separately from page zoom and applied once for new/restored active documents.
 
 ## Annotation modes
 

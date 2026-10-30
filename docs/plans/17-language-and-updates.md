@@ -18,8 +18,9 @@ Requested on October 11, 2026. This work contains two separately verified phases
 
 The repository does not yet exist publicly. Unavailable repository and absent stable
 release responses must not be represented as an up-to-date result. Update policy is
-persisted; Manual remains the default. Never disables background checks while an
-explicit manual check remains available.
+persisted. The read-only scope of this package was later superseded: [work package
+32](32-in-app-updates.md) adds the startup-check default, the accent banner, verified
+downloads, three-platform installation, and the restart prompt.
 
 Each phase requires formatting, workspace tests, all-target Clippy, isolated native
 startup and visual inspection where available. Tests must exercise translation

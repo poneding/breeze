@@ -67,7 +67,7 @@ fn default_true() -> bool {
 impl Default for SavedState {
     fn default() -> Self {
         Self {
-            version: 11,
+            version: 12,
             books: Vec::new(),
             active: 0,
             categories: Vec::new(),
@@ -84,16 +84,21 @@ impl Default for SavedState {
             remember_position: true,
             reading_preferences: ReadingPreferences::default(),
             language: 0,
-            updates: 0,
+            updates: 1,
             window: 0,
         }
     }
 }
 impl SavedState {
     /// Maps the retired "Never" policy to Manual, which never checks on its own.
+    /// Version 12 makes the startup check the default for fresh installs; a
+    /// stored Manual value cannot be distinguished from the old fresh-install
+    /// default, so pre-12 snapshots adopt the new default once.
     fn migrate_update_policy(&mut self) {
         if self.version < 8 && self.updates >= 2 {
             self.updates = 0;
+        } else if self.version < 12 && self.updates == 0 {
+            self.updates = 1;
         }
     }
     /// Version 9 inserted automatic detection at index 0 and shifted the explicit
@@ -109,7 +114,7 @@ impl SavedState {
         };
     }
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(matches!(self.version, 1..=11), "Unsupported state version");
+        anyhow::ensure!(matches!(self.version, 1..=12), "Unsupported state version");
         anyhow::ensure!(self.books.len() <= 4096, "Too many library entries");
         anyhow::ensure!(
             self.width.is_finite() && (168.0..=360.0).contains(&self.width),
@@ -190,7 +195,7 @@ impl SavedState {
 impl Breeze {
     pub(super) fn snapshot(&self) -> SavedState {
         SavedState {
-            version: 11,
+            version: 12,
             books: self
                 .books
                 .iter()
@@ -250,6 +255,7 @@ impl Breeze {
                 self.storage_error = Some(format!("{e:#}"));
                 self.restoring = false;
                 self.open_requested(initial, cx);
+                self.check_updates(true, cx);
                 return;
             }
         };
@@ -260,6 +266,7 @@ impl Breeze {
                 self.storage_error = Some(format!("{e:#}"));
                 self.restoring = false;
                 self.open_requested(initial, cx);
+                self.check_updates(true, cx);
                 return;
             }
         };
@@ -283,7 +290,6 @@ impl Breeze {
                             this.restore(state, cx);
                             this.storage_ready = true;
                             this.last_snapshot = Some(this.snapshot());
-                            this.check_updates(true, cx);
                             let observer =
                                 cx.observe(&cx.entity(), |this, _, cx| this.persist_if_changed(cx));
                             this._subscriptions.push(observer);
@@ -313,6 +319,9 @@ impl Breeze {
                         this.open_requested(initial, cx);
                     }
                 }
+                // Every launch checks once, using the policy the snapshot just
+                // restored. Storage failures must not suppress the check.
+                this.check_updates(true, cx);
                 cx.notify();
             });
         })
@@ -527,7 +536,11 @@ impl Breeze {
                 match result {
                     Ok(Ok(())) => {
                         this.close_ready = true;
-                        window.remove_window();
+                        if this.updates.restart_pending() {
+                            this.perform_restart(window, cx);
+                        } else {
+                            window.remove_window();
+                        }
                     }
                     Ok(Err(e)) => {
                         this.storage_error = Some(tf!(
@@ -812,6 +825,38 @@ mod tests {
             ..Default::default()
         };
         assert!(current.validate().is_err());
+    }
+    #[test]
+    fn startup_checks_are_the_default_and_pre_12_manual_defaults_migrate() {
+        assert_eq!(SavedState::default().updates, 1);
+        // Version 11 shipped Manual as the fresh-install default; that stored
+        // value cannot be told apart from a deliberate choice, so it adopts the
+        // new startup default once.
+        let mut old_default = SavedState {
+            version: 11,
+            updates: 0,
+            ..Default::default()
+        };
+        old_default.validate().unwrap();
+        old_default.migrate_update_policy();
+        assert_eq!(old_default.updates, 1);
+        // A version-12 snapshot keeps a Manual choice made after this change.
+        let mut manual = SavedState {
+            version: 12,
+            updates: 0,
+            ..Default::default()
+        };
+        manual.validate().unwrap();
+        manual.migrate_update_policy();
+        assert_eq!(manual.updates, 0);
+        // An explicit Automatic choice survives the migration untouched.
+        let mut automatic = SavedState {
+            version: 11,
+            updates: 1,
+            ..Default::default()
+        };
+        automatic.migrate_update_policy();
+        assert_eq!(automatic.updates, 1);
     }
     #[test]
     fn legacy_palettes_are_read_but_no_longer_written() {

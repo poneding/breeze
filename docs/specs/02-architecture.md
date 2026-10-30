@@ -12,7 +12,7 @@ breeze-app -> breeze-core
 - `breeze-core` owns navigation, zoom, and mode state without UI or PDF-engine types.
 - `breeze-pdf` owns the `mupdf-rs` adapter, reading, clipped rasterization, outlines, thumbnails, text geometry, and the worker queue, plus a separate protected `lopdf` annotation-copy exporter. PDF content editing is not part of the product.
 - `breeze-storage` owns background state writes, process locking, atomic JSON, fingerprints, and optimistic sidecar revision checks.
-- `breeze-app` owns the native window, document sessions, Home/Reader/Settings views, appearance preferences, command dispatch, and component tests.
+- `breeze-app` owns the native window, document sessions, Home/Reader/Settings views, appearance preferences, command dispatch, and component tests. `updates.rs` owns release discovery, the update banner, install state, and the restart prompt; `updates/install.rs` is the only updater writer and performs verified downloads plus platform-specific installation.
 
 `annotation_editing.rs` owns page-local text drafts, selection targets, and preview-to-history commits. Its geometry helpers hit-test the independent sidecar shapes after converting the pointer through each page's CropBox/rotation transform. Targets contain the source, fingerprint, history revision, item index, and expected annotation; asynchronous saves and UI callbacks cannot apply stale edits to a replacement item. The history revision is transient and does not change the sidecar schema. Text Input entities are created only for active page editing and respect native IME composition. Annotation previews are independent overlays and do not invalidate PDF raster tiles.
 

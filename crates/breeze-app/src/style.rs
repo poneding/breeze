@@ -11,6 +11,9 @@ pub struct Palette {
     pub muted: Hsla,
     pub line: Hsla,
     pub accent: Hsla,
+    /// The theme's base blue, used by the release banner so a new version is
+    /// noticeable without borrowing a success, warning or danger meaning.
+    pub notice: Hsla,
 }
 impl Palette {
     pub fn from_theme(cx: &App) -> Self {
@@ -24,6 +27,7 @@ impl Palette {
             muted: theme.muted_foreground,
             line: theme.border,
             accent: theme.primary,
+            notice: theme.blue,
         }
     }
 }

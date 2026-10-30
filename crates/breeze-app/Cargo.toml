@@ -39,6 +39,7 @@ ratex-gpui = { version = "=0.4.1", default-features = false }
 mermaid-rs-renderer = { version = "=0.3.1", default-features = false }
 ureq = { version = "=3.4.2", default-features = false, features = ["rustls"] }
 semver = "=1.0.28"
+sha2.workspace = true
 sys-locale = "=0.3.2"
 
 [lints]

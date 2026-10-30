@@ -1,3 +1,50 @@
+## October 30 In-app update checks, banner, installation, and restart
+
+The reader asked for three changes on October 30: a check on every startup, a
+prominent new-version banner, and an update action inside Breeze that ends with a
+restart prompt. [Work package 32](32-in-app-updates.md) implements them and
+supersedes work package 17's read-only scope.
+
+Startup now starts one background check on every launch path, including storage
+failures, after restoring the update policy. Automatic is the fresh-install
+default; Manual remains selectable. Session state version 12 migrates a stored
+pre-12 default of Manual to Automatic once because the old value is identical to a
+deliberate Manual choice. A newer release appears in a full-width banner using
+the active theme's base blue (18% background, 60% border), with Update now, View
+release, and dismiss. About exposes the same install/restart entries.
+
+An install downloads the deterministic platform asset from the fixed GitHub
+release path, enforces HTTPS and a 512 MiB package limit, and verifies the
+published SHA-256 checksum before touching the installation. macOS mounts the DMG,
+rechecks the bundle's `Resources/VERSION`, stages a copy beside the installed
+bundle, and swaps it with rollback on failure. A running AppImage is replaced
+atomically. Windows stages the matching Inno or MSI package and starts it after
+Breeze exits; `.deb` installs only download and reveal the package because root
+owns installation. The verified install shows a Kit AlertDialog once with
+Restart now and Later; restart uses the normal close path, so state saving and
+unsaved-annotation checks still apply.
+
+Validation: `cargo fmt --all -- --check`,
+`cargo test --workspace --locked` (275 application tests plus every crate and
+integration suite), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass twice in a
+row after the final changes. New tests cover plan/asset names, release metadata
+that lacks an installer or checksum, checksum parsing, a loopback download with
+success/mismatch/missing checksum, banner and About entries, the one-shot restart
+dialog, the state migration, and native macOS DMG installation and version
+rejection.
+
+Native macOS startup used an isolated `BREEZE_DATA_DIR` and the real GitHub
+endpoint; About reported `当前版本无需更新 · 最新正式版本 0.1.0`, confirming the
+startup check. A temporary local preview of release 0.2.0, removed before the
+commit, showed the blue banner `发现新版本 0.2.0` with `立即更新` / `查看发布版本`,
+the About action row, and the modal `更新已就绪` with `稍后` / `立即重启`. Banner
+pixels measured `(0.876, 0.914, 0.985)` against white content. Windows and Linux
+installation/relaunch were not run on their native systems; their paths compile
+but remain unverified. The packages are still unsigned, so the checksum verifies
+integrity rather than publisher identity. Review captures and scratch state stay
+under `target/update-verify/` and are not committed.
+
 ## October 27 Status bar visibility context control
 
 The document content context menu now includes an icon-and-text `Show status

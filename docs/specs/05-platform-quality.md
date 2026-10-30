@@ -13,7 +13,7 @@ and Linux and include AGPL notices/source location in every installer.
 
 The repository's CI defines build, test, lint, and formatting checks. A workflow file is not evidence of a successful remote run, and cross-target compilation is not proof of GPU/window/IME behavior. Native acceptance is required on every release platform.
 
-Default-file association must follow OS-supported user-choice flows. Update checking, installer packaging, signing/notarization, and update authenticity are separate platform/release gates, not a checkbox-only implementation.
+Default-file association must follow OS-supported user-choice flows. Update checking, installer packaging, signing/notarization, and update authenticity are separate platform/release gates, not a checkbox-only implementation. The implemented in-app updater downloads only fixed GitHub release assets, verifies the published SHA-256 checksum, and installs verified packages; release installers remain unsigned, so checksum integrity is not publisher authentication. macOS installation is covered by a native hdiutil/ditto test. Windows and Linux install/relaunch paths require native runtime acceptance before they count as validated.
 
 ## Proposed performance budgets
 

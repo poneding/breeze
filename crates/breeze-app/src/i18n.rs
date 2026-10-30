@@ -334,6 +334,7 @@ mod tests {
             include_str!("persistence.rs"),
             include_str!("localization.rs"),
             include_str!("updates.rs"),
+            include_str!("updates/install.rs"),
         ];
         for source in files {
             for call in source.split("tr!(").chain(source.split("tf!(")).skip(1) {

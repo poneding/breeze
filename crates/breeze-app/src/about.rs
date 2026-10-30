@@ -77,17 +77,12 @@ impl Breeze {
                 column()
                     .gap_2()
                     .items_center()
-                    .child(row().gap_3().child(self.update_check_button(cx)).when_some(
-                        self.update_release_url(),
-                        |row, url| {
-                            row.child(
-                                Button::new("open-update-release")
-                                    .small()
-                                    .label(tr!("View release"))
-                                    .on_click(move |_, _, cx| cx.open_url(&url)),
-                            )
-                        },
-                    ))
+                    .child(
+                        row()
+                            .gap_3()
+                            .children(self.update_actions(cx))
+                            .child(self.update_check_button(cx)),
+                    )
                     // Only a real result earns a line here; long failures wrap
                     // inside a bounded width and stay centered under the button.
                     .when_some(self.updates.message(), |column, message| {

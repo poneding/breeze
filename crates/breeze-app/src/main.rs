@@ -498,7 +498,7 @@ impl Breeze {
             language: 0,
             applied_language: None,
             language_select,
-            update_policy: 0,
+            update_policy: 1,
             updates: updates::Updates::default(),
             window_policy: 0,
         }

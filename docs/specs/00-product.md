@@ -10,6 +10,10 @@
   [technical design](14-markdown-editor-design.md) and implementation plan.
   Editing is a new product requirement, not implemented behavior; EPUB and PDF
   content remain read-only.
+- On October 30, 2026, the user requested a startup update check, a prominent
+  new-version banner, an in-app update action, and a restart prompt after
+  installation. The three-platform installer flow is specified in [work package
+  32](../plans/32-in-app-updates.md).
 - Use Rust for application logic and UI, with the `mupdf-rs` Rust API over MuPDF's C/C++ implementation for PDF processing. PDFium, Poppler, and WebView-based document rendering are not product engines.
 - Distribute Breeze and the corresponding source under AGPL-3.0-only, including required MuPDF notices and build/installation scripts.
 - Support macOS, Windows, and Linux, with native validation on each platform before release.
