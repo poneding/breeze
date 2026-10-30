@@ -22,10 +22,12 @@ atomically. Windows stages the matching Inno or MSI package and starts it after
 Breeze exits; `.deb` installs only download and reveal the package because root
 owns installation. The verified install shows a Kit AlertDialog once with
 Restart now and Later; restart uses the normal close path, so state saving and
-unsaved-annotation checks still apply.
+unsaved-annotation checks still apply. On macOS and AppImage installs, a detached
+helper waits for this process to exit before launching the replacement, so the
+new instance can acquire the state-store lock.
 
 Validation: `cargo fmt --all -- --check`,
-`cargo test --workspace --locked` (275 application tests plus every crate and
+`cargo test --workspace --locked` (276 application tests plus every crate and
 integration suite), and
 `cargo clippy --workspace --all-targets --locked -- -D warnings` pass twice in a
 row after the final changes. New tests cover plan/asset names, release metadata

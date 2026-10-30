@@ -431,6 +431,7 @@ impl InstallError {
             Self::InstallFailed(detail) => {
                 tf!("The system could not install the update: {}", detail)
             }
+            Self::LaunchFailed(detail) => tf!("Cannot restart Breeze: {}", detail),
             Self::Unsupported => {
                 tr!("This installation cannot update itself automatically.").into()
             }

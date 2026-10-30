@@ -15,7 +15,7 @@ use std::{
     fs::{self, File},
     io::{self, Read, Write},
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
@@ -191,8 +191,10 @@ pub(super) enum InstallError {
         expected: String,
     },
     MissingApplication,
-    /// A platform installer or relaunch failed, with its bounded diagnostic.
+    /// A platform installer failed, with its bounded diagnostic.
     InstallFailed(String),
+    /// The replacement could not be started after the close.
+    LaunchFailed(String),
     Unsupported,
 }
 
@@ -234,33 +236,72 @@ pub(super) enum RestartAction {
 impl RestartAction {
     pub(super) fn launch(&self) -> Result<(), InstallError> {
         match self {
-            Self::Relaunch {
-                path,
-                kind: LaunchKind::Bundle,
-            } => {
-                // `-n` starts a fresh instance instead of reusing the one that is
-                // still shutting down.
-                let output = Command::new("open")
-                    .arg("-n")
-                    .arg(path)
-                    .output()
-                    .map_err(|error| InstallError::InstallFailed(error.to_string()))?;
-                if output.status.success() {
-                    Ok(())
-                } else {
-                    Err(InstallError::InstallFailed(diagnostic(&output.stderr)))
-                }
-            }
-            Self::Relaunch {
-                path,
-                kind: LaunchKind::Executable,
-            } => Command::new(path)
-                .spawn()
-                .map(|_| ())
-                .map_err(|error| InstallError::InstallFailed(error.to_string())),
+            Self::Relaunch { path, kind } => launch_after_exit(path, *kind),
             Self::RunInstaller { path } => run_installer(path),
         }
     }
+}
+
+/// Start the new application only after this process has exited, so it can
+/// acquire the state-store lock and restore the saved session.
+///
+/// The helper is a detached shell: it polls the old process id, then replaces
+/// itself with the real launcher. Both the id and the path are positional
+/// arguments, never interpolated into the script.
+#[cfg(unix)]
+fn launch_after_exit(path: &Path, kind: LaunchKind) -> Result<(), InstallError> {
+    match kind {
+        LaunchKind::Bundle => {
+            if !path.join("Contents/MacOS/Breeze").is_file() {
+                return Err(InstallError::LaunchFailed(format!(
+                    "{} is not an application bundle",
+                    path.display()
+                )));
+            }
+        }
+        LaunchKind::Executable => {
+            if !path.is_file() {
+                return Err(InstallError::LaunchFailed(format!(
+                    "{} is missing",
+                    path.display()
+                )));
+            }
+        }
+    }
+    let script = match kind {
+        LaunchKind::Bundle => {
+            "while kill -0 \"$1\" 2>/dev/null; do sleep 0.1; done; exec open -n \"$2\""
+        }
+        LaunchKind::Executable => {
+            "while kill -0 \"$1\" 2>/dev/null; do sleep 0.1; done; exec \"$2\""
+        }
+    };
+    Command::new("sh")
+        .args(["-c", script, "breeze-update"])
+        .arg(std::process::id().to_string())
+        .arg(path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| InstallError::LaunchFailed(error.to_string()))
+}
+
+#[cfg(not(unix))]
+fn launch_after_exit(path: &Path, kind: LaunchKind) -> Result<(), InstallError> {
+    let mut command = match kind {
+        LaunchKind::Bundle => {
+            let mut command = Command::new("open");
+            command.arg("-n").arg(path);
+            command
+        }
+        LaunchKind::Executable => Command::new(path),
+    };
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| InstallError::LaunchFailed(error.to_string()))
 }
 
 #[cfg(target_os = "windows")]
@@ -283,7 +324,7 @@ fn run_installer(path: &Path) -> Result<(), InstallError> {
     command
         .spawn()
         .map(|_| ())
-        .map_err(|error| InstallError::InstallFailed(error.to_string()))
+        .map_err(|error| InstallError::LaunchFailed(error.to_string()))
 }
 
 #[cfg(not(target_os = "windows"))]

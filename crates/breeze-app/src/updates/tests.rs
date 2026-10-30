@@ -463,6 +463,26 @@ fn policies_bound_concurrency_and_ignore_disabled_automatic_results() {
     assert!(state.begin(false, 0));
 }
 
+#[test]
+fn relaunch_rejects_a_missing_application() {
+    let action = RestartAction::Relaunch {
+        path: PathBuf::from("/nonexistent/Breeze"),
+        kind: install::LaunchKind::Executable,
+    };
+    assert!(matches!(
+        action.launch(),
+        Err(InstallError::LaunchFailed(_))
+    ));
+    let action = RestartAction::Relaunch {
+        path: PathBuf::from("/nonexistent/Breeze.app"),
+        kind: install::LaunchKind::Bundle,
+    };
+    assert!(matches!(
+        action.launch(),
+        Err(InstallError::LaunchFailed(_))
+    ));
+}
+
 #[cfg(target_os = "macos")]
 fn macos_app(parent: &Path, version: &str, binary: &str) -> PathBuf {
     let app = parent.join("Breeze.app");
@@ -485,7 +505,7 @@ fn macos_image(root: &Path, payload: &Path, version: &str) -> PathBuf {
             "create",
             "-quiet",
             "-volname",
-            "Breeze update test",
+            &format!("Breeze update {version}"),
             "-srcfolder",
         ])
         .arg(payload)

@@ -96,9 +96,13 @@ When an install finishes, the primary pane opens the Kit `AlertDialog` titled
 “Later”. It is shown once per installation. Dismissing it leaves the banner and
 About entries so the reader can restart later. Restarting goes through the
 normal close path: local state is saved, and unsaved annotations or drafts block
-the restart instead of being discarded. The new process or installer launches
-only after the close succeeds; a launch failure keeps the window open and shows
-the diagnostic in the banner.
+the restart instead of being discarded. For macOS and AppImage updates, restart
+spawns a detached helper that waits for this process to exit before launching the
+new instance, so the replacement can acquire the state-store lock and restore the
+saved session. The Windows installer starts as Breeze closes. A helper spawn or
+path-validation failure keeps the window open and shows the diagnostic in the
+banner; a failure inside the detached launcher is outside the application's
+control.
 
 ### Localization
 
@@ -126,7 +130,7 @@ starting the update.
 
 - `cargo fmt --all -- --check` and
   `cargo clippy --workspace --all-targets --locked -- -D warnings` pass.
-- `cargo test --workspace --locked` passes: 275 application tests plus all crate
+- `cargo test --workspace --locked` passes: 276 application tests plus all crate
   and integration suites. New tests cover install-plan asset names, release
   metadata requiring both assets, SHA-256 parsing, a loopback download with a
   matching checksum, mismatched/missing checksums, banner/About entries, the

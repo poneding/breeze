@@ -383,6 +383,7 @@ catalog! {
     "The downloaded update is version {} instead of {}." => ("下载的更新版本为 {}，而非 {}。", "下載的更新版本為 {}，而非 {}。"),
     "The downloaded package does not contain Breeze." => ("下载的安装包中不包含 Breeze。", "下載的安裝套件中不包含 Breeze。"),
     "The system could not install the update: {}" => ("系统无法安装此更新：{}", "系統無法安裝此更新：{}"),
+    "Cannot restart Breeze: {}" => ("无法重启 Breeze：{}", "無法重新啟動 Breeze：{}"),
     "This installation cannot update itself automatically." => ("当前安装方式不支持自动更新。", "目前安裝方式不支援自動更新。"),
     "Cannot show the downloaded update: the file is missing" => ("无法显示已下载的更新：文件已不存在", "無法顯示已下載的更新：檔案已不存在"),
     "Cannot show the downloaded update: {}" => ("无法显示已下载的更新：{}", "無法顯示已下載的更新：{}"),
