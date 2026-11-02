@@ -2,7 +2,7 @@
 
 use crate::*;
 use gpui_kit::component::{
-    Icon, Side,
+    Icon,
     menu::{PopupMenu, PopupMenuItem},
 };
 
@@ -81,7 +81,6 @@ pub(super) fn content(
     cx: &mut Context<PopupMenu>,
 ) -> PopupMenu {
     let menu = menu.action_context(view.read(cx).focus.clone());
-    let show_status_bar = view.read(cx).status_bar_visible;
     let menu = match content {
         ContentMenu::Pdf {
             layout,
@@ -119,7 +118,7 @@ pub(super) fn content(
             window,
         ),
     };
-    status_bar_item(menu, view, show_status_bar, window)
+    status_bar_item(menu, view, window)
 }
 
 fn pdf(
@@ -396,20 +395,10 @@ fn reflow(
     )
 }
 
-fn status_bar_item(
-    menu: PopupMenu,
-    view: Entity<Breeze>,
-    visible: bool,
-    window: &Window,
-) -> PopupMenu {
-    menu.check_side(Side::Right).separator().item(
+fn status_bar_item(menu: PopupMenu, view: Entity<Breeze>, window: &Window) -> PopupMenu {
+    menu.separator().item(
         PopupMenuItem::new(tr!("Show status bar"))
-            .icon(if visible {
-                IconName::SquareCheck
-            } else {
-                IconName::Square
-            })
-            .checked(visible)
+            .icon(IconName::PanelBottom)
             .on_click(window.listener_for(&view, |this, _, _, cx| {
                 this.toggle_status_bar(cx);
             })),

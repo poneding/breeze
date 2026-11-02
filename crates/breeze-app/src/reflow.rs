@@ -43,8 +43,9 @@ pub(super) struct MarkdownView {
 }
 
 /// Maps original Markdown offsets to the source handed to Kit after an inset
-/// marker is inserted. The marker follows leading front matter so the front
-/// matter remains at byte zero, where Markdown parsers recognize it.
+/// marker is inserted. YAML front matter uses padding inside its renderer so
+/// the front matter remains at byte zero without adding a block between it and
+/// the body. TOML and other leading metadata keep the marker after the block.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct MarkdownRenderMap {
     inserted_at: usize,
@@ -68,6 +69,62 @@ impl MarkdownRenderMap {
 /// Adds scrollable breathing room without shrinking the reader viewport.
 #[derive(Clone)]
 struct ContentInsetPlugin;
+
+/// Kit's front matter card with the reader's top breathing room included.
+///
+/// YAML is recognized only at byte zero, so a normal inset block cannot be
+/// placed above it. Wrapping Kit's renderer keeps scrolling behavior correct
+/// while leaving the ordinary block gap between the card and the first body
+/// block.
+struct ReaderFrontmatterPlugin;
+
+struct ReaderFrontmatter {
+    content: MarkdownNode,
+}
+
+impl MarkdownPlugin for ReaderFrontmatterPlugin {
+    fn is_block(&self) -> bool {
+        true
+    }
+
+    fn name(&self) -> &str {
+        "breeze-frontmatter"
+    }
+
+    fn parse(&self, node: &mdast::Node, cx: &MarkdownParseContext<'_>) -> Option<MarkdownNode> {
+        let content = FrontmatterPlugin::new().parse(node, cx)?;
+        let text = content.as_text().to_owned();
+        let markdown = content.as_markdown().to_owned();
+        let accessibility = content.accessibility_name().to_owned();
+        Some(
+            MarkdownNode::new(self.name(), ReaderFrontmatter { content })
+                .text(text)
+                .markdown(markdown)
+                .accessibility_label(accessibility),
+        )
+    }
+
+    fn render(&self, node: &MarkdownNode, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let content = node
+            .data::<ReaderFrontmatter>()
+            .map(|frontmatter| {
+                FrontmatterPlugin::new()
+                    .render(&frontmatter.content, window, cx)
+                    .into_any_element()
+            })
+            .unwrap_or_else(|| div().child(node.as_text().to_string()).into_any_element());
+        div()
+            .id("markdown-frontmatter")
+            .test_support()
+            .pt(px(MARKDOWN_VERTICAL_PADDING))
+            .child(
+                div()
+                    .id("markdown-frontmatter-content")
+                    .test_support()
+                    .child(content),
+            )
+    }
+}
 
 impl MarkdownPlugin for ContentInsetPlugin {
     fn is_block(&self) -> bool {
@@ -106,8 +163,21 @@ fn markdown_render_source(
     source: &str,
     frontmatter_end: Option<usize>,
 ) -> (String, MarkdownRenderMap) {
-    let inserted_at = frontmatter_end.unwrap_or(0).min(source.len());
-    let insertion = if inserted_at == 0 {
+    let yaml_frontmatter = frontmatter_end.is_some_and(|end| {
+        source
+            .get(..end)
+            .is_some_and(|frontmatter| frontmatter.starts_with("---"))
+    });
+    let inserted_at = if yaml_frontmatter {
+        // The front matter renderer owns its top inset. Inserting a block here
+        // would put 48 px between the metadata card and the first body block.
+        0
+    } else {
+        frontmatter_end.unwrap_or(0).min(source.len())
+    };
+    let insertion = if yaml_frontmatter {
+        String::new()
+    } else if inserted_at == 0 {
         format!("{MARKDOWN_TOP_INSET_MARKER}\n\n")
     } else {
         format!("\n{MARKDOWN_TOP_INSET_MARKER}\n\n")
@@ -129,8 +199,22 @@ fn markdown_render_source(
     )
 }
 
-fn rendered_source_block(item: usize, block_count: usize) -> usize {
-    item.saturating_sub(1).min(block_count.saturating_sub(1))
+/// Whether the rendered source starts with a dedicated top-inset block.
+fn markdown_has_top_inset(source: &str, frontmatter_end: Option<usize>) -> bool {
+    !frontmatter_end.is_some_and(|end| {
+        source
+            .get(..end)
+            .is_some_and(|frontmatter| frontmatter.starts_with("---"))
+    })
+}
+
+fn rendered_source_block(item: usize, block_count: usize, has_top_inset: bool) -> usize {
+    let item = if has_top_inset {
+        item.saturating_sub(1)
+    } else {
+        item
+    };
+    item.min(block_count.saturating_sub(1))
 }
 
 #[derive(Clone, Debug)]
@@ -572,7 +656,7 @@ impl Breeze {
         let view = cx.entity().downgrade();
         MarkdownExtensions::default()
             .frontmatter()
-            .plugin(FrontmatterPlugin::new())
+            .plugin(ReaderFrontmatterPlugin)
             .plugin(ContentInsetPlugin)
             .plugin(ImagePlugin {
                 view: view.clone(),
@@ -1006,12 +1090,19 @@ impl Breeze {
                 tr!("Reading progress"),
                 format!("{:.0}%", book.reflow.progress * 100.),
             ))
-            .child(field(
+            .child(document_panel::path_field(
+                "document-file-location",
+                "reveal-document",
                 tr!("File location"),
                 match &book.source {
                     Source::File(path) => path.display().to_string(),
                     _ => String::new(),
                 },
+                match &book.source {
+                    Source::File(path) => Some(path.clone()),
+                    Source::Sample => None,
+                },
+                p.muted,
             ))
             // A Markdown image that could not be shown is a property of that one
             // image. It is reported here rather than as a status notice, which
@@ -1443,7 +1534,11 @@ impl Breeze {
         let list = markdown.state.read(cx).list_state();
         let top = list.logical_scroll_top().item_ix;
         let at_end = list.is_scrolled_to_end() == Some(true);
-        let block = rendered_source_block(top, markdown.metadata.block_starts.len());
+        let block = rendered_source_block(
+            top,
+            markdown.metadata.block_starts.len(),
+            markdown_has_top_inset(&markdown.source, markdown.metadata.frontmatter_end),
+        );
         let offset = markdown
             .metadata
             .block_starts
@@ -2805,12 +2900,17 @@ impl Breeze {
             let scroll_view = cx.entity().downgrade();
             let block_starts = markdown.metadata.block_starts.clone();
             let source_bytes = markdown.metadata.source_bytes.max(1);
+            let has_top_inset =
+                markdown_has_top_inset(&markdown.source, markdown.metadata.frontmatter_end);
             state
                 .read(cx)
                 .list_state()
                 .set_scroll_handler(move |event, _, cx| {
-                    let first =
-                        rendered_source_block(event.visible_range.start, block_starts.len());
+                    let first = rendered_source_block(
+                        event.visible_range.start,
+                        block_starts.len(),
+                        has_top_inset,
+                    );
                     let source_offset = block_starts.get(first).copied().unwrap_or(0);
                     let at_end = event.visible_range.end >= event.count;
                     let _ = scroll_view.update(cx, |this, cx| {
@@ -3396,9 +3496,9 @@ fn visible_active_outline(visible: &[usize], active: Option<usize>) -> Option<us
 mod tests {
     use super::{
         MARKDOWN_TOP_INSET_MARKER, ReflowTextSelection, contained_page_bounds, fit_svg_to_width,
-        grouped_characters, markdown_render_source, reflow_search_result_text,
-        scale_svg_numeric_attribute, strip_mermaid_background, svg_attribute, svg_length_attribute,
-        svg_root_bounds,
+        grouped_characters, markdown_has_top_inset, markdown_render_source,
+        reflow_search_result_text, rendered_source_block, scale_svg_numeric_attribute,
+        strip_mermaid_background, svg_attribute, svg_length_attribute, svg_root_bounds,
     };
     use crate::{Mode, Source, texture};
     use breeze_reflow::epub::{TextGlyph, TextLayer, TextLine};
@@ -3444,17 +3544,43 @@ mod tests {
     }
 
     #[test]
-    fn frontmatter_stays_at_the_start_of_the_rendered_markdown() {
+    fn yaml_frontmatter_keeps_the_body_adjacent_and_maps_directly() {
         let source = "---\ntitle: 格式测试\n---\n\n# 标题\n";
         let frontmatter_end = source.find("\n\n#").unwrap();
         let (rendered, map) = markdown_render_source(source, Some(frontmatter_end));
 
         assert!(rendered.starts_with(&source[..frontmatter_end]));
-        assert!(!rendered.starts_with(MARKDOWN_TOP_INSET_MARKER));
-        assert!(rendered[frontmatter_end..].contains(MARKDOWN_TOP_INSET_MARKER));
+        assert!(
+            !rendered.starts_with(MARKDOWN_TOP_INSET_MARKER),
+            "a top-inset block would separate YAML front matter from the body"
+        );
+        assert!(!rendered[..frontmatter_end + 3].contains(MARKDOWN_TOP_INSET_MARKER));
         assert_eq!(
             map.source_offset(frontmatter_end + 2),
             rendered.find("# 标题").unwrap()
+        );
+        assert_eq!(map.source_range(0..source.len()), 0..source.len());
+        assert!(!markdown_has_top_inset(source, Some(frontmatter_end)));
+        assert_eq!(
+            rendered_source_block(0, 2, markdown_has_top_inset(source, Some(frontmatter_end))),
+            0
+        );
+    }
+
+    #[test]
+    fn toml_frontmatter_keeps_the_inset_after_its_block() {
+        let source = "+++\ntitle = \"Test\"\n+++\n\n# Heading\n";
+        let frontmatter_end = source.find("\n\n#").unwrap();
+        let (rendered, map) = markdown_render_source(source, Some(frontmatter_end));
+
+        assert!(rendered.starts_with(&source[..frontmatter_end]));
+        assert!(rendered[frontmatter_end..].contains(MARKDOWN_TOP_INSET_MARKER));
+        assert!(markdown_has_top_inset(source, Some(frontmatter_end)));
+        assert_eq!(rendered_source_block(0, 2, true), 0);
+        assert_eq!(rendered_source_block(1, 2, true), 0);
+        assert_eq!(
+            map.source_offset(frontmatter_end + 2),
+            rendered.find("# Heading").unwrap()
         );
     }
 

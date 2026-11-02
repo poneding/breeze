@@ -3663,6 +3663,27 @@ fn markdown_text_view_plugins_render_extended_constructs(cx: &mut TestAppContext
                 "{expected:?} is missing from the TextView: {rendered:?}"
             );
         }
+        let viewport = window.find("markdown-text-viewport").bounds();
+        let frontmatter = window.find("markdown-frontmatter-content").bounds();
+        assert!(
+            (frontmatter.top() - viewport.top() - px(48.)).abs() <= px(1.),
+            "front matter starts {frontmatter:?}, viewport starts {viewport:?}"
+        );
+        let content_blocks = markdown.metadata.block_starts.len();
+        let list = markdown.state.read(cx).list_state().clone();
+        assert_eq!(
+            list.item_count(),
+            content_blocks + 1,
+            "YAML front matter must not add a separate top-inset block"
+        );
+        let heading = list
+            .bounds_for_item(1)
+            .expect("the first body block is laid out");
+        let gap = heading.top() - frontmatter.bottom();
+        assert!(
+            gap >= px(12.) && gap <= px(24.),
+            "front matter to body gap is {gap:?}, expected the paragraph gap"
+        );
         assert!(
             window.try_find(("markdown-toc-entry", 0usize)).is_some(),
             "the TOC plugin did not render"

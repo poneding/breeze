@@ -38,7 +38,7 @@ model with metadata only and retains no render tree.
 
 | Construct | Implementation |
 |---|---|
-| Front matter | Kit's `FrontmatterPlugin` |
+| Front matter | Kit's `FrontmatterPlugin`, wrapped by Breeze for the reading inset |
 | TOC markers | `TocPlugin`, registered with `MarkdownExtensions` |
 | Inline math | `InlineMathPlugin`, rendered through `InlineElement` and RaTeX |
 | Display math | `MathBlockPlugin`, rendered as a centred RaTeX image |
@@ -95,6 +95,17 @@ diagram.
 - Large raster images are area-resized to a bounded texture before upload while
   retaining their original logical size. This avoids the sparse GPU sampling
   that could skip a one-pixel source border on a multi-megapixel screenshot.
+
+## Front matter spacing and document paths (November 2, 2026)
+
+- YAML front matter keeps its metadata card at byte zero for Markdown parsing,
+  but now owns its 48 px top inset in the custom render wrapper. The old separate
+  inset block followed the card and produced a 48 px gap before the first body
+  block; only the normal paragraph gap remains between them.
+- TOML front matter keeps the previous post-block inset because it uses Kit's
+  code-block fallback rather than the wrapped YAML metadata renderer.
+- Markdown's document information panel reuses the PDF path row: start
+  truncation, a full-path tooltip, and a trailing folder-open reveal action.
 
 ## Search and navigation
 

@@ -33,6 +33,7 @@ Specify a function and an icon name, or provide a custom SVG with appropriate li
 | Toggle navigation | `panel-left` | `PanelLeft` |
 | Outline / Thumbnails navigation tabs | `table-of-contents` / `images` | `TableOfContents` / `Images` |
 | Toggle document sidebar | `panel-right` | `PanelRight` |
+| Toggle status bar | `panel-bottom` | `PanelBottom` |
 | Document information / annotations | `info` / `highlighter` | `Info` / `Highlighter` |
 | Annotation type filter | `list-filter` | `ListFilter` |
 | Outline title search / more | `search` / `ellipsis-vertical` | `Search` / `EllipsisVertical` |

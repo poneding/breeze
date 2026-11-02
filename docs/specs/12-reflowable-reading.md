@@ -55,6 +55,11 @@ EPUB rows come from the publication navigation and fold by depth; Markdown rows
 come from headings. Because a reflowable document has no fixed pages, only the
 controls that need one are dropped.
 
+The right panel's information surface follows the PDF document panel. File-backed
+EPUB and Markdown documents show the source location as one start-truncated row
+with a tooltip and a trailing `folder-open` button that reveals the file in the
+platform file manager. The bundled in-memory sample has no path row action.
+
 | Surface | PDF | EPUB | Markdown |
 |---|---|---|---|
 | Content toolbar | Read/annotate and existing tools | Chapter navigation | Nothing format-specific |

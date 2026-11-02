@@ -265,6 +265,45 @@ fn locations_stay_on_one_line_and_expose_folder_actions(cx: &mut TestAppContext)
 }
 
 #[gpui_kit::test]
+fn markdown_file_location_matches_the_pdf_path_row(cx: &mut TestAppContext) {
+    let (handle, view) = crate::ui_tests::app(cx);
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory
+        .path()
+        .join("a very long directory name that should be truncated from the start")
+        .join("Reading notes.md");
+    std::fs::create_dir_all(source.parent().unwrap()).unwrap();
+    std::fs::write(&source, "# Notes\n\nBody\n").unwrap();
+
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(source.clone());
+            view.books[0].title = "Reading notes.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| {
+            view.document_panel.open = true;
+            cx.notify();
+        });
+        window.render_frame(cx);
+
+        let location = window.find("document-file-location");
+        let reveal = window.find("reveal-document");
+        assert!(location.visible());
+        assert!(reveal.visible());
+        assert!(location.bounds().size.height <= px(20.));
+        assert!(reveal.bounds().left() >= location.bounds().right());
+        assert!((reveal.bounds().center().y - location.bounds().center().y).abs() <= px(1.));
+        assert_eq!(reveal.label(), Some(i18n::text(crate::reveal::label())));
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn sidebar_is_independent_of_mode_and_fits_a_narrow_window(cx: &mut TestAppContext) {
     let (handle, view) = crate::ui_tests::app(cx);
     cx.update_window(handle, |_, window, cx| {

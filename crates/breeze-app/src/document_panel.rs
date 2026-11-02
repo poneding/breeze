@@ -574,7 +574,7 @@ fn info_field(label: &'static str, value: String, muted: Hsla) -> Div {
         )
 }
 
-fn path_field(
+pub(super) fn path_field(
     value_id: &'static str,
     reveal_id: &'static str,
     label: &'static str,
