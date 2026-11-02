@@ -58,7 +58,7 @@ pub(super) fn app(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) 
     cx.update(|cx| {
         gpui_kit::init(cx);
         appearance::init(cx).unwrap();
-        commands::bind(cx);
+        commands::bind(cx).expect("static key bindings are valid");
         let config = ThemePreference::System
             .config(WindowAppearance::Light, cx)
             .unwrap();
@@ -2196,7 +2196,7 @@ fn modified_wheel_zooms_without_scrolling_and_plain_wheel_still_scrolls(cx: &mut
         };
         let before = view.read(cx).reading.pages_scroll.offset();
         window.dispatch_event(
-            ScrollWheelEvent {
+            ScrollEvent {
                 position,
                 delta: ScrollDelta::Lines(point(0., -1.)),
                 modifiers: primary,

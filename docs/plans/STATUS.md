@@ -1,3 +1,23 @@
+## November 2 dependency refresh
+
+The workspace lockfile now resolves to the highest versions compatible with the
+declared Rust 1.97 toolchain. Direct pins advanced to GPUI Kit 0.8.1, `resvg`
+0.49.0, `ureq` 3.5.0, `embed-resource` 3.0.12, and `zip` 9.2.2; the GPUI
+snapshot is now 0.3.10. GPUI's static key parser no longer accepts the
+platform-dependent `secondary-` alias, so command bindings are loaded against
+the active host OS and startup reports invalid bindings instead of panicking.
+The shortcuts retain their existing Command-on-macOS and Ctrl-on-Windows/Linux
+meaning.
+
+Validation: `cargo fmt --all -- --check`, the complete
+`cargo test --workspace --locked` suite (284 application tests plus every crate
+and integration suite; five existing performance probes ignored), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. The
+macOS review bundle built and launched from an isolated `BREEZE_DATA_DIR`; its
+Chinese home screen rendered without a storage-lock error. Windows and Linux
+runtime checks remain unverified. Cargo reports the existing future-incompatibility
+notice for `block 0.1.6`.
+
 ## November 2 Markdown front matter spacing and document information
 
 YAML front matter now keeps its 48 px reading inset inside the metadata card's

@@ -32,12 +32,12 @@ breeze-pdf.workspace = true
 breeze-reflow.workspace = true
 image.workspace = true
 # Rasterizes SVG badges and diagrams; the same release GPUI already links.
-resvg = "=0.46.0"
+resvg = "=0.49.0"
 # Typesets display formulas with embedded KaTeX fonts (MIT). Render-only build.
 ratex-gpui = { version = "=0.4.1", default-features = false }
 # Renders Mermaid fences to SVG natively, without a browser (MIT).
 mermaid-rs-renderer = { version = "=0.3.1", default-features = false }
-ureq = { version = "=3.4.2", default-features = false, features = ["rustls"] }
+ureq = { version = "=3.5.0", default-features = false, features = ["rustls"] }
 semver = "=1.0.28"
 sha2.workspace = true
 sys-locale = "=0.3.2"
@@ -48,10 +48,10 @@ workspace = true
 [build-dependencies]
 # Embeds `assets/brand/breeze.ico` as the executable's Windows icon resource.
 # Already locked through GPUI's manifest build script.
-embed-resource = "=3.0.11"
+embed-resource = "=3.0.12"
 
 [dev-dependencies]
-zip = { version = "=9.0.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+zip = { version = "=9.2.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 futures.workspace = true
 tempfile.workspace = true
 gpui-kit = { workspace = true, features = ["test-support"] }

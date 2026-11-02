@@ -1314,33 +1314,29 @@ impl Breeze {
                                 }
                                 end_view.update(cx, |this, cx| this.end_text_selection(cx));
                             });
-                            window.on_mouse_event(
-                                move |event: &ScrollWheelEvent, phase, window, cx| {
-                                    // Capture before either the virtual list or the single-page scroller.
-                                    if phase != DispatchPhase::Capture
-                                        || !hitbox.should_handle_scroll(window)
-                                    {
-                                        return;
+                            window.on_mouse_event(move |event: &ScrollEvent, phase, window, cx| {
+                                // Capture before either the virtual list or the single-page scroller.
+                                if phase != DispatchPhase::Capture
+                                    || !hitbox.should_handle_scroll(window)
+                                {
+                                    return;
+                                }
+                                // Wheel scrolling is not part of a drag. Finalizing
+                                // first prevents a missed outside-window release from
+                                // leaving the edge-scroll task extending the range.
+                                view.update(cx, |this, cx| {
+                                    if !this.gesture.is_empty() {
+                                        this.end_text_selection(cx);
                                     }
-                                    // Wheel scrolling is not part of a drag. Finalizing
-                                    // first prevents a missed outside-window release from
-                                    // leaving the edge-scroll task extending the range.
-                                    view.update(cx, |this, cx| {
-                                        if !this.gesture.is_empty() {
-                                            this.end_text_selection(cx);
-                                        }
-                                    });
-                                    if event.modifiers.secondary()
-                                        && !event.modifiers.alt
-                                        && !event.modifiers.shift
-                                    {
-                                        cx.stop_propagation();
-                                        view.update(cx, |this, cx| {
-                                            this.scroll_zoom(event, window, cx)
-                                        });
-                                    }
-                                },
-                            );
+                                });
+                                if event.modifiers.secondary(cx)
+                                    && !event.modifiers.alt
+                                    && !event.modifiers.shift
+                                {
+                                    cx.stop_propagation();
+                                    view.update(cx, |this, cx| this.scroll_zoom(event, window, cx));
+                                }
+                            });
                         }
                     },
                 )

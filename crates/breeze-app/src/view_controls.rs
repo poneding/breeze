@@ -264,7 +264,7 @@ impl Breeze {
 
     pub(super) fn scroll_zoom(
         &mut self,
-        event: &ScrollWheelEvent,
+        event: &ScrollEvent,
         window: &Window,
         cx: &mut Context<Self>,
     ) {

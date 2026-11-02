@@ -2745,31 +2745,30 @@ impl Breeze {
                     this.update_reflow_text_selection(page, event.position, cx);
                 }
             }));
-            content =
-                content.on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
-                    // A trackpad emits dozens of wheel events for one swipe.
-                    // Requesting a render for each of them re-laid out and
-                    // superseded the page continuously, so the accumulator only
-                    // turns a page when a whole viewport has been crossed.
-                    let delta = event.delta.pixel_delta(px(20.));
-                    // A third of a viewport per page: a mouse notch turns a page
-                    // after a few clicks, and a trackpad flick crosses one or two
-                    // without ever launching a render per event.
-                    let page = (this.reflow.viewport.1 / 3.).max(120.);
-                    this.reflow.scroll_accum -= f32::from(delta.y);
-                    let mut turn = 0i8;
-                    while this.reflow.scroll_accum >= page {
-                        this.reflow.scroll_accum -= page;
-                        turn = turn.saturating_add(1);
-                    }
-                    while this.reflow.scroll_accum <= -page {
-                        this.reflow.scroll_accum += page;
-                        turn = turn.saturating_sub(1);
-                    }
-                    if turn != 0 {
-                        this.request_epub(turn.clamp(-8, 8), 0., None, cx);
-                    }
-                }));
+            content = content.on_scroll(cx.listener(|this, event: &ScrollEvent, _, cx| {
+                // A trackpad emits dozens of wheel events for one swipe.
+                // Requesting a render for each of them re-laid out and
+                // superseded the page continuously, so the accumulator only
+                // turns a page when a whole viewport has been crossed.
+                let delta = event.delta.pixel_delta(px(20.));
+                // A third of a viewport per page: a mouse notch turns a page
+                // after a few clicks, and a trackpad flick crosses one or two
+                // without ever launching a render per event.
+                let page = (this.reflow.viewport.1 / 3.).max(120.);
+                this.reflow.scroll_accum -= f32::from(delta.y);
+                let mut turn = 0i8;
+                while this.reflow.scroll_accum >= page {
+                    this.reflow.scroll_accum -= page;
+                    turn = turn.saturating_add(1);
+                }
+                while this.reflow.scroll_accum <= -page {
+                    this.reflow.scroll_accum += page;
+                    turn = turn.saturating_sub(1);
+                }
+                if turn != 0 {
+                    this.request_epub(turn.clamp(-8, 8), 0., None, cx);
+                }
+            }));
             if !self.reflow.page_images.is_empty() {
                 let spread = self
                     .reflow

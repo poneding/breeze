@@ -1313,7 +1313,11 @@ fn run() -> Result<()> {
         }
         gpui_kit::component::set_locale("zh-CN");
 
-        commands::bind(cx);
+        if let Err(error) = commands::bind(cx) {
+            report_startup_failure(&format!("Cannot register keyboard shortcuts: {error:#}"));
+            cx.quit();
+            return;
+        }
 
         cx.on_window_closed(|cx, _| {
             if cx.windows().is_empty() {

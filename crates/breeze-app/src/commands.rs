@@ -5,10 +5,10 @@ use gpui_kit::component::{
     ElementExt, TitleBar, button::ButtonCustomVariant, menu::ContextMenuExt,
 };
 
-pub fn bind(cx: &mut App) {
+pub fn bind(cx: &mut App) -> anyhow::Result<()> {
     tool_settings::bind(cx);
     cx.bind_keys([
-        KeyBinding::new("secondary-o", Open, Some("Breeze")),
+        platform_binding(cx, "secondary-o", Open, Some("Breeze"))?,
         KeyBinding::new(
             "backspace",
             DeleteSelectedAnnotation,
@@ -19,22 +19,27 @@ pub fn bind(cx: &mut App) {
         // Immersive reading is also left with Escape, the same key that cancels edits.
         KeyBinding::new("f11", ToggleFullScreen, Some("Breeze")),
         KeyBinding::new("escape", CancelAnnotationEdit, Some("AnnotationText")),
-        KeyBinding::new("secondary-shift-l", CycleLayout, Some("Breeze && !Input")),
-        KeyBinding::new("secondary-,", Preferences, Some("Breeze")),
-        KeyBinding::new("secondary-i", ShowAbout, Some("Breeze")),
-        KeyBinding::new("secondary-k", ShowShortcuts, Some("Breeze")),
-        KeyBinding::new("secondary-shift-h", Home, Some("Breeze")),
-        KeyBinding::new("secondary-w", CloseTab, Some("Breeze")),
+        platform_binding(
+            cx,
+            "secondary-shift-l",
+            CycleLayout,
+            Some("Breeze && !Input"),
+        )?,
+        platform_binding(cx, "secondary-,", Preferences, Some("Breeze"))?,
+        platform_binding(cx, "secondary-i", ShowAbout, Some("Breeze"))?,
+        platform_binding(cx, "secondary-k", ShowShortcuts, Some("Breeze"))?,
+        platform_binding(cx, "secondary-shift-h", Home, Some("Breeze"))?,
+        platform_binding(cx, "secondary-w", CloseTab, Some("Breeze"))?,
         KeyBinding::new("ctrl-tab", NextTab, Some("Breeze")),
         KeyBinding::new("ctrl-shift-tab", PreviousTab, Some("Breeze")),
-        KeyBinding::new("secondary-b", ToggleSidebar, Some("Breeze")),
-        KeyBinding::new("secondary-g", FocusPage, Some("Breeze")),
-        KeyBinding::new("secondary-d", Favorite, Some("Breeze")),
-        KeyBinding::new("secondary-shift-t", CycleTheme, Some("Breeze")),
-        KeyBinding::new("secondary-1", ReadMode, Some("Breeze")),
-        KeyBinding::new("secondary-2", AnnotateMode, Some("Breeze")),
-        KeyBinding::new("secondary-shift-o", ShowOutline, Some("Breeze")),
-        KeyBinding::new("secondary-shift-m", ShowThumbnails, Some("Breeze")),
+        platform_binding(cx, "secondary-b", ToggleSidebar, Some("Breeze"))?,
+        platform_binding(cx, "secondary-g", FocusPage, Some("Breeze"))?,
+        platform_binding(cx, "secondary-d", Favorite, Some("Breeze"))?,
+        platform_binding(cx, "secondary-shift-t", CycleTheme, Some("Breeze"))?,
+        platform_binding(cx, "secondary-1", ReadMode, Some("Breeze"))?,
+        platform_binding(cx, "secondary-2", AnnotateMode, Some("Breeze"))?,
+        platform_binding(cx, "secondary-shift-o", ShowOutline, Some("Breeze"))?,
+        platform_binding(cx, "secondary-shift-m", ShowThumbnails, Some("Breeze"))?,
         // Page/zoom shortcuts must not consume editing keys inside an Input.
         KeyBinding::new("pagedown", NextPage, Some("Breeze && !Input")),
         KeyBinding::new("pageup", PreviousPage, Some("Breeze && !Input")),
@@ -42,25 +47,47 @@ pub fn bind(cx: &mut App) {
         KeyBinding::new("left", PreviousPage, Some("Breeze && !Input")),
         KeyBinding::new("up", ScrollReaderUp, Some("Breeze && !Input")),
         KeyBinding::new("down", ScrollReaderDown, Some("Breeze && !Input")),
-        KeyBinding::new("secondary-=", ZoomIn, Some("Breeze && !Input")),
-        KeyBinding::new("secondary-+", ZoomIn, Some("Breeze && !Input")),
-        KeyBinding::new("secondary-shift-=", ZoomIn, Some("Breeze && !Input")),
-        KeyBinding::new("secondary--", ZoomOut, Some("Breeze && !Input")),
-        KeyBinding::new("secondary-0", ActualSize, Some("Breeze && !Input")),
-        KeyBinding::new("secondary-9", FitPage, Some("Breeze && !Input")),
-        KeyBinding::new("secondary-8", FitWidth, Some("Breeze && !Input")),
-        KeyBinding::new("secondary-s", SaveAnnotations, Some("Breeze")),
-        KeyBinding::new("secondary-shift-e", ExportPdf, Some("Breeze")),
-        KeyBinding::new("secondary-z", UndoAnnotation, Some("Breeze && !Input")),
-        KeyBinding::new(
+        platform_binding(cx, "secondary-=", ZoomIn, Some("Breeze && !Input"))?,
+        platform_binding(cx, "secondary-+", ZoomIn, Some("Breeze && !Input"))?,
+        platform_binding(cx, "secondary-shift-=", ZoomIn, Some("Breeze && !Input"))?,
+        platform_binding(cx, "secondary--", ZoomOut, Some("Breeze && !Input"))?,
+        platform_binding(cx, "secondary-0", ActualSize, Some("Breeze && !Input"))?,
+        platform_binding(cx, "secondary-9", FitPage, Some("Breeze && !Input"))?,
+        platform_binding(cx, "secondary-8", FitWidth, Some("Breeze && !Input"))?,
+        platform_binding(cx, "secondary-s", SaveAnnotations, Some("Breeze"))?,
+        platform_binding(cx, "secondary-shift-e", ExportPdf, Some("Breeze"))?,
+        platform_binding(cx, "secondary-z", UndoAnnotation, Some("Breeze && !Input"))?,
+        platform_binding(
+            cx,
             "secondary-shift-z",
             RedoAnnotation,
             Some("Breeze && !Input"),
-        ),
-        KeyBinding::new("secondary-f", SearchDocument, Some("Breeze")),
-        KeyBinding::new("secondary-c", CopySelection, Some("Breeze && !Input")),
-        KeyBinding::new("secondary-q", Quit, None),
+        )?,
+        platform_binding(cx, "secondary-f", SearchDocument, Some("Breeze"))?,
+        platform_binding(cx, "secondary-c", CopySelection, Some("Breeze && !Input"))?,
+        platform_binding(cx, "secondary-q", Quit, None)?,
     ]);
+    Ok(())
+}
+
+fn platform_binding<A: Action>(
+    cx: &App,
+    keystrokes: &'static str,
+    action: A,
+    context: Option<&str>,
+) -> anyhow::Result<KeyBinding> {
+    let predicate = context
+        .map(KeyBindingContextPredicate::parse)
+        .transpose()?
+        .map(std::rc::Rc::new);
+    Ok(KeyBinding::load(
+        keystrokes,
+        Box::new(action),
+        predicate,
+        false,
+        None,
+        cx,
+    )?)
 }
 impl Breeze {
     pub(super) fn command(
