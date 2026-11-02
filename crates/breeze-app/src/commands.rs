@@ -561,9 +561,7 @@ impl Breeze {
                     .gap_1()
                     .child(
                         self.command("home-tab", IconName::House, tr!("Home"), &Home, cx)
-                            .selected(
-                                self.screen == Screen::Home && self.home_page == HomePage::Library,
-                            ),
+                            .selected(self.screen == Screen::Home),
                     )
                     .child(self.workspace_tabs(window, cx)),
             )

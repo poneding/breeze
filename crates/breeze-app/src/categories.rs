@@ -179,15 +179,6 @@ impl Breeze {
                         ),
                     ),
             )
-            .child(
-                left_button("unassigned-category", IconName::Ban, tr!("Unassigned"))
-                    .selected(self.home_page == HomePage::Library && self.library_filter == 3)
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.home_page = HomePage::Library;
-                        this.library_filter = 3;
-                        cx.notify();
-                    })),
-            )
             .children(self.categories.iter().map(|category| {
                 let id = category.id;
                 let selected = self.home_page == HomePage::Library && self.library_filter == id + 3;
@@ -325,6 +316,15 @@ impl Breeze {
                             ),
                     )
             }))
+            .child(
+                left_button("unassigned-category", IconName::Ban, tr!("Unassigned"))
+                    .selected(self.home_page == HomePage::Library && self.library_filter == 3)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.home_page = HomePage::Library;
+                        this.library_filter = 3;
+                        cx.notify();
+                    })),
+            )
     }
     fn category_popover(
         &self,

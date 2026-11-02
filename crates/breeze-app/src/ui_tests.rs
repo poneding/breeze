@@ -458,6 +458,7 @@ fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext)
         view.update(cx, |view, cx| view.show_home(cx));
         window.render_frame(cx);
         assert_eq!(view.read(cx).home_page, HomePage::Library);
+        assert_eq!(view.read(cx).screen, Screen::Home);
         assert!(window.find("library-sidebar").visible());
         assert!(window.find("home-footer").visible());
         assert!(window.find(("library-open", 0usize)).visible());
@@ -465,6 +466,7 @@ fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext)
         window.click("home-about", cx);
         window.render_frame(cx);
         assert_eq!(view.read(cx).home_page, HomePage::About);
+        assert_eq!(view.read(cx).screen, Screen::Home);
         assert!(window.find("about-body").visible());
         assert!(window.find("brand-tile").visible());
         assert!(window.find("check-updates").visible());
@@ -475,11 +477,13 @@ fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext)
         window.click("home-shortcuts", cx);
         window.render_frame(cx);
         assert_eq!(view.read(cx).home_page, HomePage::Shortcuts);
+        assert_eq!(view.read(cx).screen, Screen::Home);
         assert!(window.find("shortcuts-body").visible());
 
         window.click("home-settings", cx);
         window.render_frame(cx);
         assert_eq!(view.read(cx).home_page, HomePage::Settings);
+        assert_eq!(view.read(cx).screen, Screen::Home);
         assert!(window.find("theme-select").visible());
         // The dropdown wrapper that captures arrow keys must not change its box.
         let theme = window.find("theme-select").bounds();
@@ -548,6 +552,36 @@ fn home_navigation_selects_about_shortcuts_and_settings(cx: &mut TestAppContext)
         let settings = window.find("home-settings").bounds();
         assert!(about.bottom() <= shortcuts.top());
         assert!(shortcuts.bottom() <= settings.top());
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
+fn unassigned_category_follows_user_categories(cx: &mut TestAppContext) {
+    use breeze_core::library::{Category, CategoryColor};
+
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, cx| {
+            view.categories = vec![
+                Category {
+                    id: 1,
+                    name: "Research".into(),
+                    color: CategoryColor::Blue,
+                },
+                Category {
+                    id: 2,
+                    name: "Reference".into(),
+                    color: CategoryColor::Green,
+                },
+            ];
+            view.show_home(cx);
+        });
+        window.render_frame(cx);
+
+        let last_category = window.find(("category-nav", 2usize)).bounds();
+        let unassigned = window.find("unassigned-category").bounds();
+        assert!(last_category.bottom() <= unassigned.top());
     })
     .unwrap();
 }
