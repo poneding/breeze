@@ -291,11 +291,16 @@ Treat images as selectable projected objects and decode off-thread with the
 session/revision/resource-base identity. Clipboard image-file creation is
 deferred; changing that scope requires its own filesystem transaction design.
 
-Expose Reading/Edit plus Live/Source within the existing compact command area.
-Use real Actions, focus contexts and native Tooltip shortcut display. Dispatch
-Save/Undo according to document capability and focused editor; retain PDF
-annotation commands/history and leave EPUB read-only. Update the existing
-shortcut catalog and guard the recently added horizontal page-arrow bindings.
+Expose Reading/Edit within the existing compact command area. Use real Actions,
+focus contexts and native Tooltip shortcut display. Dispatch Save/Undo according
+to document capability and focused editor; retain PDF annotation commands/history
+and leave EPUB read-only. Update the existing shortcut catalog and guard the
+recently added horizontal page-arrow bindings.
+
+Undo, Redo and Save sit in the toolbar's flexible middle space, centered by equal
+zero-basis spacers the way the PDF annotation tools are. The Reading/Edit switch
+stays at the leading edge and the document commands keep the trailing edge, so
+the two formats share one placement rule instead of a Markdown-specific row.
 
 Reuse shared chrome constants, navigation sizing and Kit registry themes. This
 package does not authorize resizing bars. The contributor guide says 34/38/32 px

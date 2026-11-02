@@ -1579,7 +1579,6 @@ impl Breeze {
                     // these controls stay inside the existing toolbar.
                     .when(self.books[self.active].is_markdown(), |bar| {
                         let editing = self.books[self.active].markdown_editing;
-                        let session = self.books[self.active].markdown_edit.clone();
                         bar.child(
                             TabBar::new("markdown-modes")
                                 .segmented()
@@ -1607,37 +1606,8 @@ impl Breeze {
                                         }),
                                 ),
                         )
-                        .when(editing, |bar| {
-                            let can_save = session
-                                .as_ref()
-                                .is_some_and(|editor| editor.read(cx).can_save());
-                            bar.child(self.command(
-                                "markdown-undo",
-                                IconName::Undo2,
-                                tr!("Undo Markdown edit"),
-                                &UndoAnnotation,
-                                cx,
-                            ))
-                            .child(self.command(
-                                "markdown-redo",
-                                IconName::Redo2,
-                                tr!("Redo Markdown edit"),
-                                &RedoAnnotation,
-                                cx,
-                            ))
-                            .child(
-                                self.command(
-                                    "markdown-save",
-                                    IconName::Save,
-                                    tr!("Save Markdown draft"),
-                                    &SaveAnnotations,
-                                    cx,
-                                )
-                                .disabled(!can_save),
-                            )
-                        })
                     })
-                    .child(div().flex_1())
+                    .child(self.reflow_toolbar_tools(cx))
                     .child(
                         self.command(
                             "reader-search",
@@ -1975,6 +1945,70 @@ impl Breeze {
                 .iter()
                 .rposition(|entry| entry.block <= self.reflow.active_block),
         }
+    }
+
+    /// The toolbar's flexible middle space for the reflow readers.
+    ///
+    /// Markdown editing centers its Undo, Redo, and Save group there, the same
+    /// way the PDF reader centers its annotation tools between the mode tabs and
+    /// the trailing document commands. Equal zero-basis spacers keep the group
+    /// centered and collapse instead of overflowing a narrow window, and a
+    /// format with no group of its own leaves the space empty.
+    fn reflow_toolbar_tools(&self, cx: &mut Context<Self>) -> AnyElement {
+        let actions = (self.books[self.active].is_markdown()
+            && self.books[self.active].markdown_editing)
+            .then(|| self.markdown_edit_actions(cx));
+        row()
+            .id("reflow-tools")
+            .test_support()
+            .flex_1()
+            .min_w_0()
+            .overflow_x_scroll()
+            .child(div().flex_1().min_w_0())
+            .children(actions)
+            .child(div().flex_1().min_w_0())
+            .into_any_element()
+    }
+
+    /// Undo, Redo, and Save for the open Markdown draft.
+    ///
+    /// The commands are the reader's document actions, dispatched to Kit's
+    /// editor history or to the Markdown save path while the draft has focus.
+    fn markdown_edit_actions(&self, cx: &mut Context<Self>) -> AnyElement {
+        let can_save = self.books[self.active]
+            .markdown_edit
+            .as_ref()
+            .is_some_and(|editor| editor.read(cx).can_save());
+        row()
+            .id("markdown-actions")
+            .test_support()
+            .flex_shrink_0()
+            .gap_1()
+            .child(self.command(
+                "markdown-undo",
+                IconName::Undo2,
+                tr!("Undo Markdown edit"),
+                &UndoAnnotation,
+                cx,
+            ))
+            .child(self.command(
+                "markdown-redo",
+                IconName::Redo2,
+                tr!("Redo Markdown edit"),
+                &RedoAnnotation,
+                cx,
+            ))
+            .child(
+                self.command(
+                    "markdown-save",
+                    IconName::Save,
+                    tr!("Save Markdown draft"),
+                    &SaveAnnotations,
+                    cx,
+                )
+                .disabled(!can_save),
+            )
+            .into_any_element()
     }
 
     fn reflow_outline_search_open(&self) -> bool {

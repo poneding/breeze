@@ -4629,26 +4629,40 @@ async fn markdown_edit_toolbar_undoes_redoes_and_saves_the_source(cx: &mut TestA
         window.render_frame(cx);
         window.within("markdown-modes").click(1usize, cx);
         window.render_frame(cx);
+        for id in ["markdown-undo", "markdown-redo", "markdown-save"] {
+            assert!(
+                window.within("reader-toolbar").find(id).visible(),
+                "edit mode must expose {id}"
+            );
+        }
+        let group = window.find("markdown-actions").bounds();
+        let undo = window.find("markdown-undo").bounds();
+        let redo = window.find("markdown-redo").bounds();
+        let save = window.find("markdown-save").bounds();
+        assert!(undo.right() < redo.left());
+        assert!(redo.right() < save.left());
+        assert_eq!(group.left(), undo.left());
+        assert_eq!(group.right(), save.right());
+        let toolbar = window.find("reader-toolbar").bounds();
+        let search = window.find("reader-search").bounds();
         assert!(
-            window
-                .within("reader-toolbar")
-                .find("markdown-undo")
-                .visible(),
-            "edit mode must expose undo"
+            toolbar.left() < group.left(),
+            "the edit actions follow the Reading/Edit switch"
         );
         assert!(
-            window
-                .within("reader-toolbar")
-                .find("markdown-redo")
-                .visible(),
-            "edit mode must expose redo"
+            group.right() <= search.left(),
+            "the edit actions precede the document commands"
         );
+        // The same centering contract as the PDF annotation tools: equal space
+        // before and after the group inside the toolbar's middle slot.
+        window.render_frame(cx);
+        let slot = window.find("reflow-tools").bounds();
+        let group = window.find("markdown-actions").bounds();
+        let leading = group.left() - slot.left();
+        let trailing = slot.right() - group.right();
         assert!(
-            window
-                .within("reader-toolbar")
-                .find("markdown-save")
-                .visible(),
-            "edit mode must expose save"
+            (leading - trailing).abs() <= px(1.),
+            "the edit actions are off center: {leading:?} before, {trailing:?} after"
         );
         window.input("New ", cx);
         window.render_frame(cx);

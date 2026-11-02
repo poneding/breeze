@@ -1,10 +1,13 @@
 ## October 30 Markdown edit undo, redo, and source save
 
 Markdown edit mode now carries the same compact Undo, Redo, and Save icon group
-as the PDF annotation tools, immediately after the Reading/Edit switch. The
-buttons reuse the document commands bound to the reader, but dispatch by format:
-in Markdown editing they reach GPUI Kit's editor history or the Markdown save
-path; in PDF they keep the annotation history and sidecar behavior.
+as the PDF annotation tools, centered in the toolbar's flexible middle space
+between the Reading/Edit switch and the trailing document commands. Equal
+zero-basis spacers produce that centering, exactly as the PDF tool row does, and
+collapse instead of overflowing a narrow window. The buttons reuse the document
+commands bound to the reader, but dispatch by format: in Markdown editing they
+reach GPUI Kit's editor history or the Markdown save path; in PDF they keep the
+annotation history and sidecar behavior.
 
 Save writes the draft back to its source file, following the user's October 30
 choice of direct-to-source persistence over the earlier Save-As-first plan. The
@@ -25,16 +28,21 @@ Validation: `cargo fmt --all -- --check`,
 `cargo test --workspace --locked` (278 application tests plus every crate and
 integration suite), and
 `cargo clippy --workspace --all-targets --locked -- -D warnings` pass. New
-component tests cover the toolbar actions, undo/redo through Kit's history,
-direct source publication, checkpoint cleanliness after save, and refusal of an
-externally changed source. Storage tests cover permission preservation and
-read-only refusal.
+component tests cover the toolbar actions, their centering (leading and trailing
+space equal within one pixel), undo/redo through Kit's history, direct source
+publication, checkpoint cleanliness after save, and refusal of an externally
+changed source. Storage tests cover permission preservation and read-only
+refusal.
 
-Native visual inspection could not be completed: the isolated review instance
-launched, but its window was not reachable in the active desktop session while
-another Breeze instance owned the accessible window, and this session's model
-cannot view captured images. Windows and Linux remain unverified. Captures and
-scratch state stay under `target/markdown-save-review/` and are not committed.
+Native macOS inspection used an isolated `BREEZE_DATA_DIR` and a scratch Markdown
+file. Entering edit mode placed the action group at 1214–1276 logical pixels,
+centered within its 745–1745.5 slot (group center 1245 against slot center
+1245.25). Typing left the file unchanged and showed `已修改`; clicking Save wrote
+the draft to the source and showed `已保存`; the undo button restored the original
+first line and redo restored the inserted text. The session's model cannot view
+images, so this inspection relied on captured pixel profiles and OCR of the
+status line rather than visual review. Windows and Linux remain unverified.
+Scratch state stays under `target/markdown-center-review/` and is not committed.
 
 ## October 30 In-app update checks, banner, installation, and restart
 
