@@ -252,10 +252,10 @@ The menus use Kit checks and shortcuts, and call the same state mutations as the
 visible controls so the two entry points cannot diverge.
 
 The content menu also owns a `Show status bar` preference. Its icon is
-`panel-bottom`; it does not paint a checkbox because the menu reserves the check
-state for a later status presentation. The preference defaults to on, remains
-available when the bar is hidden, and is saved with the rest of the workspace
-preferences. Turning it off removes the 32 px status bar and lets the document
-viewport consume that space; turning it on restores the bar. The preference
-applies to PDF, EPUB, and Markdown readers and is shared by both panes in split
-reading.
+`panel-bottom`, and a native check appears at the menu item's trailing edge while
+the status bar is visible. The square icon previously used as a checkbox is not
+part of this control. The preference defaults to on, remains available when the
+bar is hidden, and is saved with the rest of the workspace preferences. Turning
+it off removes the 32 px status bar and lets the document viewport consume that
+space; turning it on restores the bar. The preference applies to PDF, EPUB, and
+Markdown readers and is shared by both panes in split reading.

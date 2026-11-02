@@ -6,21 +6,25 @@ clears the content top while the first Markdown body block follows at the normal
 paragraph gap. TOML front matter retains the post-block inset because it uses
 Kit's code-block fallback. Markdown's right-panel file location now reuses PDF's
 single-line, start-truncated path row, full-path tooltip, and trailing folder-open
-action. The content menu's status-bar command now uses `panel-bottom` without a
-checkbox icon so its check state remains available for later use.
+action. The content menu's status-bar command now uses a `panel-bottom` icon and
+Kit's native trailing check while the bar is visible, without a square checkbox
+substituting for the command icon.
 
 Validation: `cargo fmt --all -- --check`, the complete
-`cargo test --workspace --locked` suite (283 application tests plus every crate
-and integration suite), and
-`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. Focused
+`cargo test --workspace --locked -- --test-threads=1` suite (283 application
+tests plus every crate and integration suite), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. The
+default parallel run passed 281 application tests but both macOS disk-image
+install tests hit a transient `hdiutil: attach failed - 资源暂时不可用`;
+both passed serially, matching the existing timing-sensitive note above. Focused
 tests cover the YAML and TOML inset mapping, the front matter-to-body paragraph
 gap, Markdown's shared path-row geometry and reveal action, and all five content
 context menus. Native macOS inspection used an isolated `BREEZE_DATA_DIR` and a
 scratch Markdown file. It confirmed the metadata card's 48 px top clearance,
 the normal gap before the first body block, the start-truncated source path with
-its trailing Finder button, and the content menu's `panel-bottom` icon without a
-checkbox. Windows and Linux remain unverified. Review captures and scratch files
-stay under `target/` and are not committed.
+its trailing Finder button, and the content menu's `panel-bottom` icon with its
+trailing active check. Windows and Linux remain unverified. Review captures and
+scratch files stay under `target/` and are not committed.
 
 ## October 30 Markdown edit undo, redo, and source save
 
