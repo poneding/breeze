@@ -14,7 +14,7 @@ use breeze_reflow::markdown::SourceBuffer;
 use breeze_storage::markdown::{self, LoadedSource, Target};
 use gpui_kit::base::{Scrollbar, ScrollbarHandle};
 use gpui_kit::component::input::{
-    BufferPoint, Editor, EditorState, InputEvent, Redo, RopeExt as _, Undo,
+    BufferPoint, Editor, EditorState, InputEvent, Redo, Rope, RopeExt as _, Undo,
 };
 use std::{
     cell::Cell,
@@ -22,10 +22,152 @@ use std::{
     rc::Rc,
 };
 
+/// Which way a history request moves the editor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum HistoryStep {
+    Undo,
+    Redo,
+}
+
+impl HistoryStep {
+    fn opposite(self) -> Self {
+        match self {
+            HistoryStep::Undo => HistoryStep::Redo,
+            HistoryStep::Redo => HistoryStep::Undo,
+        }
+    }
+}
+
+/// Bounded number of text states the shadow history remembers.
+const MAX_HISTORY_STATES: usize = 256;
+/// Cap on full text comparisons for one history step.
+const MAX_HISTORY_COMPARISONS: usize = 32;
+
+/// A shadow of the states Kit's undo history can restore.
+///
+/// GPUI Kit exposes the Undo and Redo actions but not the depth behind them, so
+/// Breeze records the text after every change and resolves a completed history
+/// step by finding the recorded state the editor now shows. Resolution matters
+/// where a counter cannot work: Kit coalesces typing into one transaction, so
+/// the number of changes is not the number of steps, and it reuses old text, so
+/// comparing against the document as loaded cannot prove the history is
+/// exhausted either. A step that changes nothing proves the direction is
+/// finished and clamps the cursor to that end.
+///
+/// States share Rope structure, so remembering recent revisions costs a path per
+/// edit rather than a copy per revision. The window is bounded; once it drops
+/// its oldest state, undo stays available until a dispatch proves otherwise.
+#[derive(Debug)]
+struct HistoryModel {
+    states: Vec<Rope>,
+    /// Index of the state the editor currently shows.
+    cursor: usize,
+    /// Older states were dropped from the window.
+    truncated: bool,
+}
+
+impl HistoryModel {
+    fn new(text: &Rope) -> Self {
+        Self {
+            states: vec![text.clone()],
+            cursor: 0,
+            truncated: false,
+        }
+    }
+
+    fn can_undo(&self) -> bool {
+        self.truncated || self.cursor > 0
+    }
+
+    fn can_redo(&self) -> bool {
+        self.cursor + 1 < self.states.len()
+    }
+
+    /// Record the text a change produced, dropping the redo branch it replaced.
+    fn record(&mut self, text: &Rope) {
+        self.states.truncate(self.cursor + 1);
+        self.states.push(text.clone());
+        self.cursor = self.states.len() - 1;
+        if self.states.len() > MAX_HISTORY_STATES {
+            self.states.remove(0);
+            self.cursor -= 1;
+            self.truncated = true;
+        }
+    }
+
+    /// Resolve a completed history step against the text now on screen.
+    fn settle(&mut self, step: HistoryStep, before: &Rope, text: &Rope) {
+        if before == text {
+            // The editor did not move, so the direction had nothing left.
+            match step {
+                HistoryStep::Undo => {
+                    self.cursor = 0;
+                    self.truncated = false;
+                }
+                HistoryStep::Redo => self.cursor = self.states.len().saturating_sub(1),
+            }
+            return;
+        }
+        if let Some(index) = self
+            .nearest_match(text, step)
+            .or_else(|| self.nearest_match(text, step.opposite()))
+        {
+            self.cursor = index;
+            return;
+        }
+        // The state is outside the remembered window; move one step in the
+        // direction the editor was asked to take.
+        match step {
+            HistoryStep::Undo => {
+                if self.cursor > 0 {
+                    self.cursor -= 1;
+                } else {
+                    self.truncated = true;
+                }
+            }
+            HistoryStep::Redo => {
+                if self.cursor + 1 < self.states.len() {
+                    self.cursor += 1;
+                }
+            }
+        }
+    }
+
+    /// The recorded state matching `text` nearest the cursor in one direction.
+    fn nearest_match(&self, text: &Rope, step: HistoryStep) -> Option<usize> {
+        let mut comparisons = 0;
+        for distance in 1..self.states.len() {
+            let index = match step {
+                HistoryStep::Undo => self.cursor.checked_sub(distance)?,
+                HistoryStep::Redo => self.cursor + distance,
+            };
+            if index >= self.states.len() {
+                return None;
+            }
+            let state = &self.states[index];
+            // Length rejects almost every candidate for free; only equal-length
+            // states are worth a content comparison.
+            if state.len() != text.len() {
+                continue;
+            }
+            comparisons += 1;
+            if comparisons > MAX_HISTORY_COMPARISONS {
+                return None;
+            }
+            if state == text {
+                return Some(index);
+            }
+        }
+        None
+    }
+}
+
 /// The editing session behind the reader's content area.
 pub(super) struct MarkdownEditor {
     state: Entity<EditorState>,
     focus: FocusHandle,
+    /// The states Kit's undo history can restore, shadowed for the toolbar.
+    history: HistoryModel,
     /// The source file this draft belongs to.
     path: PathBuf,
     /// Fingerprint of the bytes the draft was loaded from or last saved to.
@@ -108,8 +250,14 @@ impl MarkdownEditor {
                 .default_value(text)
         });
         let focus = state.read(cx).focus_handle(cx);
+        let initial = state.read(cx).text().clone();
         let subscription = cx.subscribe(&state, |this, _, event, cx| {
             if matches!(event, InputEvent::Change) {
+                // Kit replays history without emitting Change, so every change
+                // is new work: it becomes the newest reachable state and drops
+                // the redo branch it replaced.
+                let text = this.state.read(cx).text().clone();
+                this.history.record(&text);
                 this.sync(cx, true);
                 this.saved_successfully = false;
                 cx.notify();
@@ -119,6 +267,7 @@ impl MarkdownEditor {
         Self {
             state,
             focus,
+            history: HistoryModel::new(&initial),
             path,
             fingerprint,
             saving: false,
@@ -243,12 +392,25 @@ impl MarkdownEditor {
         status.into()
     }
 
-    /// Whether Save can attempt a publication.
+    /// Whether the draft has a new revision worth publishing.
     ///
-    /// The draft may be clean: the handler performs the exact comparison when
-    /// it is invoked, so a stale toolbar render cannot prevent a real save.
-    pub(super) fn can_save(&self) -> bool {
-        self.notice.is_none() && self.fingerprint.is_some() && !self.saving
+    /// A clean draft, a draft whose load failed and a draft already being
+    /// published all leave Save disabled. The cached dirtiness is refreshed on
+    /// every change, save and history step, so this read stays cheap enough for
+    /// each frame that shows the toolbar.
+    pub(super) fn can_save(&self, cx: &App) -> bool {
+        self.sync(cx, false);
+        self.notice.is_none() && self.fingerprint.is_some() && !self.saving && self.dirty.get()
+    }
+
+    /// Whether Kit has a step to take back.
+    pub(super) fn can_undo(&self) -> bool {
+        self.history.can_undo()
+    }
+
+    /// Whether an undone step can be replayed.
+    pub(super) fn can_redo(&self) -> bool {
+        self.history.can_redo()
     }
 
     #[cfg(test)]
@@ -256,13 +418,37 @@ impl MarkdownEditor {
         self.saving
     }
 
+    /// Note a history request before Kit handles it.
+    ///
+    /// The text on screen is remembered so the completed step can be resolved
+    /// afterwards; Kit performs the move itself.
+    pub(super) fn note_history(&mut self, step: HistoryStep, cx: &mut Context<Self>) {
+        let before = self.state.read(cx).text().clone();
+        cx.spawn(async move |this, cx| {
+            let _ = this.update(cx, |editor, cx| editor.settle_history(step, before, cx));
+        })
+        .detach();
+    }
+
+    /// Resolve a completed history step.
+    ///
+    /// A step emits no change event, so the draft's dirtiness has to be re-read
+    /// here: undoing back to the checkpoint cleans the draft, and the toolbar's
+    /// availability follows the state the editor landed on.
+    fn settle_history(&mut self, step: HistoryStep, before: Rope, cx: &mut Context<Self>) {
+        let text = self.state.read(cx).text().clone();
+        self.history.settle(step, &before, &text);
+        self.sync(cx, true);
+        self.saved_successfully = false;
+        cx.notify();
+    }
+
     /// Capture the draft for publication and mark the session busy.
     pub(super) fn begin_save(&mut self, cx: &mut Context<Self>) -> Option<MarkdownSaveRequest> {
-        if !self.can_save() {
+        if !self.can_save(cx) {
             return None;
         }
         let fingerprint = self.fingerprint.clone()?;
-        self.sync(cx, true);
         if !self.dirty.get() {
             return None;
         }
@@ -478,6 +664,12 @@ impl Render for MarkdownEditor {
         let scrollbar_cover_color = theme.background;
         let measured = self.measured_width.clone();
         let view = cx.entity().downgrade();
+        // Undo and Redo reach the editor as actions, whether they come from the
+        // toolbar or from the platform's editing keys. Capturing them here sees
+        // every step before Kit applies it, so the toolbar can report whether a
+        // step is still available.
+        let undo_view = cx.entity().downgrade();
+        let redo_view = cx.entity().downgrade();
         div()
             .on_children_prepainted(move |bounds, _, cx| {
                 let width = bounds
@@ -501,6 +693,16 @@ impl Render for MarkdownEditor {
             })
             .id("markdown-editor")
             .test_support()
+            .capture_action(move |_: &Undo, _, cx| {
+                let _ = undo_view.update(cx, |editor, cx| {
+                    editor.note_history(HistoryStep::Undo, cx);
+                });
+            })
+            .capture_action(move |_: &Redo, _, cx| {
+                let _ = redo_view.update(cx, |editor, cx| {
+                    editor.note_history(HistoryStep::Redo, cx);
+                });
+            })
             .size_full()
             .min_h_0()
             .flex()
@@ -629,6 +831,74 @@ mod tests {
         let path = directory.path().join("draft.md");
         std::fs::write(&path, bytes).unwrap();
         (directory, path)
+    }
+
+    fn rope(text: &str) -> Rope {
+        Rope::from(text)
+    }
+
+    #[test]
+    fn history_resolves_the_state_kit_restored() {
+        let mut history = HistoryModel::new(&rope("a"));
+        assert!(!history.can_undo() && !history.can_redo());
+
+        // Three edits, one of which returns the document to text it had before.
+        // Resolving by text and then by distance keeps the repeated state apart
+        // from the document's original text.
+        history.record(&rope("ab"));
+        history.record(&rope("a"));
+        history.record(&rope("ac"));
+        assert!(history.can_undo() && !history.can_redo());
+
+        history.settle(HistoryStep::Undo, &rope("ac"), &rope("a"));
+        assert_eq!(history.cursor, 2);
+        assert!(history.can_undo() && history.can_redo());
+
+        history.settle(HistoryStep::Undo, &rope("a"), &rope("ab"));
+        assert_eq!(history.cursor, 1);
+        history.settle(HistoryStep::Undo, &rope("ab"), &rope("a"));
+        assert_eq!(history.cursor, 0);
+        assert!(!history.can_undo() && history.can_redo());
+
+        // A step with nothing left proves the direction is finished.
+        history.settle(HistoryStep::Undo, &rope("a"), &rope("a"));
+        assert!(!history.can_undo() && history.can_redo());
+        history.settle(HistoryStep::Redo, &rope("a"), &rope("ab"));
+        assert_eq!(history.cursor, 1);
+        history.settle(HistoryStep::Redo, &rope("ab"), &rope("a"));
+        assert_eq!(history.cursor, 2);
+        history.settle(HistoryStep::Redo, &rope("a"), &rope("ac"));
+        assert_eq!(history.cursor, 3);
+        assert!(history.can_undo() && !history.can_redo());
+        // Undoing everything then redoing to the tip also ends the redo branch.
+        history.settle(HistoryStep::Redo, &rope("ac"), &rope("ac"));
+        assert!(!history.can_redo());
+    }
+
+    #[test]
+    fn a_new_edit_drops_the_redo_branch_it_replaced() {
+        let mut history = HistoryModel::new(&rope("one"));
+        history.record(&rope("one two"));
+        history.settle(HistoryStep::Undo, &rope("one two"), &rope("one"));
+        assert!(history.can_redo());
+        history.record(&rope("one three"));
+        assert!(history.can_undo() && !history.can_redo());
+        assert_eq!(history.states.len(), 2);
+    }
+
+    #[test]
+    fn the_bounded_window_keeps_undo_available_until_proven_otherwise() {
+        let mut history = HistoryModel::new(&rope(""));
+        for index in 0..MAX_HISTORY_STATES + 4 {
+            history.record(&rope(&"x".repeat(index + 1)));
+        }
+        assert_eq!(history.states.len(), MAX_HISTORY_STATES);
+        assert!(history.truncated && history.can_undo());
+        // Walking past everything this window still remembers cannot disable a
+        // direction the dropped states could still serve.
+        let oldest = history.states[0].clone();
+        history.settle(HistoryStep::Undo, &oldest, &oldest);
+        assert!(!history.can_undo() && !history.truncated);
     }
 
     #[test]

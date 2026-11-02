@@ -4605,6 +4605,18 @@ fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppCon
     .unwrap();
 }
 
+/// Assert a toolbar command's disabled state, which is what makes a command
+/// that would do nothing look inert instead of broken.
+fn assert_disabled(window: &Window, id: &'static str, expected: bool) {
+    // The accessibility tree reports `Some(true)` for a disabled control and no
+    // flag at all for an enabled one.
+    assert_eq!(
+        window.find(id).disabled(),
+        expected.then_some(true),
+        "{id} disabled state"
+    );
+}
+
 /// Edit mode exposes the same compact history and save actions as the PDF
 /// annotation tools, and Save publishes the draft to its source file.
 #[gpui_kit::test]
@@ -4664,13 +4676,35 @@ async fn markdown_edit_toolbar_undoes_redoes_and_saves_the_source(cx: &mut TestA
             (leading - trailing).abs() <= px(1.),
             "the edit actions are off center: {leading:?} before, {trailing:?} after"
         );
+    })
+    .unwrap();
+    // A freshly opened draft has nothing to take back, replay or save. The
+    // toolbar reads these from the session, so read the same state here.
+    let session = cx
+        .update(|cx| view.read(cx).books[0].markdown_edit.clone())
+        .expect("entering edit mode creates the session");
+    cx.update(|cx| {
+        let editor = session.read(cx);
+        assert!(!editor.can_undo(), "a new draft has no history");
+        assert!(!editor.can_redo());
+        assert!(
+            !editor.can_save(cx),
+            "an unmodified draft has nothing to save"
+        );
+    });
+    cx.update_window(handle, |_, window, cx| {
         window.input("New ", cx);
         window.render_frame(cx);
     })
     .unwrap();
-    let session = cx
-        .update(|cx| view.read(cx).books[0].markdown_edit.clone())
-        .expect("entering edit mode creates the session");
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_disabled(window, "markdown-undo", false);
+        assert_disabled(window, "markdown-redo", true);
+        assert_disabled(window, "markdown-save", false);
+    })
+    .unwrap();
     let edited = format!("New {original}");
     cx.update(|cx| {
         assert_eq!(session.read(cx).source_text(cx), edited);
@@ -4690,7 +4724,40 @@ async fn markdown_edit_toolbar_undoes_redoes_and_saves_the_source(cx: &mut TestA
             original,
             "the toolbar undo must reach Kit's editor history"
         );
+        // The single coalesced typing transaction is fully undone: undo has no
+        // step left, redo has one, and the clean draft cannot be saved.
+        assert_disabled(window, "markdown-undo", true);
+        assert_disabled(window, "markdown-redo", false);
+        assert_disabled(window, "markdown-save", true);
         window.click("markdown-redo", cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(session.read(cx).source_text(cx), edited);
+        assert_disabled(window, "markdown-undo", false);
+        assert_disabled(window, "markdown-redo", true);
+        assert_disabled(window, "markdown-save", false);
+        // The platform's editing key reaches the editor as the same action the
+        // toolbar dispatches, so the buttons follow it too.
+        window.dispatch_action(Box::new(gpui_kit::component::input::Undo), cx);
+        window.render_frame(cx);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_eq!(
+            session.read(cx).source_text(cx),
+            original,
+            "the platform undo must reach the same history"
+        );
+        assert_disabled(window, "markdown-undo", true);
+        assert_disabled(window, "markdown-redo", false);
+        assert_disabled(window, "markdown-save", true);
+        window.dispatch_action(Box::new(gpui_kit::component::input::Redo), cx);
         window.render_frame(cx);
     })
     .unwrap();
@@ -4717,7 +4784,14 @@ async fn markdown_edit_toolbar_undoes_redoes_and_saves_the_source(cx: &mut TestA
             !session.read(cx).dirty(cx),
             "the published checkpoint must be clean"
         );
-        assert!(window.try_find("markdown-save-error").is_none());
+        assert!(
+            window.try_find("markdown-save-error").is_none(),
+            "a published draft reports no error"
+        );
+        // Saving acknowledges the draft without discarding its history.
+        assert_disabled(window, "markdown-save", true);
+        assert_disabled(window, "markdown-undo", false);
+        assert_disabled(window, "markdown-redo", true);
     })
     .unwrap();
 }

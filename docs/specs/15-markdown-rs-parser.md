@@ -182,6 +182,15 @@ The reading view is the rendered preview. Evidence for that choice:
   publication path as the storage layer; it never acknowledges text typed
   during the write. The user chose direct-to-source save on October 30, 2026;
   Save As and crash recovery remain deferred.
+- Those actions report their availability: Save is disabled for a clean draft,
+  while publishing and after a failed load, and Undo/Redo are disabled at the
+  ends of Kit's history. Kit publishes the `Undo` and `Redo` actions but no
+  depth query, and a replay emits no `InputEvent::Change`. The application
+  therefore shadows up to 256 reachable text states (rope clones that share
+  structure) and resolves a completed step by the text the editor shows, which
+  keeps both ends exact where counting changes cannot: typing coalesces into one
+  transaction, and identical text can occur at several history positions. An
+  upstream `can_undo`/`can_redo` accessor would replace this shadow.
 
 ## Reading constructs (October 21, 2026)
 

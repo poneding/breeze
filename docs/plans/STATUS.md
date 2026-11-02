@@ -24,25 +24,52 @@ Editor notices report load and save failures. The status line gains saving and
 saved states, while the existing modified state is now refreshed from Kit's
 change events. The save path never writes the reading preview or a PDF sidecar.
 
+Each action reflects whether it would do anything, so the group reads as a state
+display rather than three always-live icons. Save is inert for a clean draft,
+while a publication is in flight, and after a failed load. Undo and Redo are
+inert at the ends of Kit's history. Kit exposes the Undo and Redo actions but not
+the depth behind them, and it replays history without emitting a change event, so
+`MarkdownEditor` keeps a bounded shadow of the text states the history can
+restore: every change records its resulting text, and a completed step is
+resolved by the state the editor now shows. Resolving by state rather than by a
+counter is what makes the ends exact: typing coalesces into one transaction, so
+counting changes overstates the steps left, and text can legitimately repeat
+(the document's own text, or a later revision that matches it), so comparing
+against the loaded text cannot prove the history is empty. A step that changes
+nothing proves the direction is finished. The window holds 256 states, which
+share rope structure and cost a path per edit rather than a copy; once it drops
+its oldest state, undo stays available until a dispatch proves otherwise. The
+engine gap is recorded in [parser 15](../specs/15-markdown-rs-parser.md); a Kit
+release that exposes history availability would let this shadow model go.
+
 Validation: `cargo fmt --all -- --check`,
-`cargo test --workspace --locked` (278 application tests plus every crate and
-integration suite), and
+`cargo test --workspace --locked` (281 application tests plus every crate and
+integration suite; the macOS disk-image install test is timing sensitive under a
+fully parallel run and passes alone and with `--test-threads=1`), and
 `cargo clippy --workspace --all-targets --locked -- -D warnings` pass. New
-component tests cover the toolbar actions, their centering (leading and trailing
-space equal within one pixel), undo/redo through Kit's history, direct source
-publication, checkpoint cleanliness after save, and refusal of an externally
-changed source. Storage tests cover permission preservation and read-only
-refusal.
+component tests cover the toolbar actions and their disabled states before an
+edit, while dirty, at the bottom of the history, after redo, and after a save;
+the toolbar centering (leading and trailing space equal within one pixel);
+saving and undo through both the buttons and the platform actions; direct source
+publication; checkpoint cleanliness after save; and refusal of an externally
+changed source. Unit tests cover the shadow history's resolution of repeated
+text, redo-branch truncation and the bounded window. Storage tests cover
+permission preservation and read-only refusal.
 
 Native macOS inspection used an isolated `BREEZE_DATA_DIR` and a scratch Markdown
-file. Entering edit mode placed the action group at 1214–1276 logical pixels,
-centered within its 745–1745.5 slot (group center 1245 against slot center
-1245.25). Typing left the file unchanged and showed `已修改`; clicking Save wrote
-the draft to the source and showed `已保存`; the undo button restored the original
-first line and redo restored the inserted text. The session's model cannot view
-images, so this inspection relied on captured pixel profiles and OCR of the
-status line rather than visual review. Windows and Linux remain unverified.
-Scratch state stays under `target/markdown-center-review/` and is not committed.
+file. Entering edit mode placed the action group at 1214-1276 logical pixels,
+centered within its 745-1745.5 slot (group center 1245 against slot center
+1245.25). The state sequence was then read from each icon's darkest pixel, which
+distinguishes the states because a disabled Kit button draws at reduced opacity:
+an opened draft showed `undo x redo x save x`; typing showed `undo ok redo x
+save ok`; saving wrote the file and showed `save x`; `Command-Z` past the saved
+baseline showed `undo x redo ok save ok`; `Command-Shift-Z` returned to the
+published text and showed `undo ok redo x save x`; clicking each toolbar button
+reproduced the same transitions and left the corresponding control inert. The
+session's model cannot view images, so this inspection used captured pixel
+profiles and OCR of the status bar rather than visual review. Windows and Linux
+remain unverified. Scratch state stays under `target/markdown-state-review/` and
+`target/markdown-center-review/` and is not committed.
 
 ## October 30 In-app update checks, banner, installation, and restart
 

@@ -1974,30 +1974,41 @@ impl Breeze {
     ///
     /// The commands are the reader's document actions, dispatched to Kit's
     /// editor history or to the Markdown save path while the draft has focus.
+    /// Each one is disabled when it would do nothing: no step to take back or
+    /// replay, no unsaved revision, or a publication already in flight.
     fn markdown_edit_actions(&self, cx: &mut Context<Self>) -> AnyElement {
-        let can_save = self.books[self.active]
-            .markdown_edit
-            .as_ref()
-            .is_some_and(|editor| editor.read(cx).can_save());
+        let (can_undo, can_redo, can_save) = match self.books[self.active].markdown_edit.as_ref() {
+            Some(editor) => {
+                let editor = editor.read(cx);
+                (editor.can_undo(), editor.can_redo(), editor.can_save(cx))
+            }
+            None => (false, false, false),
+        };
         row()
             .id("markdown-actions")
             .test_support()
             .flex_shrink_0()
             .gap_1()
-            .child(self.command(
-                "markdown-undo",
-                IconName::Undo2,
-                tr!("Undo Markdown edit"),
-                &UndoAnnotation,
-                cx,
-            ))
-            .child(self.command(
-                "markdown-redo",
-                IconName::Redo2,
-                tr!("Redo Markdown edit"),
-                &RedoAnnotation,
-                cx,
-            ))
+            .child(
+                self.command(
+                    "markdown-undo",
+                    IconName::Undo2,
+                    tr!("Undo Markdown edit"),
+                    &UndoAnnotation,
+                    cx,
+                )
+                .disabled(!can_undo),
+            )
+            .child(
+                self.command(
+                    "markdown-redo",
+                    IconName::Redo2,
+                    tr!("Redo Markdown edit"),
+                    &RedoAnnotation,
+                    cx,
+                )
+                .disabled(!can_redo),
+            )
             .child(
                 self.command(
                     "markdown-save",

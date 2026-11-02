@@ -302,6 +302,15 @@ zero-basis spacers the way the PDF annotation tools are. The Reading/Edit switch
 stays at the leading edge and the document commands keep the trailing edge, so
 the two formats share one placement rule instead of a Markdown-specific row.
 
+Each action is enabled only when it would change something. Save is disabled for
+a clean draft, during a publication and after a failed load; Undo and Redo are
+disabled at the ends of the editor's history. A disabled action must also be
+inert, so the state is decided before the click rather than discovered by it.
+GPUI Kit exposes the history actions but not their depth, so the application
+may keep a bounded shadow of the states the history can restore to derive that
+availability, resolved by the text the editor shows after a step; the shadow is
+diagnostic state, never a second history that performs the edits.
+
 Reuse shared chrome constants, navigation sizing and Kit registry themes. This
 package does not authorize resizing bars. The contributor guide says 34/38/32 px
 while the current `style::TOOLBAR_HEIGHT` and delivery record use 34 px for the
