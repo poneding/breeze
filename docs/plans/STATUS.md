@@ -1,3 +1,20 @@
+# November 3 GPUI Kit 0.9.0 upgrade
+
+GPUI Kit and its GPUI Base, Component, assets, and macro packages now resolve to
+0.9.0, with the GPUI snapshot at 0.3.11. Breeze's existing component APIs compile
+unchanged, including its pinned theme registry and editor integrations.
+
+Validation: `cargo fmt --all -- --check`, `cargo check --workspace --locked`, the
+complete serial `cargo test --workspace --locked -- --test-threads=1` suite (285
+application tests plus every crate and integration test, with five existing
+performance probes ignored), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. A macOS
+review bundle launched from an isolated `BREEZE_DATA_DIR` and rendered its home
+window normally. The computer-use driver did not deliver an additional settings
+click, so that extra native theme-menu inspection was not completed; component
+tests cover the full theme registry and selector. Windows and Linux runtime
+checks remain unverified.
+
 ## November 2 dependency refresh
 
 The workspace lockfile now resolves to the highest versions compatible with the

@@ -4,7 +4,7 @@
 
 | Component | Decision |
 |---|---|
-| GPUI Kit 0.8.1 / GPUI snapshot 0.3.10 | Adopted for the native prototype |
+| GPUI Kit 0.9.0 / GPUI snapshot 0.3.11 | Adopted for the native prototype |
 | `mupdf` 0.8.0 / MuPDF | Selected October 14, 2026; the reader's rendering backend, with the fidelity and platform gates below still open |
 | `pdf_oxide` / `office_oxide` | Retired. Both are absent from the workspace and `Cargo.lock`; the entries below are history, not constraints |
 | PDF page content | Read-only; content editing is not a product capability |
@@ -57,7 +57,7 @@ Windows and Linux native behavior remains unverified. System-theme event deliver
 
 ## Primary references
 
-- [GPUI Kit](https://github.com/longbridge/gpui-kit) and [versioned API](https://docs.rs/gpui-kit/0.8.1/gpui_kit/)
+- [GPUI Kit](https://github.com/longbridge/gpui-kit) and [versioned API](https://docs.rs/gpui-kit/0.9.0/gpui_kit/)
 - [PDF Oxide](https://github.com/yfedoseev/pdf_oxide): evaluated 0.3.78 rendering source
 - [lopdf](https://docs.rs/lopdf/0.46.0/lopdf/): the version used for restricted annotation-copy export
 
