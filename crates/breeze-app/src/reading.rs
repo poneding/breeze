@@ -1321,14 +1321,6 @@ impl Breeze {
                                 {
                                     return;
                                 }
-                                // Wheel scrolling is not part of a drag. Finalizing
-                                // first prevents a missed outside-window release from
-                                // leaving the edge-scroll task extending the range.
-                                view.update(cx, |this, cx| {
-                                    if !this.gesture.is_empty() {
-                                        this.end_text_selection(cx);
-                                    }
-                                });
                                 if event.modifiers.secondary(cx)
                                     && !event.modifiers.alt
                                     && !event.modifiers.shift

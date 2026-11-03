@@ -2244,6 +2244,91 @@ fn modified_wheel_zooms_without_scrolling_and_plain_wheel_still_scrolls(cx: &mut
 }
 
 #[gpui_kit::test]
+fn text_selection_continues_after_wheel_scrolling_during_a_drag(cx: &mut TestAppContext) {
+    let page = rendered_sample();
+    let page_points = page.points;
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            seed_rendered_page(view, page);
+            view.books[0].state.layout = ReadingLayout::Continuous;
+            view.books[0].state.zoom = Zoom::FitWidth;
+            view.loading = false;
+        });
+        window.render_frame(cx);
+
+        let bounds = window.find("page-surface").bounds();
+        let viewport = window.find("document-viewport").bounds();
+        let visible_glyphs = {
+            let state = view.read(cx);
+            let preview = state.reading.page(0).unwrap();
+            preview
+                .text
+                .glyphs()
+                .iter()
+                .filter_map(|glyph| {
+                    let position = point(
+                        bounds.origin.x
+                            + px((glyph.bounds.x + glyph.bounds.width / 2.) / page_points.0
+                                * f32::from(bounds.size.width)),
+                        bounds.origin.y
+                            + px((page_points.1 - glyph.bounds.y - glyph.bounds.height / 2.)
+                                / page_points.1
+                                * f32::from(bounds.size.height)),
+                    );
+                    (position.y >= viewport.top() + px(40.)
+                        && position.y <= viewport.bottom() - px(40.))
+                    .then_some(position)
+                })
+                .collect::<Vec<_>>()
+        };
+        let start = *visible_glyphs.first().expect("visible sample text");
+        let end = *visible_glyphs.last().expect("visible sample text");
+        pointer_press(window, start, cx);
+        pointer_drag_move(window, end, cx);
+        let before_text = view.read(cx).selected_text.clone();
+        let before_scroll = view.read(cx).reading.pages_scroll.offset();
+        assert!(
+            !before_text.is_empty(),
+            "selection={}, gesture={}, bounds={bounds:?}, start={start:?}, end={end:?}",
+            view.read(cx).text_selection.is_some(),
+            view.read(cx).gesture.len()
+        );
+
+        window.dispatch_event(
+            ScrollEvent {
+                position: end,
+                delta: ScrollDelta::Lines(point(0., -6.)),
+                ..Default::default()
+            }
+            .to_platform_input(),
+            cx,
+        );
+        window.render_frame(cx);
+        let after_scroll = view.read(cx).reading.pages_scroll.offset();
+        assert!(
+            after_scroll.y < before_scroll.y,
+            "the viewport scrolled from {before_scroll:?} to {after_scroll:?}"
+        );
+
+        pointer_drag_move(window, end, cx);
+        view.update(cx, |view, _| {
+            assert!(
+                !view.gesture.is_empty(),
+                "wheel scrolling keeps the pointer drag active"
+            );
+            assert_eq!(view.selection_pointer, Some(end));
+            assert_ne!(
+                view.selected_text, before_text,
+                "moving after the scroll extends the selection into newly exposed text"
+            );
+        });
+        pointer_release(window, end, cx);
+    })
+    .unwrap();
+}
+
+#[gpui_kit::test]
 fn continuous_spreads_virtualize_pairs_and_reach_odd_final_page(cx: &mut TestAppContext) {
     let page = rendered_sample();
     let (handle, view) = app(cx);
@@ -5100,9 +5185,8 @@ fn text_selection_crosses_page_surfaces_in_reading_order(cx: &mut TestAppContext
     .unwrap();
 }
 
-/// A long drag can end while the page that started it is no longer mounted.
-/// Wheel scrolling must finalize that gesture and retain the range; a later
-/// pointer move must not extend it.
+/// Releasing over the status area happens outside either page surface. Later
+/// scrolling and pointer movement must leave the committed range unchanged.
 #[gpui_kit::test]
 fn scrolling_after_a_release_without_page_mouse_up_freezes_the_selection(cx: &mut TestAppContext) {
     let (handle, view) = spread_pages(cx);
@@ -5126,14 +5210,16 @@ fn scrolling_after_a_release_without_page_mouse_up_freezes_the_selection(cx: &mu
                 && selected.contains("Space to think"),
             "the drag spans both pages before its release: {selected:?}"
         );
-        // The window receives this as a wheel scroll without a matching page
-        // mouse-up, which is what happens after a release outside the page.
+        // Release over the status area, outside either page surface.
+        let viewport = window.find("document-viewport").bounds();
+        pointer_release(
+            window,
+            point(viewport.center().x, viewport.bottom() + px(20.)),
+            cx,
+        );
         window.scroll("document-viewport", ScrollDelta::Lines(point(0., -2.)), cx);
         view.update(cx, |view, _| {
-            assert!(
-                view.gesture.is_empty(),
-                "wheel scrolling finalizes the stale drag"
-            );
+            assert!(view.gesture.is_empty(), "the release finalizes the drag");
             assert!(
                 view.selection_pointer.is_none(),
                 "a committed selection keeps no live extension pointer"

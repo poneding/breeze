@@ -18,6 +18,27 @@ Chinese home screen rendered without a storage-lock error. Windows and Linux
 runtime checks remain unverified. Cargo reports the existing future-incompatibility
 notice for `block 0.1.6`.
 
+## November 2 PDF text selection across wheel scrolling
+
+Wheel events no longer commit an active PDF text-selection gesture. The reader
+continues scrolling while the left button remains held, and subsequent pointer
+movement extends the selection against the updated page positions. A captured
+left-button release still commits the range; a non-dragging move still cleans
+up a release that was not delivered to the page surface.
+
+Validation: the regression test begins a real component drag, dispatches a wheel
+event, verifies the viewport moves, and confirms a later pressed-button move
+extends the selected text. The full serial workspace suite passes (285
+application tests plus every crate and integration suite; five existing
+performance probes ignored), as does all-target Clippy with warnings denied.
+The default parallel suite had one transient macOS installer fixture version
+mismatch; that test passed alone and in the serial suite. Native macOS review
+used the bundled sample and isolated `BREEZE_DATA_DIR`: a text selection drew
+correctly, then remained reported as 181 selected characters after scrolling to
+page 2. The computer-use driver could not interleave a wheel event while a
+native drag button was held, so that exact physical gesture is covered by the
+component event test. Windows and Linux remain unverified.
+
 ## November 2 Markdown front matter spacing and document information
 
 YAML front matter now keeps its 48 px reading inset inside the metadata card's
