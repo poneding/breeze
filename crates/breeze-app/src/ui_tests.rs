@@ -4075,7 +4075,8 @@ fn epub_wheel_turns_pages_without_a_render_per_event(cx: &mut TestAppContext) {
     // The EPUB page arrives from a dedicated worker thread, so pump the frame
     // loop until it lands rather than assuming one parked pass is enough.
     let mut rendered = false;
-    for _ in 0..WAIT_ATTEMPTS {
+    let started = std::time::Instant::now();
+    while wait_left(started) {
         cx.run_until_parked();
         cx.update_window(handle, |_, window, cx| window.render_frame(cx))
             .unwrap();
@@ -4085,7 +4086,7 @@ fn epub_wheel_turns_pages_without_a_render_per_event(cx: &mut TestAppContext) {
         if rendered {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(25));
+        std::thread::sleep(WAIT_PAUSE);
     }
     assert!(rendered, "the EPUB never produced a frame");
     // A scroll delta shorter than a page accumulates instead of re-rendering.
@@ -4127,7 +4128,8 @@ fn epub_wheel_turns_pages_without_a_render_per_event(cx: &mut TestAppContext) {
         }
     })
     .unwrap();
-    for _ in 0..WAIT_ATTEMPTS {
+    let started = std::time::Instant::now();
+    while wait_left(started) {
         cx.run_until_parked();
         cx.update_window(handle, |_, window, cx| window.render_frame(cx))
             .unwrap();
@@ -4143,7 +4145,7 @@ fn epub_wheel_turns_pages_without_a_render_per_event(cx: &mut TestAppContext) {
         if turned {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(25));
+        std::thread::sleep(WAIT_PAUSE);
     }
     cx.update_window(handle, |_, window, cx| {
         window.render_frame(cx);
@@ -4449,10 +4451,21 @@ fn epub_two_page_reading_fills_the_content_area(cx: &mut TestAppContext) {
 ///
 /// Frames arrive from worker threads, and a cold CI runner needs seconds where a
 /// warm developer machine needs milliseconds. The hosted `windows-latest` image
-/// (Windows Server 2025) needs more than ten seconds for the first EPUB frame, so
-/// the budget is thirty: only the patience before reporting a missing frame
-/// changes, never an assertion.
-const WAIT_ATTEMPTS: usize = 1_200;
+/// (Windows Server 2025) needs more than ten seconds for the first EPUB frame.
+///
+/// A wall-clock deadline, not an iteration count: an attempt costs whatever a
+/// frame render costs on the machine, so a fixed count expires sooner on a slow
+/// runner than a fast one and reported a missing frame that was merely late.
+/// Only the patience before reporting a missing frame changes, never an assertion.
+const WAIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(90);
+
+/// How long to pause between attempts, so a worker on another thread gets to run.
+const WAIT_PAUSE: std::time::Duration = std::time::Duration::from_millis(25);
+
+/// True while a wait for worker frames may keep trying.
+fn wait_left(started: std::time::Instant) -> bool {
+    started.elapsed() < WAIT_TIMEOUT
+}
 
 /// The frame and queue state a settled wait compares, for a failure message.
 fn settled_report(
@@ -4489,7 +4502,8 @@ fn wait_for_settled_epub(
     view: &Entity<Breeze>,
     done: impl Fn(&breeze_reflow::epub::Frame) -> bool,
 ) -> bool {
-    for _ in 0..WAIT_ATTEMPTS {
+    let started = std::time::Instant::now();
+    while wait_left(started) {
         cx.run_until_parked();
         cx.update_window(handle, |_, window, cx| window.render_frame(cx))
             .unwrap();
@@ -4507,7 +4521,7 @@ fn wait_for_settled_epub(
         if reached {
             return true;
         }
-        std::thread::sleep(std::time::Duration::from_millis(25));
+        std::thread::sleep(WAIT_PAUSE);
     }
     false
 }
@@ -4518,7 +4532,8 @@ fn wait_for_epub(
     view: &Entity<Breeze>,
     done: impl Fn(&breeze_reflow::epub::Frame) -> bool,
 ) -> bool {
-    for _ in 0..WAIT_ATTEMPTS {
+    let started = std::time::Instant::now();
+    while wait_left(started) {
         cx.run_until_parked();
         cx.update_window(handle, |_, window, cx| window.render_frame(cx))
             .unwrap();
@@ -4530,7 +4545,7 @@ fn wait_for_epub(
         if reached {
             return true;
         }
-        std::thread::sleep(std::time::Duration::from_millis(25));
+        std::thread::sleep(WAIT_PAUSE);
     }
     false
 }

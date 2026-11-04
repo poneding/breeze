@@ -1,3 +1,38 @@
+# November 4 disk-image and frame-wait test reliability
+
+The macOS updater and two test waits had defects that failed CI intermittently on
+an unchanging commit. The **updater** built its mountpoint from process id plus
+the current millisecond, which two concurrent installs hit in the same
+millisecond (measured 30 of 30 attempts), and it deleted the mounted image
+before unmounting it. `hdiutil` addresses an image through its mountpoint, so
+removing that directory or the backing file first strands the volume: it stays
+attached until the machine restarts and makes every later attach likelier to fail
+with `Resource temporarily unavailable`. A run of the two macOS install tests
+leaked a volume in 10 of 12 rounds and failed 2 of 12, and 17 stranded volumes
+were found on the development machine. Attach and detach now run under a
+process-wide lock with a uniquely named mountpoint, a failed attach detaches
+before releasing the mountpoint, attach and detach retry transient failures, and
+the image is unmounted before it is unlinked.
+
+The **EPUB waits** counted iterations rather than time: 1 200 attempts with a
+25 ms pause is a 30 s floor that a cold `windows-latest` runner can exceed while
+rendering a six-chapter fixture, which reported a missing frame that was merely
+late (`epub_paging_has_no_status_bar_buttons` failed 2 of 7 hosted runs).
+`WAIT_TIMEOUT` is now a 90 s wall-clock deadline, so a slow runner waits as long
+as it actually needs rather than as long as a fast machine would.
+
+Validation: `cargo fmt --all -- --check`, the complete serial
+`cargo test --workspace --locked -- --test-threads=1` suite (285 application
+tests plus every crate and integration test), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass on Rust
+1.98.0. The two macOS install tests then passed 10 of 10 rounds at four threads
+with no leaked volume, and the full workspace suite passed three consecutive
+default-parallel runs with no leaked volume, against 10 of 12 leaking rounds
+before. The platform gating was re-checked through the stub-dependency harness
+under `x86_64-unknown-linux-gnu` and `x86_64-pc-windows-msvc`, both Clippy-clean.
+The Windows wait change is exercised only by the hosted runner: this host cannot
+reproduce that runner's timing, so the next hosted Windows job is its proof.
+
 # November 4 CI toolchain and platform-gating recovery
 
 The hosted matrix had failed on every platform since the GPUI Kit 0.9.0 upgrade,
