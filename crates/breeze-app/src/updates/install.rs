@@ -616,7 +616,10 @@ fn attach_image(dmg: &Path) -> Result<Detach, InstallError> {
             .arg(dmg)
             .output()
             .map_err(|error| io_failure(&error))?;
-        let detach = Detach(mountpoint);
+        let detach = Detach {
+            mountpoint,
+            image: dmg.to_path_buf(),
+        };
         if attached.status.success() {
             return Ok(detach);
         }
@@ -697,14 +700,19 @@ fn verify_bundle(app: &Path, version: &str) -> Result<(), InstallError> {
     Ok(())
 }
 
+/// A mounted image plus the file it was attached from.
 #[cfg(target_os = "macos")]
-struct Detach(PathBuf);
+struct Detach {
+    mountpoint: PathBuf,
+    image: PathBuf,
+}
 
 #[cfg(target_os = "macos")]
 impl Detach {
     fn path(&self) -> &Path {
-        &self.0
+        &self.mountpoint
     }
+
     /// Unmount the image and remove its mountpoint. Returns whether the volume
     /// is detached, so a caller that deletes the image file can detach first.
     ///
@@ -718,21 +726,73 @@ impl Detach {
             // read-only, so nothing is discarded that was not already read.
             let detached = Command::new("hdiutil")
                 .args(["detach", "-force"])
-                .arg(&self.0)
+                .arg(&self.mountpoint)
                 .output()
                 .map(|output| output.status.success())
                 .unwrap_or(false);
             if detached {
-                let _ = fs::remove_dir_all(&self.0);
+                let _ = fs::remove_dir_all(&self.mountpoint);
                 return true;
+            }
+            if attempt == DETACH_ATTEMPTS / 2 {
+                // An attach that failed part-way can claim a device without
+                // mounting it. That device has no mountpoint, so detaching by
+                // path can never find it; detaching its device node is the only
+                // way to give the machine its disk back.
+                self.detach_stranded_devices();
             }
             if attempt + 1 < DETACH_ATTEMPTS {
                 std::thread::sleep(DETACH_RETRY_DELAY);
             }
         }
-        // Keep the mountpoint so the volume can still be detached later with
-        // the tools the operator already has.
         false
+    }
+
+    /// Detach every device node `hdiutil` still reports for this image, oldest
+    /// disk first so a whole disk goes before its slices need it.
+    fn detach_stranded_devices(&self) {
+        let Ok(report) = Command::new("hdiutil").arg("info").output() else {
+            return;
+        };
+        if !report.status.success() {
+            return;
+        }
+        let text = String::from_utf8_lossy(&report.stdout);
+        let image = self.image.to_string_lossy();
+        let mut devices = Vec::new();
+        let mut current_is_ours = false;
+        for line in text.lines() {
+            match line.split_once(':') {
+                Some(("image-path", value)) => {
+                    // `info` may report the resolved `/private` form of a temp
+                    // path, so compare the tail that identifies the file.
+                    let value = value.trim();
+                    current_is_ours = value == image
+                        || self
+                            .image
+                            .file_name()
+                            .is_some_and(|name| value.ends_with(&*name.to_string_lossy()));
+                }
+                _ => {
+                    if current_is_ours {
+                        let device = line.split_whitespace().next().unwrap_or_default();
+                        if device.starts_with("/dev/disk") {
+                            devices.push(device.to_owned());
+                        }
+                    }
+                }
+            }
+        }
+        // A slice node cannot be ejected while its whole disk is attached, so
+        // work from the longest name back to the shortest.
+        devices.sort_by_key(|device| std::cmp::Reverse(device.len()));
+        devices.dedup();
+        for device in devices {
+            let _ = Command::new("hdiutil")
+                .args(["detach", "-force"])
+                .arg(&device)
+                .output();
+        }
     }
 }
 
