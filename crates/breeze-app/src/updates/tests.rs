@@ -52,9 +52,7 @@ fn fixture(response: String, delay: Duration) -> (String, thread::JoinHandle<Str
             assert!(request.len() < 8192);
         }
         let (headers, body) = response.split_once("\r\n\r\n").unwrap();
-        socket
-            .write_all(format!("{headers}\r\n\r\n").as_bytes())
-            .unwrap();
+        socket.write_all(close_headers(headers).as_bytes()).unwrap();
         thread::sleep(delay);
         // The total deadline must continue through body reads, not only headers.
         let _ = socket.write_all(body.as_bytes());
@@ -63,8 +61,17 @@ fn fixture(response: String, delay: Duration) -> (String, thread::JoinHandle<Str
     (endpoint, worker)
 }
 
+/// The fixture server closes the connection after every response. Saying so is
+/// required: a keep-alive response invites the client to reuse a socket that is
+/// already gone, which surfaces as `Connection reset by peer` on the next
+/// request and failed the download tests intermittently under load.
+fn close_headers(headers: &str) -> String {
+    format!("{headers}\r\nConnection: close\r\n\r\n")
+}
+
 /// Serve one response per accepted connection, in order. Downloads request the
-/// checksum first, so each test can check both request paths.
+/// checksum first, so each test can check both request paths. Each connection is
+/// closed after its response, which the response headers must admit.
 fn serve(responses: Vec<String>) -> (String, thread::JoinHandle<Vec<String>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
@@ -82,7 +89,10 @@ fn serve(responses: Vec<String>) -> (String, thread::JoinHandle<Vec<String>>) {
                 request.push(byte[0]);
                 assert!(request.len() < 8192);
             }
-            socket.write_all(response.as_bytes()).unwrap();
+            let (headers, body) = response.split_once("\r\n\r\n").unwrap();
+            socket
+                .write_all(format!("{}{body}", close_headers(headers)).as_bytes())
+                .unwrap();
             requests.push(String::from_utf8(request).unwrap());
         }
         requests
