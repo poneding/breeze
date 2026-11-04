@@ -8,7 +8,7 @@ data-handling details that used to sit in the README.
 
 ## Development environment
 
-- Rust 1.97 or newer; CI specifies 1.97.1.
+- Rust 1.98 or newer; CI specifies 1.98.0.
 - macOS 15+ with Xcode Command Line Tools.
 - Windows 10+ with MSVC Rust, Visual Studio C++ Build Tools, Windows SDK, CMake,
   LLVM/libclang, and MSVC-compatible native build tools.

@@ -11,9 +11,9 @@ Local-first · Native Rust and GPUI Kit · No WebView
 [![CI](https://github.com/poneding/breeze/actions/workflows/ci.yml/badge.svg)](https://github.com/poneding/breeze/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/poneding/breeze?include_prereleases&sort=semver&label=release)](https://github.com/poneding/breeze/releases)
 [![License: AGPL-3.0-only](https://img.shields.io/badge/license-AGPL--3.0--only-blue.svg)](LICENSE)
-[![Rust 1.97+](https://img.shields.io/badge/rust-1.97%2B-orange.svg?logo=rust&logoColor=white)](https://www.rust-lang.org)
+[![Rust 1.98+](https://img.shields.io/badge/rust-1.98%2B-orange.svg?logo=rust&logoColor=white)](https://www.rust-lang.org)
 [![Platforms](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](#quick-start)
-[![Built with GPUI Kit](https://img.shields.io/badge/GPUI%20Kit-0.8.0-1f6feb.svg)](https://crates.io/crates/gpui-kit)
+[![Built with GPUI Kit](https://img.shields.io/badge/GPUI%20Kit-0.9.0-1f6feb.svg)](https://crates.io/crates/gpui-kit)
 
 </div>
 
@@ -45,7 +45,7 @@ the original file is never modified.
 
 ## Quick start
 
-Requires Rust 1.97 or newer, plus the platform toolchain described in the
+Requires Rust 1.98 or newer, plus the platform toolchain described in the
 [development guide](docs/development.md#development-environment).
 
 ```sh
