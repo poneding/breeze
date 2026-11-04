@@ -21,14 +21,23 @@ late (`epub_paging_has_no_status_bar_buttons` failed 2 of 7 hosted runs).
 `WAIT_TIMEOUT` is now a 90 s wall-clock deadline, so a slow runner waits as long
 as it actually needs rather than as long as a fast machine would.
 
+The **loopback HTTP fixtures** answered HTTP/1.1 with no `Connection: close`
+while closing the socket after every response, inviting the client to reuse a
+socket that was already gone. That surfaced as `Connection reset by peer` on the
+next request, and failed `download_rejects_a_mismatched_or_missing_checksum` and
+`download_verifies_the_published_checksum` intermittently under load on both
+Windows and Linux. Both fixture servers now declare the close.
+
 Validation: `cargo fmt --all -- --check`, the complete serial
 `cargo test --workspace --locked -- --test-threads=1` suite (285 application
 tests plus every crate and integration test), and
 `cargo clippy --workspace --all-targets --locked -- -D warnings` pass on Rust
 1.98.0. The two macOS install tests then passed 10 of 10 rounds at four threads
-with no leaked volume, and the full workspace suite passed three consecutive
-default-parallel runs with no leaked volume, against 10 of 12 leaking rounds
-before. The platform gating was re-checked through the stub-dependency harness
+with no leaked volume, and the full workspace suite passed eight consecutive
+default-parallel runs with no leaked volume and no failure, against 10 of 12
+leaking rounds before, and the HTTP fixtures passed 25 of 25 focused
+repetitions.
+The platform gating was re-checked through the stub-dependency harness
 under `x86_64-unknown-linux-gnu` and `x86_64-pc-windows-msvc`, both Clippy-clean.
 The Windows wait change is exercised only by the hosted runner: this host cannot
 reproduce that runner's timing, so the next hosted Windows job is its proof.
