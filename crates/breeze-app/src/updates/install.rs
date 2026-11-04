@@ -15,10 +15,14 @@ use std::{
     fs::{self, File},
     io::{self, Read, Write},
     path::{Path, PathBuf},
-    process::{Command, Stdio},
+    process::Command,
     sync::atomic::{AtomicU64, Ordering},
     time::Duration,
 };
+
+// Only the detached Unix launcher redirects the helper's streams.
+#[cfg(unix)]
+use std::process::Stdio;
 
 /// Published download root; `/tag/asset` is appended for a validated tag.
 pub(super) const DOWNLOAD_ROOT: &str = "https://github.com/poneding/breeze/releases/download";
@@ -186,12 +190,19 @@ pub(super) enum InstallError {
     ChecksumMismatch,
     /// A local file operation failed, with the operating system's description.
     Io(String),
+    /// Only the macOS installer replaces an existing bundle, so only it can
+    /// discover that the mounted payload is a different version.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     VersionMismatch {
         found: String,
         expected: String,
     },
+    /// macOS and the AppImage installer each need the installed application to
+    /// locate its own replacement; the Windows setup package does not.
+    #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
     MissingApplication,
     /// A platform installer failed, with its bounded diagnostic.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     InstallFailed(String),
     /// The replacement could not be started after the close.
     LaunchFailed(String),
@@ -202,6 +213,9 @@ pub(super) enum InstallError {
 #[derive(Debug, PartialEq, Eq)]
 pub(super) enum Completion {
     /// Application files are already replaced; relaunch them after a restart.
+    /// macOS and Linux replace files in place; the Windows flow runs a setup
+    /// package, and the package-manager flow only reveals the download.
+    #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))]
     Installed { path: PathBuf, launch: LaunchKind },
     /// The setup package is staged; the restart runs it after Breeze exits.
     #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
@@ -214,6 +228,7 @@ pub(super) enum Completion {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum LaunchKind {
     /// A macOS `.app` bundle, opened through Launch Services.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Bundle,
     /// An AppImage or other executable file.
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -288,13 +303,19 @@ fn launch_after_exit(path: &Path, kind: LaunchKind) -> Result<(), InstallError> 
         .map_err(|error| InstallError::LaunchFailed(error.to_string()))
 }
 
+/// Start the replacement after this process exits on a non-Unix platform,
+/// which is Windows only. Breeze never constructs a bundle launch there: the
+/// Windows installer is a setup package, not a replaced bundle. The arm still
+/// reports a real failure instead of shelling out to the macOS `open` command,
+/// which does not exist on Windows.
 #[cfg(not(unix))]
 fn launch_after_exit(path: &Path, kind: LaunchKind) -> Result<(), InstallError> {
     let mut command = match kind {
         LaunchKind::Bundle => {
-            let mut command = Command::new("open");
-            command.arg("-n").arg(path);
-            command
+            return Err(InstallError::LaunchFailed(format!(
+                "{} is not a Windows install target",
+                path.display()
+            )));
         }
         LaunchKind::Executable => Command::new(path),
     };
@@ -492,11 +513,17 @@ fn stream_verified(
 }
 
 /// Install a verified artifact for the detected target.
+///
+/// Only the macOS and Windows installers consume `version` (one checks the
+/// mounted bundle, the other reports what the setup package will install), so
+/// the parameter is unused on the platforms whose installers are version-agnostic.
 pub(super) fn install(
     target: &InstallTarget,
     artifact: &Path,
     version: &str,
 ) -> Result<Completion, InstallError> {
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let _ = version;
     match target {
         #[cfg(target_os = "macos")]
         InstallTarget::MacBundle(bundle) => install_macos(artifact, version, bundle),
@@ -637,6 +664,8 @@ fn install_appimage(artifact: &Path, appimage: &Path) -> Result<Completion, Inst
     })
 }
 
+/// Only the macOS installer stages a directory tree to swap in.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn remove_tree(path: &Path) {
     let _ = fs::remove_dir_all(path);
 }
@@ -659,7 +688,9 @@ fn io_failure(error: &io::Error) -> InstallError {
 }
 
 /// Bounded first line of a tool's diagnostic; the installer's output is more
-/// useful than its exit status but must not flood the banner.
+/// useful than its exit status but must not flood the banner. Only the macOS
+/// installer reads a tool's stderr.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn diagnostic(stderr: &[u8]) -> String {
     let text = String::from_utf8_lossy(stderr);
     let detail = text

@@ -1,3 +1,36 @@
+# November 4 CI toolchain and platform-gating recovery
+
+The hosted matrix had failed on every platform since the GPUI Kit 0.9.0 upgrade,
+for three independent reasons that the v0.2.0 tag inherited. First, the pinned
+Rust 1.97.1 predates `Option::map_or_default`/`Result::map_or_default`, which
+GPUI's macOS snapshot (0.3.10 onward) calls; stabilization is **1.98.0**, verified
+by compiling both a probe and the full workspace on 1.97.1 (E0658) and 1.98.0
+(pass). The workspace `rust-version`, both workflow pins, and the toolchain notes
+now state 1.98.
+
+Second, Linux and Windows Clippy compile different `cfg` sets than macOS, so
+macOS-only installer code was reported as dead: `VersionMismatch`,
+`InstallFailed`, `MissingApplication`, `Completion::Installed`,
+`LaunchKind::Bundle`, `remove_tree`, `diagnostic`, the `Stdio` import, and the
+`version` parameter of `install`. Each is now guarded on the platform that
+actually constructs it. Third, the non-Unix launcher passed a bundle to the
+macOS-only `open` command, which cannot work on Windows; it now refuses the path.
+The `real_http_transport_sends_headers_and_rejects_false_success` user-agent
+assertion had also hardcoded `0.1.0` and so failed on any release bump; it
+compares against `CARGO_PKG_VERSION`.
+
+Validation: `cargo fmt --all -- --check`, `cargo check --workspace --locked`, the
+complete serial `cargo test --workspace --locked -- --test-threads=1` suite (285
+application tests plus every crate and integration test), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass on Rust
+1.98.0. Because this host cannot cross-compile (Windows needs `llvm-rc` and
+Linux needs a cross `gcc`, both absent), the platform gating was instead verified
+by compiling the real `install.rs` unmodified through a stub-dependency harness
+(`ureq`, `sha2`, `breeze-storage`) under `x86_64-unknown-linux-gnu` and
+`x86_64-pc-windows-msvc`: zero dead-code warnings and clean
+`clippy -- -D warnings` on both. That is a `cfg`-resolution check, not a native
+build; the hosted Linux and Windows jobs remain the authority for this change.
+
 # November 3 GPUI Kit 0.9.0 upgrade
 
 GPUI Kit and its GPUI Base, Component, assets, and macro packages now resolve to
@@ -18,7 +51,7 @@ checks remain unverified.
 ## November 2 dependency refresh
 
 The workspace lockfile now resolves to the highest versions compatible with the
-declared Rust 1.97 toolchain. Direct pins advanced to GPUI Kit 0.8.1, `resvg`
+declared Rust toolchain. Direct pins advanced to GPUI Kit 0.8.1, `resvg`
 0.49.0, `ureq` 3.5.0, `embed-resource` 3.0.12, and `zip` 9.2.2; the GPUI
 snapshot is now 0.3.10. GPUI's static key parser no longer accepts the
 platform-dependent `secondary-` alias, so command bindings are loaded against

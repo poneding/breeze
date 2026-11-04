@@ -262,7 +262,8 @@ fn real_http_transport_sends_headers_and_rejects_false_success() {
     assert!(matches!(result, CheckStatus::Available { .. }));
     let request = server.join().unwrap().to_lowercase();
     assert!(request.starts_with("get /latest http/1.1"));
-    assert!(request.contains("user-agent: breeze/0.1.0"));
+    // The user agent carries the built version, not the version under test.
+    assert!(request.contains(concat!("user-agent: breeze/", env!("CARGO_PKG_VERSION"))));
     assert!(request.contains("accept: application/vnd.github+json"));
     assert!(request.contains("x-github-api-version: 2022-11-28"));
     assert!(!request.contains("authorization"));
@@ -463,6 +464,9 @@ fn policies_bound_concurrency_and_ignore_disabled_automatic_results() {
     assert!(state.begin(false, 0));
 }
 
+/// A missing application must fail on every platform. Windows has no bundle
+/// launch (its update runs a setup package), so a bundle path there is refused
+/// rather than handed to the macOS-only `open` command.
 #[test]
 fn relaunch_rejects_a_missing_application() {
     let action = RestartAction::Relaunch {
