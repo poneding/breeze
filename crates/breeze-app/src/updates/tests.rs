@@ -504,20 +504,24 @@ fn macos_app(parent: &Path, version: &str, binary: &str) -> PathBuf {
 #[cfg(target_os = "macos")]
 fn macos_image(root: &Path, payload: &Path, version: &str) -> PathBuf {
     let dmg = root.join(format!("Breeze-{version}-test.dmg"));
-    let status = Command::new("hdiutil")
-        .args([
-            "create",
-            "-quiet",
-            "-volname",
-            &format!("Breeze update {version}"),
-            "-srcfolder",
-        ])
-        .arg(payload)
-        .args(["-ov", "-format", "UDZO"])
-        .arg(&dmg)
-        .status()
-        .unwrap();
-    assert!(status.success(), "hdiutil create failed");
+    // `hdiutil` is not safe to drive concurrently, and the updater holds the same
+    // lock for its own attach, so building the fixture takes it too.
+    super::install::with_image_locked(|| {
+        let status = Command::new("hdiutil")
+            .args([
+                "create",
+                "-quiet",
+                "-volname",
+                &format!("Breeze update {version}"),
+                "-srcfolder",
+            ])
+            .arg(payload)
+            .args(["-ov", "-format", "UDZO"])
+            .arg(&dmg)
+            .status()
+            .unwrap();
+        assert!(status.success(), "hdiutil create failed");
+    });
     dmg
 }
 

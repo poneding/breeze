@@ -20,6 +20,10 @@ use std::{
     time::Duration,
 };
 
+// Only the macOS installer serializes disk-image work.
+#[cfg(target_os = "macos")]
+use std::sync::Mutex;
+
 // Only the detached Unix launcher redirects the helper's streams.
 #[cfg(unix)]
 use std::process::Stdio;
@@ -34,6 +38,20 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(30);
 const BODY_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const READ_CHUNK: usize = 64 * 1024;
+/// A concurrent disk-image operation can make one detach report "Resource
+/// busy"; a short bounded retry rides that out without stalling an update.
+#[cfg(target_os = "macos")]
+const DETACH_ATTEMPTS: usize = 10;
+#[cfg(target_os = "macos")]
+const DETACH_RETRY_DELAY: Duration = Duration::from_millis(150);
+/// `hdiutil attach` reports "Resource temporarily unavailable" while another
+/// disk-image operation holds the system's disk-arbitration state. That is
+/// transient, so the updater retries on a fresh mountpoint instead of failing a
+/// user's update.
+#[cfg(target_os = "macos")]
+const ATTACH_ATTEMPTS: usize = 6;
+#[cfg(target_os = "macos")]
+const ATTACH_RETRY_DELAY: Duration = Duration::from_millis(300);
 
 /// One installer asset and the checksum file published beside it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -542,31 +560,84 @@ pub(super) fn install(
     }
 }
 
+/// Serialize the disk-image operations this process runs.
+///
+/// `hdiutil` keeps global state and is not safe to drive concurrently: two
+/// attaches at once can fail with "Resource temporarily unavailable" or leave a
+/// device claimed with no mountpoint. The updater is a rare, user-initiated
+/// operation, so running its image work one at a time costs nothing.
+#[cfg(target_os = "macos")]
+fn image_lock() -> &'static Mutex<()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    &LOCK
+}
+
+/// Run `hdiutil`-driven work with this process's image lock held. The tests hold
+/// it around their own `hdiutil` calls too, because a stray concurrent create or
+/// verify races the updater's attach exactly as another install would.
+#[cfg(target_os = "macos")]
+pub(super) fn with_image_locked<T>(work: impl FnOnce() -> T) -> T {
+    // A poisoned lock only means another thread panicked while holding it; the
+    // image work still has to run, and the guard carries no shared state.
+    let _serialized = image_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    work()
+}
+
+/// A mountpoint no other install can share. The process id alone is not enough:
+/// two installs can start in the same millisecond, and two `hdiutil attach`
+/// calls aimed at one directory corrupt each other and can strand a mounted
+/// image. The monotonic counter keeps every call distinct.
+#[cfg(target_os = "macos")]
+fn unique_suffix() -> String {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    format!(
+        "{}-{}-{}",
+        std::process::id(),
+        nanos,
+        COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn attach_image(dmg: &Path) -> Result<Detach, InstallError> {
+    let mut last = String::new();
+    for attempt in 0..ATTACH_ATTEMPTS {
+        let mountpoint = std::env::temp_dir().join(format!("breeze-update-{}", unique_suffix()));
+        fs::create_dir_all(&mountpoint).map_err(|error| io_failure(&error))?;
+        let attached = Command::new("hdiutil")
+            .args(["attach", "-nobrowse", "-readonly", "-mountpoint"])
+            .arg(&mountpoint)
+            .arg(dmg)
+            .output()
+            .map_err(|error| io_failure(&error))?;
+        let detach = Detach(mountpoint);
+        if attached.status.success() {
+            return Ok(detach);
+        }
+        // A failed attach can still have claimed a device. Detach before the
+        // mountpoint goes away: `hdiutil` addresses an image by its mountpoint,
+        // so deleting the directory first strands the volume until the machine
+        // restarts, and each stranded volume makes later attaches likelier to
+        // fail.
+        last = diagnostic(&attached.stderr);
+        drop(detach);
+        if attempt + 1 < ATTACH_ATTEMPTS {
+            std::thread::sleep(ATTACH_RETRY_DELAY);
+        }
+    }
+    Err(InstallError::InstallFailed(last))
+}
+
 #[cfg(target_os = "macos")]
 fn install_macos(dmg: &Path, version: &str, bundle: &Path) -> Result<Completion, InstallError> {
-    let mountpoint = std::env::temp_dir().join(format!(
-        "breeze-update-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_millis())
-            .unwrap_or(0)
-    ));
-    if mountpoint.exists() {
-        fs::remove_dir_all(&mountpoint).map_err(|error| io_failure(&error))?;
-    }
-    fs::create_dir_all(&mountpoint).map_err(|error| io_failure(&error))?;
-    let attached = Command::new("hdiutil")
-        .args(["attach", "-nobrowse", "-readonly", "-mountpoint"])
-        .arg(&mountpoint)
-        .arg(dmg)
-        .output()
-        .map_err(|error| io_failure(&error))?;
-    if !attached.status.success() {
-        let _ = fs::remove_dir_all(&mountpoint);
-        return Err(InstallError::InstallFailed(diagnostic(&attached.stderr)));
-    }
-    let _detach = Detach(mountpoint.clone());
+    let detach = with_image_locked(|| attach_image(dmg))?;
+    let mountpoint = detach.path().to_path_buf();
 
     let mounted_app = mountpoint.join("Breeze.app");
     verify_bundle(&mounted_app, version)?;
@@ -596,6 +667,12 @@ fn install_macos(dmg: &Path, version: &str, bundle: &Path) -> Result<Completion,
         return Err(io_failure(&error));
     }
     remove_tree(&backup);
+    // Unmount before unlinking the image. `hdiutil` finds a mounted image
+    // through its backing file, so deleting the file first strands the volume
+    // with no way to detach it: it stays attached until the machine restarts
+    // and makes every later attach likelier to fail with "Resource temporarily
+    // unavailable". Detaching first is what keeps repeated updates working.
+    drop(detach);
     let _ = fs::remove_file(dmg);
     Ok(Completion::Installed {
         path: bundle.to_path_buf(),
@@ -624,10 +701,45 @@ fn verify_bundle(app: &Path, version: &str) -> Result<(), InstallError> {
 struct Detach(PathBuf);
 
 #[cfg(target_os = "macos")]
+impl Detach {
+    fn path(&self) -> &Path {
+        &self.0
+    }
+    /// Unmount the image and remove its mountpoint. Returns whether the volume
+    /// is detached, so a caller that deletes the image file can detach first.
+    ///
+    /// A concurrent `hdiutil` run can make a single detach fail with "Resource
+    /// busy". Retrying briefly rides that out; removing the mountpoint anyway
+    /// would strand the volume, because `hdiutil` then has no path to address it
+    /// by and the image stays attached until the machine restarts.
+    fn release(&self) -> bool {
+        for attempt in 0..DETACH_ATTEMPTS {
+            // `-force` covers a volume a stale reader still holds. The image is
+            // read-only, so nothing is discarded that was not already read.
+            let detached = Command::new("hdiutil")
+                .args(["detach", "-force"])
+                .arg(&self.0)
+                .output()
+                .map(|output| output.status.success())
+                .unwrap_or(false);
+            if detached {
+                let _ = fs::remove_dir_all(&self.0);
+                return true;
+            }
+            if attempt + 1 < DETACH_ATTEMPTS {
+                std::thread::sleep(DETACH_RETRY_DELAY);
+            }
+        }
+        // Keep the mountpoint so the volume can still be detached later with
+        // the tools the operator already has.
+        false
+    }
+}
+
+#[cfg(target_os = "macos")]
 impl Drop for Detach {
     fn drop(&mut self) {
-        let _ = Command::new("hdiutil").arg("detach").arg(&self.0).output();
-        let _ = fs::remove_dir_all(&self.0);
+        let _ = self.release();
     }
 }
 
