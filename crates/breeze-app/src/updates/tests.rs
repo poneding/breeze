@@ -12,53 +12,19 @@ use std::{
 #[cfg(target_os = "macos")]
 use std::{path::Path, process::Command};
 
-fn metadata(tag: &str) -> Vec<u8> {
-    serde_json::to_vec(&serde_json::json!({
-        "tag_name": tag, "draft": false, "prerelease": false,
-        "html_url": "https://untrusted.invalid/install"
-    }))
-    .unwrap()
+/// The release page redirect for a published stable tag.
+fn redirect_to(location: &str) -> String {
+    format!("HTTP/1.1 302 Found\r\nLocation: {location}\r\nContent-Length: 0\r\n\r\n")
 }
 
-fn release_with_assets(tag: &str, assets: &[String]) -> Vec<u8> {
-    serde_json::to_vec(&serde_json::json!({
-        "tag_name": tag,
-        "draft": false,
-        "prerelease": false,
-        "assets": assets
-            .iter()
-            .map(|name| serde_json::json!({
-                "name": name,
-                "browser_download_url": "https://untrusted.invalid/install"
-            }))
-            .collect::<Vec<_>>()
-    }))
-    .unwrap()
-}
-
-fn fixture(response: String, delay: Duration) -> (String, thread::JoinHandle<String>) {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let endpoint = format!("http://{}/latest", listener.local_addr().unwrap());
-    let worker = thread::spawn(move || {
-        let (mut socket, _) = listener.accept().unwrap();
-        socket
-            .set_read_timeout(Some(Duration::from_secs(2)))
-            .unwrap();
-        let mut request = Vec::new();
-        let mut byte = [0];
-        while !request.ends_with(b"\r\n\r\n") {
-            socket.read_exact(&mut byte).unwrap();
-            request.push(byte[0]);
-            assert!(request.len() < 8192);
-        }
-        let (headers, body) = response.split_once("\r\n\r\n").unwrap();
-        socket.write_all(close_headers(headers).as_bytes()).unwrap();
-        thread::sleep(delay);
-        // The total deadline must continue through body reads, not only headers.
-        let _ = socket.write_all(body.as_bytes());
-        String::from_utf8(request).unwrap()
-    });
-    (endpoint, worker)
+/// A response on the download path: a redirect to the stored file when the
+/// asset exists, a plain 404 when it does not.
+fn download_route(present: bool) -> String {
+    if present {
+        redirect_to("https://release-assets.invalid/file")
+    } else {
+        "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".into()
+    }
 }
 
 /// The fixture server closes the connection after every response. Saying so is
@@ -70,11 +36,22 @@ fn close_headers(headers: &str) -> String {
 }
 
 /// Serve one response per accepted connection, in order. Downloads request the
-/// checksum first, so each test can check both request paths. Each connection is
-/// closed after its response, which the response headers must admit.
+/// checksum first and a check requests the release redirect first, so each test
+/// can pin the request paths it expects. Each connection is closed after its
+/// response, which the response headers must admit.
 fn serve(responses: Vec<String>) -> (String, thread::JoinHandle<Vec<String>>) {
+    serve_after(Duration::ZERO, responses)
+}
+
+/// `serve` with a delay before each response, so a client's total deadline can
+/// be shown to cover waiting rather than only reading.
+fn serve_after(
+    delay: Duration,
+    responses: Vec<String>,
+) -> (String, thread::JoinHandle<Vec<String>>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
+    let origin = base.clone();
     let worker = thread::spawn(move || {
         let mut requests = Vec::new();
         for response in responses {
@@ -89,10 +66,14 @@ fn serve(responses: Vec<String>) -> (String, thread::JoinHandle<Vec<String>>) {
                 request.push(byte[0]);
                 assert!(request.len() < 8192);
             }
+            // Response fixtures name the loopback origin as `{base}`, which is
+            // only known once the listener is bound.
+            let response = response.replace("{base}", &origin);
             let (headers, body) = response.split_once("\r\n\r\n").unwrap();
-            socket
-                .write_all(format!("{}{body}", close_headers(headers)).as_bytes())
-                .unwrap();
+            thread::sleep(delay);
+            // A client whose deadline already expired has closed the socket;
+            // writing to it is best-effort so the fixture thread can finish.
+            let _ = socket.write_all(format!("{}{body}", close_headers(headers)).as_bytes());
             requests.push(String::from_utf8(request).unwrap());
         }
         requests
@@ -118,23 +99,65 @@ fn test_client(timeout: Duration) -> ureq::Agent {
     client(timeout, false)
 }
 
+/// Run one check against a loopback fixture: the release redirect plus whatever
+/// download-path answers the check may reach. Response fixtures name the origin
+/// as `{base}`. Returns the check result and every request the server saw.
+fn check_fixture(
+    target: &InstallTarget,
+    current: &str,
+    responses: Vec<String>,
+) -> (Result<CheckStatus, CheckError>, Vec<String>) {
+    let (base, server) = serve(responses);
+    let result = fetch(
+        &test_client(TIMEOUT),
+        &format!("{base}/latest"),
+        &format!("{base}/download"),
+        current,
+        target,
+    );
+    (result, server.join().unwrap())
+}
+
+/// Method and path of each request, lowercased for comparison.
+fn request_paths(requests: &[String]) -> Vec<String> {
+    requests
+        .iter()
+        .map(|request| {
+            request
+                .split_whitespace()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_lowercase()
+        })
+        .collect()
+}
+
 #[test]
-fn semantic_versions_and_release_urls_are_checked() {
-    for tag in ["v0.10.0", "0.10.0", "V1.0.0", "1.0.0+build.5"] {
-        let CheckStatus::Available {
-            url, tag: found, ..
-        } = parse_release(&metadata(tag), "0.9.0").unwrap()
-        else {
-            panic!("{tag}")
-        };
-        assert_eq!(url, format!("{RELEASES}/tag/{tag}"));
-        assert_eq!(found, tag);
+fn release_redirects_name_only_stable_versions() {
+    for location in [
+        "https://github.com/poneding/breeze/releases/tag/v0.10.0",
+        "https://github.com/poneding/breeze/releases/tag/0.10.0",
+        "https://github.com/poneding/breeze/releases/tag/V1.0.0",
+        "https://github.com/poneding/breeze/releases/tag/1.0.0+build.5",
+    ] {
+        assert!(tag_from_location(location).is_some(), "{location}");
     }
-    for tag in ["0.9.0", "v0.8.9", "0.9.0+different.build"] {
-        assert!(matches!(
-            parse_release(&metadata(tag), "0.9.0"),
-            Ok(CheckStatus::Current { .. })
-        ));
+    // A repository without a stable release redirects to the release list,
+    // which names no version; neither does a target that adds path segments.
+    for location in [
+        "https://github.com/poneding/breeze/releases",
+        "https://github.com/poneding/breeze/releases/tag/",
+        "https://github.com/poneding/breeze/releases/tag/1.0.0/../../evil",
+        "https://github.com/poneding/breeze/releases/tag/1.0.0?x=1",
+        "https://untrusted.invalid/install",
+        "",
+    ] {
+        assert_eq!(tag_from_location(location), None, "{location}");
+    }
+
+    for tag in ["v0.10.0", "0.10.0", "V1.0.0", "1.0.0+build.5"] {
+        assert!(tag_version(tag).is_ok(), "{tag}");
     }
     for tag in [
         "latest",
@@ -145,37 +168,62 @@ fn semantic_versions_and_release_urls_are_checked() {
         "https://evil.invalid",
         "",
     ] {
+        assert_eq!(tag_version(tag), Err(CheckError::InvalidMetadata), "{tag}");
+    }
+    assert_eq!(
+        tag_version(&format!("1.0.0+{}", "a".repeat(TAG_LIMIT))),
+        Err(CheckError::InvalidMetadata)
+    );
+
+    // An unsupported target asks for no package, so these results need no
+    // network: the version comparison is the whole subject here.
+    let agent = test_client(TIMEOUT);
+    let unsupported = InstallTarget::Unsupported;
+    let CheckStatus::Available {
+        version,
+        tag,
+        url,
+        install,
+    } = check_status(
+        &agent,
+        "http://download.invalid",
+        "v0.10.0",
+        "0.9.0",
+        &unsupported,
+    )
+    .unwrap()
+    else {
+        panic!("a newer stable tag is available")
+    };
+    assert_eq!(version, "0.10.0");
+    assert_eq!(tag, "v0.10.0");
+    // The link is built from the fixed repository, never from a response.
+    assert_eq!(url, format!("{RELEASES}/tag/v0.10.0"));
+    assert!(install.is_none());
+    for tag in ["0.9.0", "v0.8.9", "0.9.0+different.build"] {
         assert_eq!(
-            parse_release(&metadata(tag), "0.1.0"),
-            Err(CheckError::InvalidMetadata)
+            check_status(
+                &agent,
+                "http://download.invalid",
+                tag,
+                "0.9.0",
+                &unsupported
+            ),
+            Ok(CheckStatus::Current {
+                latest: tag_version(tag).unwrap().to_string()
+            })
         );
     }
     assert!(matches!(
-        parse_release(&metadata("1.0.0"), "1.0.0-rc.1"),
+        check_status(
+            &agent,
+            "http://download.invalid",
+            "1.0.0",
+            "1.0.0-rc.1",
+            &unsupported
+        ),
         Ok(CheckStatus::Available { .. })
     ));
-    assert_eq!(
-        parse_release(
-            br#"{"tag_name":"1.0.0","draft":true,"prerelease":false}"#,
-            "0.1.0"
-        ),
-        Err(CheckError::InvalidMetadata)
-    );
-    assert_eq!(
-        parse_release(
-            br#"{"tag_name":"1.0.0","draft":false,"prerelease":true}"#,
-            "0.1.0"
-        ),
-        Err(CheckError::InvalidMetadata)
-    );
-    assert_eq!(
-        parse_release(b"not json", "0.1.0"),
-        Err(CheckError::InvalidMetadata)
-    );
-    assert_eq!(
-        parse_release(b"{}", "0.1.0"),
-        Err(CheckError::InvalidMetadata)
-    );
 }
 
 #[test]
@@ -223,111 +271,171 @@ fn install_plans_match_published_package_names() {
 fn a_release_offers_an_install_only_when_its_assets_are_published() {
     let target = InstallTarget::MacBundle(PathBuf::from("/Applications/Breeze.app"));
     let plan = target.plan("0.2.0").unwrap();
-    let complete = release_with_assets("v0.2.0", &[plan.asset.clone(), plan.checksum.clone()]);
-    let CheckStatus::Available {
-        install: Some(found),
-        tag,
-        ..
-    } = parse_release_for(&complete, "0.1.0", &target).unwrap()
-    else {
-        panic!("complete release has an install")
+    let tag_redirect = redirect_to("{base}/releases/tag/v0.2.0");
+
+    let (result, requests) = check_fixture(
+        &target,
+        "0.1.0",
+        vec![
+            tag_redirect.clone(),
+            download_route(true),
+            download_route(true),
+        ],
+    );
+    let CheckStatus::Available { install, tag, .. } = result.unwrap() else {
+        panic!("a newer release")
     };
-    assert_eq!(found, plan);
     assert_eq!(tag, "v0.2.0");
+    assert_eq!(install, Some(plan.clone()));
+    // Discovery and confirmation are bodyless HEAD requests on the fixed paths,
+    // so neither the release body nor an asset is read to answer the check.
+    assert_eq!(
+        request_paths(&requests),
+        [
+            "head /latest".to_string(),
+            format!("head /download/v0.2.0/{}", plan.asset).to_lowercase(),
+            format!("head /download/v0.2.0/{}", plan.checksum).to_lowercase(),
+        ]
+    );
 
     // A package without its checksum must not be offered for automatic install.
-    for assets in [
-        vec![plan.asset.clone()],
-        vec![plan.checksum.clone()],
-        vec!["Breeze-0.2.0-x86_64-pc-windows-msvc.exe".into()],
-    ] {
-        let body = release_with_assets("v0.2.0", &assets);
-        let CheckStatus::Available { install, .. } =
-            parse_release_for(&body, "0.1.0", &target).unwrap()
-        else {
-            panic!("still a newer release")
-        };
-        assert!(install.is_none(), "{assets:?}");
-    }
+    let (result, _) = check_fixture(
+        &target,
+        "0.1.0",
+        vec![
+            tag_redirect.clone(),
+            download_route(true),
+            download_route(false),
+        ],
+    );
+    let CheckStatus::Available { install, .. } = result.unwrap() else {
+        panic!("still a newer release")
+    };
+    assert!(install.is_none(), "a package without its checksum");
+
+    // A missing package ends the check without asking for the checksum.
+    let (result, requests) =
+        check_fixture(&target, "0.1.0", vec![tag_redirect, download_route(false)]);
+    let CheckStatus::Available { install, .. } = result.unwrap() else {
+        panic!("still a newer release")
+    };
+    assert!(install.is_none(), "no package for this system");
+    assert_eq!(request_paths(&requests).len(), 2);
+
     // An unsupported platform can only open the release page.
-    let CheckStatus::Available { install, .. } =
-        parse_release_for(&complete, "0.1.0", &InstallTarget::Unsupported).unwrap()
-    else {
+    let (result, requests) = check_fixture(
+        &InstallTarget::Unsupported,
+        "0.1.0",
+        vec![redirect_to("{base}/releases/tag/v0.2.0")],
+    );
+    let CheckStatus::Available { install, .. } = result.unwrap() else {
         panic!("still a newer release")
     };
     assert!(install.is_none());
+    assert_eq!(request_paths(&requests), ["head /latest".to_string()]);
 }
 
 #[test]
-fn real_http_transport_sends_headers_and_rejects_false_success() {
-    let body = String::from_utf8(metadata("v0.2.0")).unwrap();
-    let (endpoint, server) = fixture(
-        format!(
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
-            body.len()
-        ),
-        Duration::ZERO,
+fn real_http_transport_sends_headers_and_maps_unexpected_statuses() {
+    let (result, requests) = check_fixture(
+        &InstallTarget::Unsupported,
+        "0.1.0",
+        vec![redirect_to("{base}/releases/tag/v0.2.0")],
     );
-    let result = fetch(&test_client(TIMEOUT), &endpoint, "0.1.0").unwrap();
-    assert!(matches!(result, CheckStatus::Available { .. }));
-    let request = server.join().unwrap().to_lowercase();
-    assert!(request.starts_with("get /latest http/1.1"));
+    assert_eq!(
+        result,
+        Ok(CheckStatus::Available {
+            version: "0.2.0".into(),
+            tag: "v0.2.0".into(),
+            url: format!("{RELEASES}/tag/v0.2.0"),
+            install: None,
+        })
+    );
+    let request = requests.join("").to_lowercase();
+    assert!(request.starts_with("head /latest http/1.1"));
     // The user agent carries the built version, not the version under test.
     assert!(request.contains(concat!("user-agent: breeze/", env!("CARGO_PKG_VERSION"))));
-    assert!(request.contains("accept: application/vnd.github+json"));
-    assert!(request.contains("x-github-api-version: 2022-11-28"));
+    assert!(request.contains("accept: text/html"));
+    // Discovery is anonymous: no token is embedded or expected.
     assert!(!request.contains("authorization"));
-    for (code, headers, expected) in [
-        (404, "", Ok(CheckStatus::Unpublished)),
-        (403, "", Err(CheckError::Http(403))),
+    for (response, expected) in [
         (
-            403,
-            "X-RateLimit-Remaining: 0\r\n",
+            "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n".to_string(),
+            Ok(CheckStatus::Unpublished),
+        ),
+        (
+            "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n".to_string(),
+            Err(CheckError::Http(403)),
+        ),
+        (
+            "HTTP/1.1 429 Too Many Requests\r\nContent-Length: 0\r\n\r\n".to_string(),
             Err(CheckError::RateLimited),
         ),
-        (429, "", Err(CheckError::RateLimited)),
-        (500, "", Err(CheckError::Http(500))),
         (
-            302,
-            "Location: https://untrusted.invalid\r\n",
-            Err(CheckError::Http(302)),
+            "HTTP/1.1 500 Oops\r\nContent-Length: 0\r\n\r\n".to_string(),
+            Err(CheckError::Http(500)),
         ),
-        (200, "", Err(CheckError::InvalidMetadata)),
+        // A success status without a redirect names no version.
+        (
+            "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n".to_string(),
+            Ok(CheckStatus::Unpublished),
+        ),
+        // Neither does a redirect that is not a release tag. The check never
+        // follows one, so an unexpected target cannot redirect the download.
+        (
+            redirect_to("https://untrusted.invalid/install"),
+            Ok(CheckStatus::Unpublished),
+        ),
+        (
+            redirect_to("https://github.com/poneding/breeze/releases"),
+            Ok(CheckStatus::Unpublished),
+        ),
     ] {
-        let (endpoint, server) = fixture(
-            format!("HTTP/1.1 {code} Status\r\n{headers}Content-Length: 0\r\n\r\n"),
-            Duration::ZERO,
-        );
-        assert_eq!(fetch(&test_client(TIMEOUT), &endpoint, "0.1.0"), expected);
-        server.join().unwrap();
+        let (result, _) = check_fixture(&InstallTarget::Unsupported, "0.1.0", vec![response]);
+        assert_eq!(result, expected);
     }
 }
 
 #[test]
-fn transport_bounds_body_and_total_time() {
-    let body = "x".repeat(MAX_METADATA_BYTES as usize + 1);
-    let (endpoint, server) = fixture(
-        format!(
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}",
-            body.len()
-        ),
-        Duration::ZERO,
-    );
-    assert_eq!(
-        fetch(&test_client(TIMEOUT), &endpoint, "0.1.0"),
-        Err(CheckError::TooLarge)
-    );
-    server.join().unwrap();
-    let (endpoint, server) = fixture(
-        "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}".into(),
+fn transport_bounds_total_time() {
+    let (base, server) = serve_after(
         Duration::from_millis(250),
+        vec![redirect_to("{base}/releases/tag/v0.2.0")],
     );
     assert_eq!(
-        fetch(&test_client(Duration::from_millis(50)), &endpoint, "0.1.0"),
+        fetch(
+            &test_client(Duration::from_millis(50)),
+            &format!("{base}/latest"),
+            &format!("{base}/download"),
+            "0.1.0",
+            &InstallTarget::Unsupported,
+        ),
         Err(CheckError::Timeout)
     );
     server.join().unwrap();
     assert!(client(TIMEOUT, true).config().https_only());
+}
+
+/// Live probe against the real repository, ignored so the suite stays offline.
+/// Run it with `cargo test -p breeze-app --lib -- --ignored live_release`.
+#[test]
+#[ignore = "network: reads the published release redirect"]
+fn live_release_discovery() {
+    let result = fetch(
+        &client(TIMEOUT, true),
+        LATEST,
+        install::DOWNLOAD_ROOT,
+        "0.0.1",
+        &InstallTarget::detect(),
+    )
+    .unwrap();
+    assert!(
+        matches!(
+            result,
+            CheckStatus::Available { .. } | CheckStatus::Current { .. }
+        ),
+        "{result:?}"
+    );
 }
 
 #[test]

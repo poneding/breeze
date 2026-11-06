@@ -26,11 +26,29 @@ to a deliberate Manual choice. Choosing Manual in version 12 and later no longer
 checks automatically. Explicit checks in About remain available under every
 policy. Only one automatic check runs per process.
 
-The request stays bounded: fixed GitHub latest-stable endpoint, 15-second total
-deadline, 1 MiB metadata limit, no redirects, fixed repository URLs, and SemVer
-validation before any newer release is offered. The release asset list must
-contain both the platform package and its checksum; otherwise the banner only
-links to the release page.
+The request stays bounded: fixed GitHub release page, 15-second total
+deadline, no redirects followed, fixed repository URLs, and SemVer validation
+before any newer release is offered. The release must publish both the platform
+package and its checksum; otherwise the banner only links to the release page.
+
+Discovery does not use the GitHub REST API. `api.github.com` allows 60
+unauthenticated requests per hour per source address, so the budget belongs to
+whatever egress the reader shares — a proxy, VPN, carrier NAT or office network
+— and a client that sends one request per launch can still be refused through no
+fault of its own. Instead:
+
+- `HEAD https://github.com/poneding/breeze/releases/latest` answers `302` with a
+  `Location` of `/releases/tag/<tag>` for the newest published stable release, or
+  a redirect to the release list when none exists. Only the tag after
+  `/releases/tag/` is used, and it must parse as a stable SemVer version.
+- `HEAD .../releases/download/<tag>/<asset>` answers `302` for a published asset
+  and `404` for a missing one, which confirms the package and its checksum
+  without reading release metadata.
+
+Neither endpoint spends the API budget, no response body is read, and the check
+issues at most three bodyless requests: one for the tag and two more only when a
+newer release exists and this build has a package to offer. An unexpected status
+there still fails the check instead of claiming the package is missing.
 
 ### Banner
 
@@ -58,8 +76,8 @@ installation or restart; peers can still open the release page.
 
 - Asset names are derived from the validated version and this build's target:
   `Breeze-<version>-<target>.dmg/.exe/.msi/.deb/.AppImage` and the matching
-  `.sha256`. They must also appear in the release metadata; no URL from the
-  response body is used.
+  `.sha256`. The check confirms both on the download path before offering an
+  install; no URL from a response body is used.
 - The checksum sidecar is fetched first (4 KiB limit), then the package is
   streamed to `<data>/updates` while SHA-256 is computed. The HTTPS-only client
   follows redirects only to other HTTPS URLs, caps the package at 512 MiB, and
@@ -131,9 +149,9 @@ starting the update.
 - `cargo fmt --all -- --check` and
   `cargo clippy --workspace --all-targets --locked -- -D warnings` pass.
 - `cargo test --workspace --locked` passes: 276 application tests plus all crate
-  and integration suites. New tests cover install-plan asset names, release
-  metadata requiring both assets, SHA-256 parsing, a loopback download with a
-  matching checksum, mismatched/missing checksums, banner/About entries, the
+  and integration suites. New tests cover install-plan asset names, confirmation
+  of both assets on the download path, SHA-256 parsing, a loopback download with
+  a matching checksum, mismatched/missing checksums, banner/About entries, the
   single restart dialog, state-version migration, and the macOS DMG install and
   version-rejection paths.
 - Native macOS startup with an isolated `BREEZE_DATA_DIR` used the real GitHub
@@ -152,6 +170,10 @@ starting the update.
 
 - Packages are unsigned; production updates require signing/notarization and an
   update-authenticity decision.
+- Release discovery depends on GitHub's release-page redirect. A mirror or an
+  offline environment has no configured alternative, and a repository with no
+  stable release redirects to the release list, which the check reports as no
+  public stable release rather than as a failure.
 - Windows needs UAC and the installer runs after Breeze exits.
 - macOS cannot replace a bundle launched from a read-only image, a translocated
   location, or a directory the user cannot write; the banner reports the system

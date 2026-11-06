@@ -1,29 +1,30 @@
 //! Release discovery and in-app installation.
 //!
-//! A check reads only metadata from the fixed repository and never acts on a
-//! server-supplied URL. Installing always downloads the platform package from
-//! that repository, verifies its published SHA-256 checksum, and only then
-//! replaces application files. macOS and AppImage updates finish in place and
-//! prompt for a restart; Windows prepares the setup package and runs it after
-//! Breeze exits; package-manager installs keep the downloaded file for the
-//! system tool that owns them.
+//! A check reads the newest stable tag from the fixed repository's release
+//! redirect and never acts on a server-supplied URL. Installing always downloads
+//! the platform package from that repository, verifies its published SHA-256
+//! checksum, and only then replaces application files. macOS and AppImage
+//! updates finish in place and prompt for a restart; Windows prepares the setup
+//! package and runs it after Breeze exits; package-manager installs keep the
+//! downloaded file for the system tool that owns them.
 use crate::*;
 use gpui_kit::component::{Icon, WindowExt as _};
 use install::{
     Completion, DownloadProgress, InstallError, InstallPlan, InstallTarget, RestartAction,
 };
 use semver::Version;
-use serde::Deserialize;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 mod install;
 
 /// User-visible project address, shared with the About page.
 pub(super) const REPOSITORY: &str = "https://github.com/poneding/breeze";
-const ENDPOINT: &str = "https://api.github.com/repos/poneding/breeze/releases/latest";
 const RELEASES: &str = "https://github.com/poneding/breeze/releases";
+/// Redirects to the newest published stable tag.
+const LATEST: &str = "https://github.com/poneding/breeze/releases/latest";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
-const MAX_METADATA_BYTES: u64 = 1024 * 1024;
+/// A tag longer than this cannot come from a release Breeze understands.
+const TAG_LIMIT: usize = 128;
 const TIMEOUT: Duration = Duration::from_secs(15);
 /// How often the download banner refreshes its byte count while a job runs.
 const PROGRESS_TICK: Duration = Duration::from_millis(200);
@@ -51,7 +52,6 @@ enum CheckStatus {
 enum CheckError {
     Timeout,
     Network(String),
-    TooLarge,
     InvalidMetadata,
     RateLimited,
     Http(u16),
@@ -257,24 +257,9 @@ impl Updates {
     }
 }
 
-#[derive(Deserialize)]
-struct Release {
-    tag_name: String,
-    draft: bool,
-    prerelease: bool,
-    #[serde(default)]
-    assets: Vec<Asset>,
-}
-
-#[derive(Deserialize)]
-struct Asset {
-    name: String,
-}
-
 fn transport_error(error: ureq::Error) -> CheckError {
     match error {
         ureq::Error::Timeout(_) => CheckError::Timeout,
-        ureq::Error::BodyExceedsLimit(_) => CheckError::TooLarge,
         _ => CheckError::Network(error.to_string()),
     }
 }
@@ -293,89 +278,137 @@ fn client(timeout: Duration, https_only: bool) -> ureq::Agent {
     config.build().into()
 }
 
-fn parse_release(body: &[u8], current: &str) -> Result<CheckStatus, CheckError> {
-    parse_release_for(body, current, &InstallTarget::detect())
+/// The tag of a `/releases/tag/<tag>` redirect target. The release page also
+/// redirects to the release list when no stable release exists, which names no
+/// version at all.
+fn tag_from_location(location: &str) -> Option<&str> {
+    let (_, tag) = location.split_once("/releases/tag/")?;
+    (!tag.is_empty() && !tag.contains(['/', '?', '#'])).then_some(tag)
 }
 
-fn parse_release_for(
-    body: &[u8],
-    current: &str,
-    target: &InstallTarget,
-) -> Result<CheckStatus, CheckError> {
-    let release: Release = serde_json::from_slice(body).map_err(|_| CheckError::InvalidMetadata)?;
-    if release.draft || release.prerelease || release.tag_name.len() > 128 {
+/// A published stable tag as a version. The latest-release redirect never
+/// points at a draft or prerelease; a tag that does is not one this check
+/// understands, and `Version` parsing already rejects anything that could
+/// escape the fixed URL it is appended to.
+fn tag_version(tag: &str) -> Result<Version, CheckError> {
+    if tag.len() > TAG_LIMIT {
         return Err(CheckError::InvalidMetadata);
     }
-    let tag = &release.tag_name;
     let version = Version::parse(
         tag.strip_prefix('v')
             .or_else(|| tag.strip_prefix('V'))
             .unwrap_or(tag),
     )
     .map_err(|_| CheckError::InvalidMetadata)?;
-    let installed = Version::parse(current).map_err(|_| CheckError::InvalidMetadata)?;
-    if !version.pre.is_empty() {
-        return Err(CheckError::InvalidMetadata);
-    }
-    if version.cmp_precedence(&installed).is_gt() {
-        let version = version.to_string();
-        // Asset names are derived from the validated version and a fixed target,
-        // then checked against the release so the UI never offers a package the
-        // release does not publish.
-        let install = target.plan(&version).filter(|plan| {
-            release.assets.iter().any(|asset| asset.name == plan.asset)
-                && release
-                    .assets
-                    .iter()
-                    .any(|asset| asset.name == plan.checksum)
-        });
-        // Construct the URL from the fixed repository and a validated SemVer tag.
-        // Never open arbitrary URLs supplied by the response body.
-        Ok(CheckStatus::Available {
-            version,
-            tag: tag.clone(),
-            url: format!("{RELEASES}/tag/{tag}"),
-            install,
-        })
+    if version.pre.is_empty() {
+        Ok(version)
     } else {
-        Ok(CheckStatus::Current {
-            latest: version.to_string(),
-        })
+        Err(CheckError::InvalidMetadata)
     }
 }
 
-fn fetch(agent: &ureq::Agent, endpoint: &str, current: &str) -> Result<CheckStatus, CheckError> {
-    let mut response = agent
-        .get(endpoint)
-        .header("Accept", "application/vnd.github+json")
-        .header("X-GitHub-Api-Version", "2022-11-28")
+/// Turn a discovered tag into a check result, confirming the package this build
+/// would install.
+fn check_status(
+    agent: &ureq::Agent,
+    download_root: &str,
+    tag: &str,
+    current: &str,
+    target: &InstallTarget,
+) -> Result<CheckStatus, CheckError> {
+    let version = tag_version(tag)?;
+    let installed = Version::parse(current).map_err(|_| CheckError::InvalidMetadata)?;
+    if !version.cmp_precedence(&installed).is_gt() {
+        return Ok(CheckStatus::Current {
+            latest: version.to_string(),
+        });
+    }
+    let version = version.to_string();
+    // Asset names are derived from the validated version and this build's
+    // target, then confirmed against the release so the UI never offers a
+    // package the release does not publish.
+    let install = match target.plan(&version) {
+        Some(plan) if published(agent, download_root, tag, &plan)? => Some(plan),
+        _ => None,
+    };
+    // Build the URL from the fixed repository and the validated tag; never open
+    // an address taken from a response.
+    Ok(CheckStatus::Available {
+        version,
+        tag: tag.to_owned(),
+        url: format!("{RELEASES}/tag/{tag}"),
+        install,
+    })
+}
+
+/// Whether the release publishes this package and its checksum. The download
+/// path redirects to the stored file when it exists and answers 404 when it does
+/// not, so two bodyless requests settle it without release metadata.
+fn published(
+    agent: &ureq::Agent,
+    download_root: &str,
+    tag: &str,
+    plan: &InstallPlan,
+) -> Result<bool, CheckError> {
+    for asset in [&plan.asset, &plan.checksum] {
+        let response = agent
+            .head(format!("{download_root}/{tag}/{asset}"))
+            .call()
+            .map_err(transport_error)?;
+        match response.status().as_u16() {
+            200..=399 => {}
+            404 | 410 => return Ok(false),
+            status => return Err(CheckError::Http(status)),
+        }
+    }
+    Ok(true)
+}
+
+fn fetch(
+    agent: &ureq::Agent,
+    latest: &str,
+    download_root: &str,
+    current: &str,
+    target: &InstallTarget,
+) -> Result<CheckStatus, CheckError> {
+    // Discovery stays on the repository's release page instead of the REST API.
+    // The anonymous API budget is 60 requests per hour per source address and is
+    // therefore shared by everyone behind one proxy, VPN or carrier NAT, which
+    // this application cannot influence or recover from.
+    let response = agent
+        .head(latest)
+        .header("Accept", "text/html")
         .call()
         .map_err(transport_error)?;
-    let status = response.status().as_u16();
-    match status {
-        200 => {}
+    match response.status().as_u16() {
+        200..=399 => {}
         404 => return Ok(CheckStatus::Unpublished),
         429 => return Err(CheckError::RateLimited),
-        403 if response
-            .headers()
-            .get("x-ratelimit-remaining")
-            .is_some_and(|value| value == "0") =>
-        {
-            return Err(CheckError::RateLimited);
-        }
-        _ => return Err(CheckError::Http(status)),
+        status => return Err(CheckError::Http(status)),
     }
-    let body = response
-        .body_mut()
-        .with_config()
-        .limit(MAX_METADATA_BYTES)
-        .read_to_vec()
-        .map_err(transport_error)?;
-    parse_release(&body, current)
+    let tag = response
+        .headers()
+        .get("location")
+        .and_then(|value| value.to_str().ok())
+        .and_then(tag_from_location)
+        .map(str::to_owned);
+    match tag {
+        Some(tag) => check_status(agent, download_root, &tag, current, target),
+        // A repository without a stable release redirects to the release list.
+        None => Ok(CheckStatus::Unpublished),
+    }
 }
 
 fn check_latest() -> CheckStatus {
-    fetch(&client(TIMEOUT, true), ENDPOINT, CURRENT_VERSION).unwrap_or_else(CheckStatus::Failed)
+    let agent = client(TIMEOUT, true);
+    fetch(
+        &agent,
+        LATEST,
+        install::DOWNLOAD_ROOT,
+        CURRENT_VERSION,
+        &InstallTarget::detect(),
+    )
+    .unwrap_or_else(CheckStatus::Failed)
 }
 
 impl CheckStatus {
@@ -394,7 +427,6 @@ impl CheckStatus {
             Self::Failed(error) => match error {
                 CheckError::Timeout => tr!("Update check timed out. Try again.").into(),
                 CheckError::Network(detail) => tf!("Cannot connect to the update service: {}", detail),
-                CheckError::TooLarge => tr!("The update response is too large. Try again later.").into(),
                 CheckError::InvalidMetadata => tr!("Invalid update metadata; a valid stable version is required.").into(),
                 CheckError::RateLimited => tr!("GitHub rate limit reached. Try again later.").into(),
                 CheckError::Http(status) => tf!("Update service returned HTTP {}. Try again later.", status),

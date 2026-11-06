@@ -368,7 +368,6 @@ catalog! {
     "New version {} available" => ("发现新版本 {}", "發現新版本 {}"),
     "Update check timed out. Try again." => ("检查更新超时，请重试。", "檢查更新逾時，請重試。"),
     "Cannot connect to the update service: {}" => ("无法连接更新服务：{}", "無法連線至更新服務：{}"),
-    "The update response is too large. Try again later." => ("更新响应过大，已停止读取。请稍后重试。", "更新回應過大，已停止讀取。請稍後重試。"),
     "Invalid update metadata; a valid stable version is required." => ("更新信息无效；需要有效的正式版本号。", "更新資訊無效；需要有效的正式版本號。"),
     "GitHub rate limit reached. Try again later." => ("GitHub 请求限额已用尽，请稍后重试。", "GitHub 請求限額已用盡，請稍後重試。"),
     "Update service returned HTTP {}. Try again later." => ("更新服务返回 HTTP {}，请稍后重试。", "更新服務回傳 HTTP {}，請稍後重試。"),

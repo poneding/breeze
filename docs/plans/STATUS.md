@@ -1,3 +1,50 @@
+# November 6 update checks stop spending the anonymous GitHub API budget
+
+About and the Settings policy row reported `GitHub 请求限额已用尽，请稍后重试。`
+(`GitHub rate limit reached. Try again later.`) immediately after launch. The cause
+was the discovery endpoint, not the surrounding logic: the check read
+`api.github.com/repos/poneding/breeze/releases/latest`, and that API allows 60
+unauthenticated requests per hour per source address. Measured on the reporting
+machine while the message appeared, the API answered HTTP 403 with
+`x-ratelimit-limit: 60`, `x-ratelimit-remaining: 0`, `x-ratelimit-used: 60` and a
+reset 44 minutes later, while `github.com/poneding/breeze/releases/latest` answered
+`302` to `/releases/tag/v0.2.0` from the same address. Breeze issues one request
+per launch, so the exhausted budget belonged to the shared egress (proxy, VPN or
+carrier NAT) rather than to repeated checks, and no client-side retry could
+recover it.
+
+Release discovery now stays on the release page:
+
+- `HEAD .../releases/latest` and read the `302` `Location`. Only the segment after
+  `/releases/tag/` is used, it must parse as a stable SemVer version, and a
+  redirect to the release list (no stable release) reports `Unpublished`.
+- `HEAD .../releases/download/<tag>/<asset>` for the package and its checksum: a
+  redirect means published, `404` or `410` means this system has no package, and
+  any other status fails the check instead of claiming absence.
+- No response body is read, no redirect is followed, and every URL is still built
+  from the fixed repository, a validated tag, and asset names derived from that
+  version and the running target. An update check now costs one bodyless request,
+  or three when a newer release exists and this build has a package to install.
+
+The release JSON parsing, the 1 MiB metadata limit, `CheckError::TooLarge` and its
+catalog entry are gone; `429` still reports a rate limit, while `403` now reports
+the HTTP status because the release page sends no rate-limit headers. No visible
+string or layout changed.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked` (288
+application tests, 1 ignored network probe, plus the core, PDF, storage and
+packaging suites) and `cargo clippy --workspace --all-targets --locked -- -D
+warnings` pass. New tests cover tag extraction from absolute and relative
+redirects, rejection of the release list, empty tags, path escapes and query
+strings, stable-SemVer validation, the version comparison, an install offered only
+after both download-path confirmations (asserting the exact `HEAD` requests), a
+missing package ending the check after one confirmation, status mapping for
+`403`/`404`/`429`/`500`/an unexpected success/an untrusted redirect target, and the
+total-deadline bound. The ignored probe reads the real endpoints and passed in
+0.65 s on the same machine, 28 minutes before that API budget reset, reporting an
+available release with a confirmed package. Windows/Linux runtime checks remain
+open; this change alters no UI, so no native visual inspection was required.
+
 # November 6 Markdown source status line reports line count
 
 The Markdown source status line named its surface (`Markdown 源码`) and then left
