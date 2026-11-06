@@ -1,3 +1,36 @@
+# November 6 Markdown source status line reports line count
+
+The Markdown source status line named its surface (`Markdown 源码`) and then left
+a character count beside it that means something else in the reading view: the
+reader counts the text the parser produces, while the editor counted the source
+it holds, so the same label reported two figures that differ by every Markdown
+marker the preview strips. On the three-line fixture used for inspection the
+reading bar shows 20 characters and the editor 28. The source line now reports
+the lines the draft occupies — a trailing newline opens an empty line in the
+rope but not a line a reader counts — and the reading view keeps the rendered
+character count.
+
+The save-state suffix (`modified`, `saving`, `saved`) left the bar with the
+label. The toolbar's Save button already reports the same state by being inert
+for a clean draft, while a publication is in flight, and after a failed load,
+and a publication failure still appears above the editing surface. Line counts
+group by thousands like the character count does, and the value carries a
+`Markdown 草稿的行数` tooltip because the bar no longer names the surface.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked`
+(288 application tests plus every crate and integration suite), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. Unit
+tests cover the line rule (empty, no trailing newline, trailing newline, blank
+last line), the grouping helper and its translations; the component test
+`markdown_edit_toggle_edits_inside_the_reader_content_area` now reads the status
+line and the rendered status label. Native macOS inspection used an isolated
+`BREEZE_DATA_DIR` under `target/`: a window capture of the same Markdown fixture
+OCR'd as `3行 28 个字符` in edit mode, the source editor visible in the content
+area, and as `20个字符` before entering edit mode, which is the discrepancy the
+change addresses. This session's model cannot view images, so the inspection read
+OCR'd text and bounding boxes rather than a visual review, and Windows and Linux
+remain unverified.
+
 # November 6 cancelled annotation gestures stay silent
 
 Clicking a page with a drawing tool, or dragging shorter than the smallest

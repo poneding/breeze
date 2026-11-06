@@ -176,8 +176,6 @@ pub(super) struct MarkdownEditor {
     saving: bool,
     /// The last publication failure, shown in the editor until it succeeds.
     save_error: Option<SharedString>,
-    /// Whether the current clean state came from a successful save.
-    saved_successfully: bool,
     /// The reader's body size; the editor reflows when it changes.
     font_size: u8,
     /// Whether the source column spans the complete content panel.
@@ -193,6 +191,8 @@ pub(super) struct MarkdownEditor {
     /// Cached state, refreshed from the editor's text when it is read.
     dirty: Cell<bool>,
     characters: Cell<usize>,
+    /// Lines the draft occupies, read from the rope on every refresh.
+    lines: Cell<usize>,
     synced_len: Cell<usize>,
     notice: Option<SharedString>,
     /// Keeps the cached dirty state exact after every text change.
@@ -259,11 +259,11 @@ impl MarkdownEditor {
                 let text = this.state.read(cx).text().clone();
                 this.history.record(&text);
                 this.sync(cx, true);
-                this.saved_successfully = false;
                 cx.notify();
             }
         });
         let synced_len = saved.len();
+        let lines = draft_lines(&initial);
         Self {
             state,
             focus,
@@ -272,7 +272,6 @@ impl MarkdownEditor {
             fingerprint,
             saving: false,
             save_error: None,
-            saved_successfully: false,
             font_size,
             full_width,
             measured_width: Rc::new(Cell::new(0.)),
@@ -281,6 +280,7 @@ impl MarkdownEditor {
             saved,
             dirty: Cell::new(false),
             characters: Cell::new(characters),
+            lines: Cell::new(lines),
             synced_len: Cell::new(synced_len),
             notice: notice.map(Into::into),
             _subscription: subscription,
@@ -376,20 +376,20 @@ impl MarkdownEditor {
         self.characters.get()
     }
 
-    pub(super) fn status(&self, cx: &App) -> SharedString {
+    /// Lines in the draft, for the source status line.
+    pub(super) fn lines(&self, cx: &App) -> usize {
         self.sync(cx, false);
-        let mut status = tr!("Markdown source").to_string();
-        if self.saving {
-            status.push_str(" · ");
-            status.push_str(tr!("saving"));
-        } else if self.dirty.get() {
-            status.push_str(" · ");
-            status.push_str(tr!("modified"));
-        } else if self.saved_successfully {
-            status.push_str(" · ");
-            status.push_str(tr!("saved"));
-        }
-        status.into()
+        self.lines.get()
+    }
+
+    /// How much source the open draft holds.
+    ///
+    /// The reading surface counts rendered text while this surface counts
+    /// source, so the two figures differ by the Markdown the preview strips;
+    /// the status line reports lines rather than a second character count so
+    /// the difference is not read as a defect.
+    pub(super) fn status(&self, cx: &App) -> SharedString {
+        tf!("{} lines", i18n::grouped_number(self.lines(cx))).into()
     }
 
     /// Whether the draft has a new revision worth publishing.
@@ -439,7 +439,6 @@ impl MarkdownEditor {
         let text = self.state.read(cx).text().clone();
         self.history.settle(step, &before, &text);
         self.sync(cx, true);
-        self.saved_successfully = false;
         cx.notify();
     }
 
@@ -460,7 +459,6 @@ impl MarkdownEditor {
         }
         self.saving = true;
         self.save_error = None;
-        self.saved_successfully = false;
         cx.notify();
         Some(MarkdownSaveRequest {
             path: self.path.clone(),
@@ -483,7 +481,6 @@ impl MarkdownEditor {
         self.saving = false;
         self.saved = checkpoint;
         self.fingerprint = Some(fingerprint);
-        self.saved_successfully = true;
         self.save_error = None;
         // Force the cached length/character count to be rebuilt against the
         // new checkpoint even when the text length did not change.
@@ -494,7 +491,6 @@ impl MarkdownEditor {
 
     pub(super) fn mark_save_failed(&mut self, error: SharedString, cx: &mut Context<Self>) {
         self.saving = false;
-        self.saved_successfully = false;
         self.save_error = Some(error);
         cx.notify();
     }
@@ -507,6 +503,7 @@ impl MarkdownEditor {
     fn sync(&self, cx: &App, deep: bool) {
         let len = {
             let text = self.state.read(cx).text();
+            self.lines.set(draft_lines(text));
             text.len()
         };
         if len == self.synced_len.get() {
@@ -522,6 +519,20 @@ impl MarkdownEditor {
         self.characters.set(text.chars().count());
         self.dirty
             .set(len != self.saved.len() || text.as_ref() != self.saved);
+    }
+}
+
+/// Lines the draft occupies, as a source editor counts them.
+///
+/// A final newline opens an empty line in the rope but not one a reader
+/// counts, so the trailing line is dropped when it holds nothing. An empty
+/// draft still reports its first line.
+fn draft_lines(text: &Rope) -> usize {
+    let lines = text.lines_len();
+    if lines > 1 && text.line_len(lines - 1) == 0 {
+        lines - 1
+    } else {
+        lines
     }
 }
 
@@ -835,6 +846,18 @@ mod tests {
 
     fn rope(text: &str) -> Rope {
         Rope::from(text)
+    }
+
+    #[test]
+    fn a_draft_reports_the_lines_it_occupies() {
+        // A trailing newline is a line break, not a line the reader counts.
+        assert_eq!(draft_lines(&rope("")), 1);
+        assert_eq!(draft_lines(&rope("one")), 1);
+        assert_eq!(draft_lines(&rope("one\n")), 1);
+        assert_eq!(draft_lines(&rope("one\ntwo")), 2);
+        assert_eq!(draft_lines(&rope("one\ntwo\n")), 2);
+        assert_eq!(draft_lines(&rope("one\n\n")), 2);
+        assert_eq!(draft_lines(&rope("\n")), 1);
     }
 
     #[test]

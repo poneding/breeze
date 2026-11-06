@@ -1747,7 +1747,7 @@ impl Breeze {
                         .border_color(p.line)
                         .bg(p.bg)
                         // Page turns stay on the keyboard; the status bar starts
-                        // with the draft's editor status when one is open.
+                        // with the draft's line count when one is open.
                         .when(
                             self.books[self.active].markdown_editing
                                 && self.books[self.active].markdown_edit.is_some(),
@@ -1762,7 +1762,14 @@ impl Breeze {
                                         .test_support()
                                         .text_size(px(11.))
                                         .text_color(p.muted)
-                                        .when_some(status, |item, status| item.child(status)),
+                                        .when_some(status, |item, status| {
+                                            item.aria_label(status.clone())
+                                                .tooltip(|window, cx| {
+                                                    Tooltip::new(tr!("Lines in the Markdown draft"))
+                                                        .build(window, cx)
+                                                })
+                                                .child(status)
+                                        }),
                                 )
                             },
                         )
@@ -1789,7 +1796,7 @@ impl Breeze {
                                 // The accessibility label repeats the visible text
                                 // so tests and assistive technology read one value.
                                 let text: SharedString =
-                                    tf!("{} characters", grouped_characters(characters)).into();
+                                    tf!("{} characters", i18n::grouped_number(characters)).into();
                                 bar.child(
                                     div()
                                         .id("markdown-characters")
@@ -3464,19 +3471,6 @@ fn visible_outline_rows(outline: &[OutlineEntry], collapsed: &HashSet<usize>) ->
         .collect()
 }
 
-/// Group a character count so a long document stays readable at a glance.
-fn grouped_characters(count: usize) -> String {
-    let digits = count.to_string();
-    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
-    for (index, digit) in digits.char_indices() {
-        if index > 0 && (digits.len() - index).is_multiple_of(3) {
-            grouped.push(',');
-        }
-        grouped.push(digit);
-    }
-    grouped
-}
-
 /// A hidden active row belongs to the last visible ancestor preceding it.
 fn visible_active_outline(visible: &[usize], active: Option<usize>) -> Option<usize> {
     active.and_then(|active| {
@@ -3492,9 +3486,9 @@ fn visible_active_outline(visible: &[usize], active: Option<usize>) -> Option<us
 mod tests {
     use super::{
         MARKDOWN_TOP_INSET_MARKER, ReflowTextSelection, contained_page_bounds, fit_svg_to_width,
-        grouped_characters, markdown_has_top_inset, markdown_render_source,
-        reflow_search_result_text, rendered_source_block, scale_svg_numeric_attribute,
-        strip_mermaid_background, svg_attribute, svg_length_attribute, svg_root_bounds,
+        markdown_has_top_inset, markdown_render_source, reflow_search_result_text,
+        rendered_source_block, scale_svg_numeric_attribute, strip_mermaid_background,
+        svg_attribute, svg_length_attribute, svg_root_bounds,
     };
     use crate::{Mode, Source, texture};
     use breeze_reflow::epub::{TextGlyph, TextLayer, TextLine};
@@ -3787,15 +3781,5 @@ mod tests {
             );
         })
         .unwrap();
-    }
-
-    #[test]
-    fn character_counts_group_by_thousands() {
-        assert_eq!(grouped_characters(0), "0");
-        assert_eq!(grouped_characters(22), "22");
-        assert_eq!(grouped_characters(999), "999");
-        assert_eq!(grouped_characters(1_000), "1,000");
-        assert_eq!(grouped_characters(47_025), "47,025");
-        assert_eq!(grouped_characters(1_234_567), "1,234,567");
     }
 }

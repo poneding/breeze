@@ -300,6 +300,19 @@ pub(super) fn format_message(template: &str, values: &[String]) -> String {
     result
 }
 
+/// Group a count so a long document stays readable at a glance.
+pub(super) fn grouped_number(count: usize) -> String {
+    let digits = count.to_string();
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, digit) in digits.char_indices() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    grouped
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,6 +392,16 @@ mod tests {
         assert_eq!(text_in("Settings", Language::English), "Settings");
         assert_eq!(text_in("Settings", Language::SimplifiedChinese), "设置");
         assert_eq!(text_in("Settings", Language::TraditionalChinese), "設定");
+    }
+
+    #[test]
+    fn counts_group_by_thousands() {
+        assert_eq!(grouped_number(0), "0");
+        assert_eq!(grouped_number(22), "22");
+        assert_eq!(grouped_number(999), "999");
+        assert_eq!(grouped_number(1_000), "1,000");
+        assert_eq!(grouped_number(47_025), "47,025");
+        assert_eq!(grouped_number(1_234_567), "1,234,567");
     }
 
     #[test]

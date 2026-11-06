@@ -4773,11 +4773,20 @@ fn markdown_edit_toggle_edits_inside_the_reader_content_area(cx: &mut TestAppCon
         );
 
         // The editing surface is Markdown source with syntax highlighting; the
-        // reading view is the rendered preview.
+        // reading view is the rendered preview. The source status line reports
+        // the draft's line count, which the rendered preview cannot offer.
+        let lines = session.read(cx).lines(cx);
+        assert_eq!(lines, 3, "the source fixture has three lines");
+        let expected = i18n::format_message(i18n::text("{} lines"), &[lines.to_string()]);
         assert_eq!(
             session.read(cx).status(cx).as_ref(),
-            i18n::text("Markdown source"),
-            "the status line must name the source editor"
+            expected,
+            "the status line must count the draft's lines"
+        );
+        assert_eq!(
+            window.find("markdown-editor-status").label(),
+            Some(expected.as_str()),
+            "the status bar must render the draft's line count"
         );
 
         // Leaving edit mode returns to reading but keeps the draft session.

@@ -192,6 +192,23 @@ The reading view is the rendered preview. Evidence for that choice:
   transaction, and identical text can occur at several history positions. An
   upstream `can_undo`/`can_redo` accessor would replace this shadow.
 
+### Source status line (November 6, 2026)
+
+The source status line reports how many lines the draft occupies instead of
+naming its surface ("Markdown source"). A count is the only reading of that slot
+the preview cannot duplicate: the reading surface reports the characters of the
+text the parser produces, while the editor's character count measures the source
+it holds, so the two figures differ by every Markdown marker the preview strips
+(a three-line fixture renders 20 characters and holds 28). The line count is a
+fact about the source alone. One trailing newline opens an empty line in the
+rope but not a line a reader counts, and an empty draft still reports its first
+line.
+
+The trailing save state (`modified`, `saving`, `saved`) left the bar with the
+label. The toolbar's Save button is the draft's state display: it is inert for a
+clean draft, while a publication is in flight, and after a failed load, and a
+publication failure still appears above the editing surface.
+
 ## Reading constructs (October 21, 2026)
 
 Kit's TextView renders ordinary prose, headings, block quotes, lists, GFM
