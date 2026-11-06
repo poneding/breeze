@@ -1685,16 +1685,14 @@ impl Breeze {
                                     }
                                 }))
                                 .child(
-                                    Tab::new()
-                                        .icon(IconName::BookOpenText)
+                                    icon_tab(Tab::new().icon(IconName::BookOpenText))
                                         .aria_label(tr!("Reading view"))
                                         .tooltip(|window, cx| {
                                             Tooltip::new(tr!("Reading view")).build(window, cx)
                                         }),
                                 )
                                 .child(
-                                    Tab::new()
-                                        .icon(IconName::Pencil)
+                                    icon_tab(Tab::new().icon(IconName::Pencil))
                                         .aria_label(tr!("Edit document"))
                                         .tooltip(|window, cx| {
                                             Tooltip::new(tr!("Edit document")).build(window, cx)
@@ -2298,8 +2296,7 @@ impl Breeze {
                             .flex_shrink_0()
                             .selected_index(0)
                             .child(
-                                Tab::new()
-                                    .icon(IconName::TableOfContents)
+                                icon_tab(Tab::new().icon(IconName::TableOfContents))
                                     .aria_label(tr!("Outline"))
                                     .tooltip(|window, cx| {
                                         Tooltip::new(tr!("Outline")).build(window, cx)

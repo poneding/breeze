@@ -1,3 +1,4 @@
+use gpui_kit::component::tab::Tab;
 use gpui_kit::component::{Theme, ThemeConfig};
 use gpui_kit::*;
 use std::rc::Rc;
@@ -60,6 +61,17 @@ pub fn row() -> Div {
 }
 pub fn column() -> Div {
     div().flex().flex_col()
+}
+/// Side of a square icon-only tab, matching a `small` Kit icon button.
+pub const ICON_TAB_SIZE: f32 = 24.;
+/// Give an icon-only tab a square the size of the icon buttons beside it.
+///
+/// A Kit icon tab sizes itself from an inner box that is `flex_1()` with a fixed
+/// width; in an auto-width tab bar the flex basis wins, so the tab collapses
+/// onto the glyph and neighbouring icons keep only the bar's own gap. The bar's
+/// `small` tabs are already 24 px high, so stating the width makes them square.
+pub fn icon_tab(tab: Tab) -> Tab {
+    tab.w(px(ICON_TAB_SIZE))
 }
 pub fn eyebrow(text: impl Into<SharedString>, p: Palette) -> Div {
     div()

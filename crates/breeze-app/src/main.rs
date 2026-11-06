@@ -64,7 +64,7 @@ use gpui_kit::{
     *,
 };
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
-use style::{Palette, column, row};
+use style::{Palette, column, icon_tab, row};
 
 actions!(
     breeze,

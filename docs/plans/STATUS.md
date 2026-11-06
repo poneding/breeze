@@ -1,3 +1,29 @@
+# November 6 square icon-only tabs
+
+The reader's icon-only mode tabs and outline or thumbnail tabs, and their Markdown
+counterparts, rendered as glyph-width boxes. GPUI Kit sizes an icon tab from inner
+content that is `flex_1()` with a fixed width, and the flex basis wins inside an
+auto-width bar, so each tab collapsed onto its 14 px icon: the button measured
+13 px wide and neighbouring icons kept only the bar's own 2 px gap. Every
+icon-only tab now states a 24 px square, the height of a `small` segmented tab
+and of a Kit `small` icon button, so the icons sit 14 px apart.
+
+The GPUI Kit 0.9.0 upgrade was not the cause. A build pinned back to 0.8.1 and
+GPUI 0.3.10 measures the same 13 px tab, and window captures of the same document
+at both versions differ by 46 pixels inside the toolbar band, all antialiasing on
+page text. The defect came in with the icon-only mode tabs (`feat(reader): use
+icon mode tabs`, October 16); that upgrade's review inspected the home window,
+not the reader toolbar. The Kit's own icon-tab sizing is still unreliable in an
+auto-width bar and is worth reporting upstream.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked` (286
+application tests plus every crate and integration test), and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. Native
+macOS window captures of the sample PDF and of a Markdown document show the
+square tabs and their spacing, and
+`icon_only_tabs_stay_square_beside_each_other` fails on the previous geometry and
+passes on the fixed one.
+
 # November 4 disk-image and frame-wait test reliability
 
 The macOS updater and two test waits had defects that failed CI intermittently on

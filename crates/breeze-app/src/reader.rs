@@ -120,8 +120,7 @@ impl Breeze {
                                 cx.notify();
                             }))
                             .child(
-                                Tab::new()
-                                    .icon(IconName::Pointer)
+                                icon_tab(Tab::new().icon(IconName::Pointer))
                                     .aria_label(tr!("Read"))
                                     .tooltip(|window, cx| {
                                         Tooltip::new(tr!("Read mode"))
@@ -130,8 +129,7 @@ impl Breeze {
                                     }),
                             )
                             .child(
-                                Tab::new()
-                                    .icon(IconName::Feather)
+                                icon_tab(Tab::new().icon(IconName::Feather))
                                     .aria_label(tr!("Annotations"))
                                     .tooltip(|window, cx| {
                                         Tooltip::new(tr!("Annotate mode"))
@@ -301,8 +299,7 @@ impl Breeze {
                             }))
                             .when(has_outline, |tabs| {
                                 tabs.child(
-                                    Tab::new()
-                                        .icon(IconName::TableOfContents)
+                                    icon_tab(Tab::new().icon(IconName::TableOfContents))
                                         .aria_label(tr!("Outline"))
                                         .tooltip(|window, cx| {
                                             Tooltip::new(tr!("Outline"))
@@ -312,8 +309,7 @@ impl Breeze {
                                 )
                             })
                             .child(
-                                Tab::new()
-                                    .icon(IconName::Images)
+                                icon_tab(Tab::new().icon(IconName::Images))
                                     .aria_label(tr!("Thumbnails"))
                                     .tooltip(|window, cx| {
                                         Tooltip::new(tr!("Thumbnails"))

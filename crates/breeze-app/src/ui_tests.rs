@@ -5604,3 +5604,63 @@ fn markup_a_cross_page_drag_creates_clamps_to_its_page(cx: &mut TestAppContext) 
     })
     .unwrap();
 }
+
+/// Every icon-only tab in `bar` is a square whose neighbours keep the bar's own
+/// gap, rather than the glyph-width boxes the Kit's icon sizing collapses to.
+fn assert_icon_tabs(window: &mut Window, bar: &'static str, expected: usize) {
+    let square = gpui_kit::size(px(style::ICON_TAB_SIZE), px(24.));
+    let mut previous: Option<gpui_kit::Bounds<gpui_kit::Pixels>> = None;
+    for ix in 0..expected {
+        let tab = window.within(bar).find(ix).bounds();
+        assert_eq!(tab.size, square, "{bar} tab {ix}");
+        if let Some(previous) = previous {
+            assert_eq!(
+                tab.origin.x - previous.right(),
+                px(2.),
+                "{bar} keeps the bar's own gap before tab {ix}: {previous:?} then {tab:?}"
+            );
+        }
+        previous = Some(tab);
+    }
+}
+
+/// Icon-only tabs are squares the size of the icon buttons beside them.
+///
+/// The Kit sizes an icon tab from `flex_1()` content whose width loses to the
+/// flex basis in an auto-width bar, which collapses the tab onto its glyph and
+/// leaves neighbouring icons one bar gap apart. `style::icon_tab` states the
+/// width, and this pins it for every bar that carries icon-only tabs.
+#[gpui_kit::test]
+fn icon_only_tabs_stay_square_beside_each_other(cx: &mut TestAppContext) {
+    let page = rendered_sample();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| seed_rendered_page(view, page));
+        window.render_frame(cx);
+        // The reader mode switch and the outline and thumbnail switch, both
+        // `small` and segmented.
+        assert_icon_tabs(window, "reader-modes", 2);
+        assert_icon_tabs(window, "nav-tabs", 2);
+    })
+    .unwrap();
+
+    // The Markdown toolbar and navigation header use the same helper.
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("icon-tabs.md");
+    std::fs::write(&path, "# Title\n\nBody\n").unwrap();
+    cx.update_window(handle, |_, _, cx| {
+        view.update(cx, |view, cx| {
+            view.books[0].source = Source::File(path.clone());
+            view.books[0].title = "icon-tabs.md".into();
+            view.load(cx);
+        });
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
+        assert_icon_tabs(window, "markdown-modes", 2);
+        assert_icon_tabs(window, "reflow-nav-tabs", 1);
+    })
+    .unwrap();
+}
