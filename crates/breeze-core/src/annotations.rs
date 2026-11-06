@@ -135,14 +135,50 @@ pub struct Annotation {
     pub width: f32,
     pub text: String,
 }
+/// Why an annotation draft was rejected. A draft that covers nothing is the
+/// user's own cancellation — a click, a zero-area drag, or a markup drag over
+/// no text — so callers can stay quiet instead of reporting a failure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Rejected {
+    ContentLimits,
+    Coordinates,
+    Style,
+    NoteTextMissing,
+    EmptyGesture,
+    EmptyShape,
+    MissingGlyphs,
+}
+impl Rejected {
+    /// Whether the draft drew nothing. Such a gesture changes no document
+    /// state, so it needs no notice.
+    pub fn drew_nothing(self) -> bool {
+        matches!(
+            self,
+            Self::EmptyGesture | Self::EmptyShape | Self::MissingGlyphs
+        )
+    }
+}
+impl std::fmt::Display for Rejected {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::ContentLimits => "Annotation exceeds content limits",
+            Self::Coordinates => "Invalid annotation coordinates",
+            Self::Style => "Invalid annotation style",
+            Self::NoteTextMissing => "A note needs text",
+            Self::EmptyGesture => "The gesture is too small",
+            Self::EmptyShape => "The shape has no area",
+            Self::MissingGlyphs => "Text markup requires glyph bounds",
+        })
+    }
+}
 impl Annotation {
-    pub fn validate(&self) -> Result<(), &'static str> {
+    pub fn validate(&self) -> Result<(), Rejected> {
         if self.points.is_empty()
             || self.points.len() > 20_000
             || self.quads.len() > 20_000
             || self.text.len() > 16_384
         {
-            return Err("Annotation exceeds content limits");
+            return Err(Rejected::ContentLimits);
         }
         if !self
             .points
@@ -150,7 +186,7 @@ impl Annotation {
             .all(|p| p.x.is_finite() && p.y.is_finite() && p.x.abs() < 1e7 && p.y.abs() < 1e7)
             || !self.quads.iter().all(|q| q.valid())
         {
-            return Err("Invalid annotation coordinates");
+            return Err(Rejected::Coordinates);
         }
         if !self.opacity.is_finite()
             || !(0.0..=1.0).contains(&self.opacity)
@@ -161,13 +197,13 @@ impl Annotation {
                 .iter()
                 .all(|c| c.is_finite() && (0.0..=1.0).contains(c))
         {
-            return Err("Invalid annotation style");
+            return Err(Rejected::Style);
         }
         if self.kind == Kind::Note && self.text.trim().is_empty() {
-            return Err("A note needs text");
+            return Err(Rejected::NoteTextMissing);
         }
         if self.kind != Kind::Note && self.points.len() < 2 {
-            return Err("A gesture needs two points");
+            return Err(Rejected::EmptyGesture);
         }
         if self.kind != Kind::Note
             && !self
@@ -175,16 +211,16 @@ impl Annotation {
                 .windows(2)
                 .any(|s| (s[0].x - s[1].x).hypot(s[0].y - s[1].y) > 0.5)
         {
-            return Err("The gesture is too small");
+            return Err(Rejected::EmptyGesture);
         }
         if matches!(self.kind, Kind::Area | Kind::Ellipse | Kind::Rectangle) {
             let bounds = Rect::between(self.points[0], self.points[self.points.len() - 1]);
             if bounds.width < 0.5 || bounds.height < 0.5 {
-                return Err("The shape has no area");
+                return Err(Rejected::EmptyShape);
             }
         }
         if self.kind.text_markup() && self.quads.is_empty() {
-            return Err("Text markup requires glyph bounds");
+            return Err(Rejected::MissingGlyphs);
         }
         Ok(())
     }
@@ -348,5 +384,43 @@ mod tests {
         assert!(h.can_redo());
         h.redo();
         assert!(h.can_undo());
+    }
+    fn draft(kind: Kind, points: &[(f32, f32)], quads: Vec<Rect>) -> Annotation {
+        Annotation {
+            page: 0,
+            kind,
+            points: points.iter().map(|&(x, y)| Point::new(x, y)).collect(),
+            quads,
+            color: [1., 0., 0.],
+            opacity: 1.,
+            width: 1.,
+            text: String::new(),
+        }
+    }
+    /// A click, a zero-area shape, and a markup drag over no text draw nothing,
+    /// so they read as the user's cancellation rather than as a failure.
+    #[test]
+    fn drafts_that_draw_nothing_are_cancelled_gestures() {
+        let click = draft(Kind::Ink, &[(10., 10.), (10., 10.)], Vec::new());
+        assert_eq!(click.validate(), Err(Rejected::EmptyGesture));
+        let zero_area = draft(Kind::Rectangle, &[(10., 10.), (10.4, 40.)], Vec::new());
+        assert_eq!(zero_area.validate(), Err(Rejected::EmptyShape));
+        let no_glyphs = draft(Kind::Highlight, &[(10., 10.), (40., 10.)], Vec::new());
+        assert_eq!(no_glyphs.validate(), Err(Rejected::MissingGlyphs));
+        for cancelled in [
+            Rejected::EmptyGesture,
+            Rejected::EmptyShape,
+            Rejected::MissingGlyphs,
+        ] {
+            assert!(cancelled.drew_nothing(), "{cancelled}");
+        }
+        // A drawn gesture is accepted; a broken one is reported, not cancelled.
+        let drawn = draft(Kind::Ink, &[(10., 10.), (40., 30.)], Vec::new());
+        assert_eq!(drawn.validate(), Ok(()));
+        let mut unstyled = drawn;
+        unstyled.width = 0.;
+        assert_eq!(unstyled.validate(), Err(Rejected::Style));
+        assert!(!Rejected::Style.drew_nothing());
+        assert!(!Rejected::NoteTextMissing.drew_nothing());
     }
 }

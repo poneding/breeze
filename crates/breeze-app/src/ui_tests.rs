@@ -1019,6 +1019,50 @@ fn annotation_tool_matrix_creates_real_geometry(cx: &mut TestAppContext) {
     .unwrap();
 }
 
+/// A click with a drawing tool draws nothing. It used to put the reason's own
+/// wording in the status bar ("The gesture is too small"); a cancelled gesture
+/// changes no state, so it says nothing at all.
+#[gpui_kit::test]
+fn a_click_with_a_drawing_tool_stays_out_of_the_status_bar(cx: &mut TestAppContext) {
+    let page = rendered_sample();
+    let (handle, view) = app(cx);
+    cx.update_window(handle, |_, window, cx| {
+        view.update(cx, |view, _| {
+            view.preview = Some(Arc::new(Preview {
+                page: page.page,
+                points: page.points,
+                geometry: page.geometry,
+                text: page.text,
+                text_warning: page.text_warning,
+                outline: page.outline,
+                bytes: 0,
+            }));
+            view.books[0].state.mode = Mode::Annotate;
+            view.books[0].annotations.ready = true;
+        });
+        for tool in [0, 1, 4, 7] {
+            view.update(cx, |view, _| {
+                view.tool = tool;
+                view.message.clear();
+            });
+            window.render_frame(cx);
+            window.click_at("page-surface", point(px(40.), px(100.)), cx);
+            let reader = view.read(cx);
+            assert!(
+                reader.books[0].annotations.history.items.is_empty(),
+                "tool {tool} created an annotation from a click"
+            );
+            assert!(
+                reader.message.is_empty(),
+                "tool {tool} reported {:?}",
+                reader.message
+            );
+        }
+        assert!(window.try_find("reader-status").is_none());
+    })
+    .unwrap();
+}
+
 fn exportable_annotation() -> breeze_core::annotations::Annotation {
     use breeze_core::annotations::{Annotation, Kind, Point};
     Annotation {

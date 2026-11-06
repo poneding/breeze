@@ -518,6 +518,9 @@ impl Breeze {
                             tr!("The annotation limit for this document has been reached").into();
                     }
                 }
+                // A gesture that drew nothing is a cancellation, not a failure:
+                // the status bar stays quiet instead of naming engine reasons.
+                Err(e) if e.drew_nothing() => {}
                 Err(e) => self.message = tf!("Annotation was not created: {}", e),
             }
         }

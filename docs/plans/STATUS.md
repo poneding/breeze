@@ -1,3 +1,30 @@
+# November 6 cancelled annotation gestures stay silent
+
+Clicking a page with a drawing tool, or dragging shorter than the smallest
+readable gesture, created no annotation and left `未创建批注：The gesture is too
+small` in the PDF status bar: an engine-facing English reason inside a translated
+wrapper, for an interaction that changed nothing. A quote of the reason is not
+something the reader can act on, and the status bar had been reserved for real
+work.
+
+Rejection is now typed as `breeze_core::annotations::Rejected`. The three reasons
+that drew nothing — an empty gesture, a shape with no area, and a markup drag
+over no text — are cancelled gestures: no annotation, no message, and no status
+line. A gesture that is drawn but rejected (content limits, coordinates, style)
+still reports through `Annotation was not created: {}`. The note editor keeps its
+own message for missing note text.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked`, and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. The new
+core test `drafts_that_draw_nothing_are_cancelled_gestures` pins the
+classification, and the new component test
+`a_click_with_a_drawing_tool_stays_out_of_the_status_bar` fails on the previous
+behavior with the reported `未创建批注：The gesture is too small` and passes with no
+status notice for the highlight, area, ink, and rectangle tools. Native visual
+review of the status line was not performed: an isolated review window could not
+be reliably brought to the front for pointer automation, so the component test is
+the evidence for the rendered row.
+
 # November 6 square icon-only tabs
 
 The reader's icon-only mode tabs and outline or thumbnail tabs, and their Markdown
