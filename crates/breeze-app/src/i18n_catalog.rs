@@ -203,6 +203,8 @@ catalog! {
     "Export annotations to a new PDF; preserve source" => ("导出批注 PDF · 新文件，不覆盖原件", "匯出批注 PDF · 新檔案，不覆蓋原件"),
     "Search document" => ("搜索文档", "搜尋文件"),
     "Copy selected text" => ("复制选中文字", "複製選中文字"),
+    "Copy" => ("复制", "複製"),
+    "Paste" => ("粘贴", "貼上"),
     "Close current tab" => ("关闭当前标签", "關閉目前分頁"),
     "Toggle navigation" => ("展开 / 收起导航", "展開 / 收起導航"),
     "Toggle document sidebar" => ("展开 / 收起文档侧栏", "展開 / 收起文件側欄"),

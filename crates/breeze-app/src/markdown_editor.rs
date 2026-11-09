@@ -382,6 +382,11 @@ impl MarkdownEditor {
         self.lines.get()
     }
 
+    /// Whether the draft has selected source, so the context menu offers Copy.
+    pub(super) fn has_selection(&self, cx: &App) -> bool {
+        self.state.read(cx).selected_text().len() > 0
+    }
+
     /// How much source the open draft holds.
     ///
     /// The reading surface counts rendered text while this surface counts

@@ -1,3 +1,30 @@
+# November 9 Clipboard commands lead the content menu
+
+Text selected in the reader left no way to copy it from the pointer, and a
+Markdown draft owned by the reader left no way to paste into it. The content
+context menu now opens with the clipboard commands that apply to the surface
+under the pointer, separated from the document controls below.
+
+- Reading mode (PDF and reflow) leads with an icon-and-text Copy whenever the
+  committed selection is not empty. It runs the existing `CopySelection` action,
+  so the menu and the keyboard shortcut publish the same text.
+- A Markdown draft leads with Copy when its source editor has a selection, and
+  always offers Paste. Both dispatch Kit's `input::Copy` / `input::Paste` to the
+  draft's own focus handle, because the reader's content surface owns the right
+  click and the editor's built-in native menu is never reached there.
+- The draft's selection is read from the editor's `selected_text`, so the two
+  surfaces never share one stale range. Without a selection and outside editing,
+  the menu is unchanged and existing item order is preserved.
+
+Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked`
+(290 application tests, 1 ignored network probe, plus the core, PDF, storage and
+packaging suites) and `cargo clippy --workspace --all-targets --locked -- -D
+warnings` pass. New tests select text on a spread page and assert the menu leads
+with Copy and publishes exactly that text, and enter Markdown editing to assert
+the menu offers Paste and that the clipboard reaches the source editor. Native
+visual inspection of the menu in the running application was not performed;
+Windows and Linux remain unverified.
+
 # November 6 update checks stop spending the anonymous GitHub API budget
 
 About and the Settings policy row reported `GitHub 请求限额已用尽，请稍后重试。`

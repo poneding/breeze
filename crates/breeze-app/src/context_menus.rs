@@ -2,7 +2,7 @@
 
 use crate::*;
 use gpui_kit::component::{
-    Icon, Side,
+    Icon, Side, input,
     menu::{PopupMenu, PopupMenuItem},
 };
 
@@ -81,6 +81,7 @@ pub(super) fn content(
     cx: &mut Context<PopupMenu>,
 ) -> PopupMenu {
     let menu = menu.action_context(view.read(cx).focus.clone());
+    let menu = text_actions(menu, view.clone(), window, cx);
     let show_status_bar = view.read(cx).status_bar_visible;
     let menu = match content {
         ContentMenu::Pdf {
@@ -393,6 +394,84 @@ fn reflow(
         None,
         &view,
         window,
+    )
+}
+
+/// The clipboard commands for the text under the pointer, ahead of the
+/// document controls. Reading mode copies the committed selection itself; a
+/// Markdown draft copies and pastes through its source editor, so the two
+/// surfaces never share one stale selection.
+fn text_actions(
+    mut menu: PopupMenu,
+    view: Entity<Breeze>,
+    window: &Window,
+    cx: &mut Context<PopupMenu>,
+) -> PopupMenu {
+    let (reading, draft) = {
+        let this = view.read(cx);
+        let editing = this.books[this.active].markdown_editing;
+        let draft = editing
+            .then(|| this.books[this.active].markdown_edit.clone())
+            .flatten();
+        let reading = !editing && !this.selected_text.is_empty();
+        (reading, draft)
+    };
+    let mut added = false;
+    if reading {
+        menu = action_item(
+            menu,
+            tr!("Copy"),
+            IconName::Copy,
+            &CopySelection,
+            None,
+            &view,
+            window,
+        );
+        added = true;
+    }
+    if let Some(editor) = draft {
+        if editor.read(cx).has_selection(cx) {
+            menu = draft_action_item(
+                menu,
+                tr!("Copy"),
+                IconName::Copy,
+                Box::new(input::Copy),
+                editor.clone(),
+            );
+        }
+        menu = draft_action_item(
+            menu,
+            tr!("Paste"),
+            IconName::ClipboardPaste,
+            Box::new(input::Paste),
+            editor,
+        );
+        added = true;
+    }
+    if added {
+        menu = menu.separator();
+    }
+    menu
+}
+
+/// A clipboard item that reaches the Markdown draft's source editor. The menu
+/// cannot be the editor's own native menu because the content surface owns the
+/// right click; the action runs against the editor's focus handle instead.
+fn draft_action_item(
+    menu: PopupMenu,
+    label: &'static str,
+    icon: IconName,
+    action: Box<dyn Action>,
+    editor: Entity<markdown_editor::MarkdownEditor>,
+) -> PopupMenu {
+    menu.item(
+        PopupMenuItem::new(label)
+            .icon(icon)
+            .action(action.boxed_clone())
+            .on_click(move |_, window, cx| {
+                let focus = editor.read(cx).focus_handle();
+                focus.dispatch_action(action.as_ref(), window, cx);
+            }),
     )
 }
 

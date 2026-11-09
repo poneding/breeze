@@ -5152,7 +5152,7 @@ fn markdown_modes_preserve_the_current_source_position(cx: &mut TestAppContext) 
 }
 
 /// Two pages of the sample side by side, in Read mode, ready to drag on.
-fn spread_pages(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
+pub(super) fn spread_pages(cx: &mut TestAppContext) -> (AnyWindowHandle, Entity<Breeze>) {
     let worker = PdfWorker::new().unwrap();
     let first = futures::executor::block_on(worker.request(Source::Sample, 0).unwrap())
         .unwrap()

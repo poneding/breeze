@@ -327,6 +327,7 @@ mod tests {
             include_str!("reader.rs"),
             include_str!("home.rs"),
             include_str!("commands.rs"),
+            include_str!("context_menus.rs"),
             include_str!("categories.rs"),
             include_str!("document_panel.rs"),
             include_str!("tool_settings.rs"),
