@@ -15,6 +15,9 @@ under the pointer, separated from the document controls below.
 - The draft's selection is read from the editor's `selected_text`, so the two
   surfaces never share one stale range. Without a selection and outside editing,
   the menu is unchanged and existing item order is preserved.
+- The selection status line now reports only the selected character count. Its
+  trailing copy shortcut hint hard-coded one glyph for every platform and is no
+  longer needed now that the menu carries the command.
 
 Validation: `cargo fmt --all -- --check`, `cargo test --workspace --locked`
 (290 application tests, 1 ignored network probe, plus the core, PDF, storage and

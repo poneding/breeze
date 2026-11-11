@@ -344,7 +344,7 @@ catalog! {
     "Wait for PDF export to finish or cancel the file dialog" => ("请等待 PDF 导出完成或取消文件选择", "請等待 PDF 匯出完成或取消檔案選擇"),
     "Unsaved annotations remain. Open their document and press ⌘/Ctrl+S before closing." => ("存在未保存批注，请切换到对应文档并按 ⌘/Ctrl+S 保存后关闭", "存在未儲存批注，請切換到對應文件並按 ⌘/Ctrl+S 儲存後關閉"),
     "Annotation file is not ready; check storage or conflict messages" => ("批注文件未就绪；请检查存储或冲突提示", "批注檔案未就緒；請檢查存儲或衝突提示"),
-    "{} characters selected · ⌘/Ctrl+C to copy" => ("已选择 {} 个字符 · ⌘/Ctrl+C 复制", "已選擇 {} 個字符 · ⌘/Ctrl+C 複製"),
+    "{} characters selected" => ("已选择 {} 个字符", "已選擇 {} 個字符"),
     "The annotation limit for this document has been reached" => ("当前文档批注数量已达上限", "目前文件批注數量已達上限"),
     "Annotation was not created: {}" => ("未创建批注：{}", "未創建批注：{}"),
     "Finish the text note with Enter or cancel with Esc before navigating" => ("请按 Enter 完成文本标注，或按 Esc 取消，再切换位置", "請按 Enter 完成文字標注，或按 Esc 取消，再切換位置"),

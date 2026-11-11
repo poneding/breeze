@@ -784,10 +784,7 @@ impl Breeze {
             self.message.clear();
         } else {
             self.refresh_text_selection();
-            self.message = tf!(
-                "{} characters selected · ⌘/Ctrl+C to copy",
-                self.selected_text.chars().count()
-            );
+            self.message = tf!("{} characters selected", self.selected_text.chars().count());
         }
         cx.notify();
     }
