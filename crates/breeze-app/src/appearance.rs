@@ -1,10 +1,13 @@
-//! Theme choices come from Kit's registry; System remains an application preference.
+//! Appearance modes and their independent theme choices use Kit's registry.
+use crate::{Breeze, HomePage, Screen, errors, style};
 use anyhow::{Context as _, Result};
 use gpui_kit::component::{
     IndexPath, ThemeConfig, ThemeMode, ThemeRegistry,
     select::{SelectDelegate, SelectGroup, SelectItem},
 };
-use gpui_kit::{AnyElement, App, IntoElement as _, SharedString, Task, Window, WindowAppearance};
+use gpui_kit::{
+    AnyElement, App, Context, IntoElement as _, SharedString, Task, Window, WindowAppearance,
+};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -172,6 +175,9 @@ pub fn init(cx: &mut App) -> Result<()> {
 pub enum ThemePreference {
     #[default]
     System,
+    Light,
+    Dark,
+    /// A registry choice, also accepted from snapshots predating split settings.
     Theme(String),
 }
 
@@ -187,8 +193,8 @@ impl<'de> Deserialize<'de> for ThemePreference {
         }
         Ok(match StoredPreference::deserialize(deserializer)? {
             StoredPreference::System => Self::System,
-            StoredPreference::Light => Self::Theme("Default Light".into()),
-            StoredPreference::Dark => Self::Theme("Default Dark".into()),
+            StoredPreference::Light => Self::Light,
+            StoredPreference::Dark => Self::Dark,
             StoredPreference::Theme(name) => Self::Theme(name),
         })
     }
@@ -206,21 +212,17 @@ impl ThemePreference {
             )
         };
         vec![
-            SelectGroup::new(tr!("System")).item(Self::System),
             group(tr!("Light"), ThemeMode::Light),
             group(tr!("Dark"), ThemeMode::Dark),
         ]
     }
 
-    pub fn options(cx: &App) -> Vec<Self> {
-        Self::groups(cx)
-            .into_iter()
-            .flat_map(|group| group.items)
-            .collect()
+    pub fn options() -> Vec<Self> {
+        vec![Self::System, Self::Light, Self::Dark]
     }
 
-    pub fn next(&self, cx: &App) -> Self {
-        let options = Self::options(cx);
+    pub fn next(&self) -> Self {
+        let options = Self::options();
         let index = options
             .iter()
             .position(|option| option == self)
@@ -231,16 +233,13 @@ impl ThemePreference {
     pub fn config(&self, appearance: WindowAppearance, cx: &App) -> Result<Rc<ThemeConfig>> {
         let registry = ThemeRegistry::global(cx);
         match self {
-            Self::System => Ok(
-                if matches!(
-                    appearance,
-                    WindowAppearance::Dark | WindowAppearance::VibrantDark
-                ) {
+            Self::System | Self::Light | Self::Dark => {
+                Ok(if self.mode(appearance) == ThemeMode::Dark {
                     registry.default_dark_theme().clone()
                 } else {
                     registry.default_light_theme().clone()
-                },
-            ),
+                })
+            }
             Self::Theme(name) => registry
                 .themes()
                 .get(name.as_str())
@@ -248,6 +247,68 @@ impl ThemePreference {
                 .with_context(|| tf!("Theme unavailable: {}", name)),
         }
     }
+
+    pub fn mode(&self, appearance: WindowAppearance) -> ThemeMode {
+        match self {
+            Self::Dark => ThemeMode::Dark,
+            Self::System
+                if matches!(
+                    appearance,
+                    WindowAppearance::Dark | WindowAppearance::VibrantDark
+                ) =>
+            {
+                ThemeMode::Dark
+            }
+            _ => ThemeMode::Light,
+        }
+    }
+
+    /// Resolves a mode against the two committed registry names.
+    pub fn configured(
+        &self,
+        light: &str,
+        dark: &str,
+        appearance: WindowAppearance,
+        cx: &App,
+    ) -> Result<Rc<ThemeConfig>> {
+        if matches!(self, Self::Theme(_)) {
+            return self.config(appearance, cx);
+        }
+        let mode = self.mode(appearance);
+        let name = if mode == ThemeMode::Light {
+            light
+        } else {
+            dark
+        };
+        let config = Self::Theme(name.into()).config(appearance, cx)?;
+        anyhow::ensure!(
+            config.mode == mode,
+            tf!("Theme appearance does not match its setting: {}", name)
+        );
+        Ok(config)
+    }
+
+    /// Preserves the old named choice while adopting the corresponding fixed mode.
+    pub fn migrate(&mut self, light: &mut String, dark: &mut String, cx: &App) -> Result<()> {
+        if let Self::Theme(name) = self {
+            let config = Self::Theme(name.clone()).config(WindowAppearance::Light, cx)?;
+            if config.mode == ThemeMode::Light {
+                *light = name.clone();
+                *self = Self::Light;
+            } else {
+                *dark = name.clone();
+                *self = Self::Dark;
+            }
+        }
+        Ok(())
+    }
+}
+
+pub fn default_light_theme() -> String {
+    "Default Light".into()
+}
+pub fn default_dark_theme() -> String {
+    "Default Dark".into()
 }
 
 impl SelectItem for ThemePreference {
@@ -256,12 +317,179 @@ impl SelectItem for ThemePreference {
     fn title(&self) -> SharedString {
         match self {
             Self::System => tr!("Follow system").into(),
+            Self::Light => tr!("Light").into(),
+            Self::Dark => tr!("Dark").into(),
             Self::Theme(name) => name.clone().into(),
         }
     }
 
     fn value(&self) -> &Self {
         self
+    }
+}
+
+impl Breeze {
+    /// Applies the preference in effect, which is the previewed row while the user is
+    /// still moving around the open theme dropdown.
+    pub(super) fn apply_theme(&mut self, cx: &mut App) {
+        let preference = self
+            .theme_preview
+            .clone()
+            .unwrap_or_else(|| self.theme_preference.clone());
+        match preference.configured(
+            &self.light_theme,
+            &self.dark_theme,
+            self.system_appearance,
+            cx,
+        ) {
+            Ok(config) => style::apply(&config, cx),
+            Err(error) => self.storage_error = Some(errors::error_text(&error)),
+        }
+    }
+    /// The theme under the open dropdown's cursor, resolved through its own delegate.
+    pub(super) fn highlighted_theme(&self, mode: ThemeMode, cx: &App) -> Option<ThemePreference> {
+        let (select, choices) = if mode == ThemeMode::Light {
+            (&self.light_theme_select, &self.light_theme_choices)
+        } else {
+            (&self.dark_theme_select, &self.dark_theme_choices)
+        };
+        select
+            .read(cx)
+            .selected_index(cx)
+            .and_then(|index| choices.theme_at(index))
+    }
+    /// Whether the Settings page that owns the theme dropdown is on screen.
+    pub(super) fn settings_visible(&self) -> bool {
+        !self.restoring
+            && !self.closing
+            && self.screen == Screen::Home
+            && self.home_page == HomePage::Settings
+    }
+    /// Shows the theme under the open dropdown's cursor without committing it.
+    ///
+    /// Kit reports the cursor as an index into its filtered rows, so the row is
+    /// resolved through the dropdown's own delegate. Confirming the row is what
+    /// commits the preference; until then the applied theme stays a preview.
+    pub(super) fn preview_highlighted_theme(&mut self, mode: ThemeMode, cx: &mut Context<Self>) {
+        if !self.settings_visible() || self.theme_preference.mode(self.system_appearance) != mode {
+            return;
+        }
+        let Some(highlighted) = self.highlighted_theme(mode, cx) else {
+            return;
+        };
+        let committed = if mode == ThemeMode::Light {
+            &self.light_theme
+        } else {
+            &self.dark_theme
+        };
+        if highlighted == ThemePreference::Theme(committed.clone()) {
+            // Moving back onto the committed row ends the preview.
+            if self.theme_preview.take().is_some() {
+                self.apply_theme(cx);
+                cx.notify();
+            }
+            return;
+        }
+        if self.theme_preview.as_ref() == Some(&highlighted) {
+            return;
+        }
+        self.theme_preview = Some(highlighted);
+        self.apply_theme(cx);
+        cx.notify();
+    }
+    /// Previews the highlighted row once Kit's own key handler has moved the cursor.
+    pub(super) fn schedule_theme_preview(
+        &mut self,
+        mode: ThemeMode,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.defer_in(window, move |this, _, cx| {
+            this.preview_highlighted_theme(mode, cx)
+        });
+    }
+    /// Drops an unconfirmed preview so the committed theme comes back on screen, and
+    /// puts the dropdown's cursor back on the committed row for the next open.
+    pub(super) fn cancel_theme_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.theme_preview.take().is_none() {
+            return;
+        }
+        for (select, name) in [
+            (&self.light_theme_select, &self.light_theme),
+            (&self.dark_theme_select, &self.dark_theme),
+        ] {
+            select.update(cx, |select, cx| {
+                select.set_selected_value(&ThemePreference::Theme(name.clone()), window, cx)
+            });
+        }
+        self.apply_theme(cx);
+        cx.notify();
+    }
+    pub(super) fn set_appearance(
+        &mut self,
+        mut preference: ThemePreference,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // Committing a row, or cycling from the keyboard, replaces any preview.
+        self.cancel_theme_preview(window, cx);
+        if let Err(error) = preference.migrate(&mut self.light_theme, &mut self.dark_theme, cx) {
+            self.storage_error = Some(errors::error_text(&error));
+            cx.notify();
+            return;
+        }
+        self.theme_preview = None;
+        self.theme_preference = preference;
+        self.system_appearance = window.appearance();
+        self.apply_theme(cx);
+        cx.notify();
+    }
+
+    pub(super) fn set_theme(
+        &mut self,
+        mode: ThemeMode,
+        name: String,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let config = ThemePreference::Theme(name.clone()).config(window.appearance(), cx);
+        match config {
+            Ok(config) if config.mode == mode => {
+                if mode == ThemeMode::Light {
+                    self.light_theme = name;
+                } else {
+                    self.dark_theme = name;
+                }
+                self.theme_preview = None;
+                self.system_appearance = window.appearance();
+                self.apply_theme(cx);
+                cx.notify();
+            }
+            Ok(_) => {
+                self.storage_error =
+                    Some(tf!("Theme appearance does not match its setting: {}", name))
+            }
+            Err(error) => self.storage_error = Some(errors::error_text(&error)),
+        }
+    }
+
+    pub(super) fn sync_theme_selects(&self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.theme_select.read(cx).selected_value() != Some(&self.theme_preference) {
+            self.theme_select.update(cx, |select, cx| {
+                select.set_selected_value(&self.theme_preference, window, cx)
+            });
+        }
+        for (select, name) in [
+            (&self.light_theme_select, &self.light_theme),
+            (&self.dark_theme_select, &self.dark_theme),
+        ] {
+            let value = ThemePreference::Theme(name.clone());
+            if select.read(cx).selected_value() != Some(&value) {
+                select.update(cx, |select, cx| {
+                    select.set_selected_value(&value, window, cx)
+                });
+            }
+        }
     }
 }
 
@@ -275,10 +503,13 @@ mod tests {
             gpui_kit::init(cx);
             init(cx).unwrap();
             let registry = ThemeRegistry::global(cx);
-            let options = ThemePreference::options(cx);
-            assert_eq!(options[0], ThemePreference::System);
-            assert_eq!(options.len(), registry.themes().len() + 1);
-            for option in &options[1..] {
+            let options: Vec<_> = ThemePreference::groups(cx)
+                .into_iter()
+                .flat_map(|group| group.items)
+                .collect();
+            assert_eq!(options[0], ThemePreference::Theme("Default Light".into()));
+            assert_eq!(options.len(), registry.themes().len());
+            for option in &options {
                 let config = registry.themes().get(&option.title()).unwrap();
                 for appearance in [WindowAppearance::Light, WindowAppearance::Dark] {
                     assert!(Rc::ptr_eq(&option.config(appearance, cx).unwrap(), config));
@@ -296,7 +527,9 @@ mod tests {
                     registry.default_dark_theme()
                 ));
             }
-            assert_eq!(options.last().unwrap().next(cx), ThemePreference::System);
+            assert_eq!(ThemePreference::System.next(), ThemePreference::Light);
+            assert_eq!(ThemePreference::Light.next(), ThemePreference::Dark);
+            assert_eq!(ThemePreference::Dark.next(), ThemePreference::System);
             assert!(
                 ThemePreference::Theme("Missing".into())
                     .config(WindowAppearance::Light, cx)
@@ -311,8 +544,7 @@ mod tests {
             gpui_kit::init(cx);
             init(cx).unwrap();
             let groups = ThemePreference::groups(cx);
-            assert_eq!(groups.len(), 3);
-            assert_eq!(groups[0].items, [ThemePreference::System]);
+            assert_eq!(groups.len(), 2);
             let names = |group: &SelectGroup<ThemePreference>| {
                 group
                     .items
@@ -321,7 +553,7 @@ mod tests {
                     .collect::<Vec<_>>()
             };
             assert_eq!(
-                names(&groups[1]),
+                names(&groups[0]),
                 [
                     "Default Light",
                     "Aurora Light",
@@ -338,7 +570,7 @@ mod tests {
                 ]
             );
             assert_eq!(
-                names(&groups[2]),
+                names(&groups[1]),
                 [
                     "Default Dark",
                     "Adventure",
@@ -369,10 +601,10 @@ mod tests {
                 ]
             );
             assert_eq!(ThemeRegistry::global(cx).themes().len(), 38);
-            assert_eq!(ThemePreference::options(cx).len(), 39);
+            assert_eq!(ThemePreference::options().len(), 3);
             for (group, mode) in [
-                (&groups[1], ThemeMode::Light),
-                (&groups[2], ThemeMode::Dark),
+                (&groups[0], ThemeMode::Light),
+                (&groups[1], ThemeMode::Dark),
             ] {
                 for item in &group.items {
                     assert_eq!(item.config(WindowAppearance::Light, cx).unwrap().mode, mode);
@@ -402,7 +634,7 @@ mod tests {
             let mut choices = ThemeChoices::new(groups.clone());
             assert_eq!(
                 choices.theme_at(IndexPath::default()),
-                Some(ThemePreference::System)
+                Some(ThemePreference::Theme("Default Light".into()))
             );
             assert_eq!(
                 choices.theme_at(IndexPath::default().section(1).row(1)),
@@ -420,9 +652,9 @@ mod tests {
 
             // Clearing the query restores the unfiltered grouping.
             _ = choices.perform_search("", window, cx);
-            assert_eq!(choices.sections_count(cx), 3);
+            assert_eq!(choices.sections_count(cx), 2);
             assert_eq!(
-                choices.theme_at(IndexPath::default().section(2).row(0)),
+                choices.theme_at(IndexPath::default().section(1).row(0)),
                 Some(ThemePreference::Theme("Default Dark".into()))
             );
         });
@@ -432,8 +664,8 @@ mod tests {
     fn legacy_modes_migrate_to_builtin_names() {
         for (stored, expected) in [
             ("System", ThemePreference::System),
-            ("Light", ThemePreference::Theme("Default Light".into())),
-            ("Dark", ThemePreference::Theme("Default Dark".into())),
+            ("Light", ThemePreference::Light),
+            ("Dark", ThemePreference::Dark),
         ] {
             let preference: ThemePreference =
                 serde_json::from_value(serde_json::json!(stored)).unwrap();

@@ -12,22 +12,40 @@ impl Breeze {
         // Kit reports the dropdown cursor only as an index, so an arrow key schedules a
         // preview of the row it is about to move to. Confirming the row commits it, while
         // Escape, an outside click, or focus loss restores the committed theme.
-        let theme =
+        let theme = Select::new(&self.theme_select)
+            .id("theme-select")
+            .accessibility_label(tr!("Theme"))
+            .small()
+            .w(px(220.));
+        let palette = |select, id, label, mode| {
             div()
                 .w(px(220.))
-                .capture_action(cx.listener(|this, _: &SelectDown, window, cx| {
-                    this.schedule_theme_preview(window, cx)
+                .capture_action(cx.listener(move |this, _: &SelectDown, window, cx| {
+                    this.schedule_theme_preview(mode, window, cx)
                 }))
-                .capture_action(cx.listener(|this, _: &SelectUp, window, cx| {
-                    this.schedule_theme_preview(window, cx)
+                .capture_action(cx.listener(move |this, _: &SelectUp, window, cx| {
+                    this.schedule_theme_preview(mode, window, cx)
                 }))
                 .child(
-                    Select::new(&self.theme_select)
-                        .id("theme-select")
-                        .accessibility_label(tr!("Theme"))
+                    Select::new(select)
+                        .id(id)
+                        .accessibility_label(label)
                         .search_placeholder(tr!("Search themes"))
                         .small(),
-                );
+                )
+        };
+        let light_theme = palette(
+            &self.light_theme_select,
+            "light-theme-select",
+            tr!("Light theme"),
+            ThemeMode::Light,
+        );
+        let dark_theme = palette(
+            &self.dark_theme_select,
+            "dark-theme-select",
+            tr!("Dark theme"),
+            ThemeMode::Dark,
+        );
         let language = Select::new(&self.language_select)
             .id("language-select")
             .accessibility_label(tr!("Interface language"))
@@ -84,6 +102,8 @@ impl Breeze {
                     },
                 )
                 .child(Self::setting_row(tr!("Theme"), theme, p))
+                .child(Self::setting_row(tr!("Light theme"), light_theme, p))
+                .child(Self::setting_row(tr!("Dark theme"), dark_theme, p))
                 .child(Self::setting_row(tr!("Interface language"), language, p))
                 .child(Self::setting_row(tr!("Check for updates"), updates, p))
                 .child(Self::setting_row(

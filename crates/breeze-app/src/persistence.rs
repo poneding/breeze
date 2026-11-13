@@ -38,6 +38,10 @@ pub(super) struct SavedState {
     #[serde(default = "first_category_id")]
     pub next_category_id: usize,
     pub preference: ThemePreference,
+    #[serde(default = "appearance::default_light_theme")]
+    pub light_theme: String,
+    #[serde(default = "appearance::default_dark_theme")]
+    pub dark_theme: String,
     // Accept retired palette fields without writing them into new snapshots.
     #[serde(default, skip_serializing, rename = "light")]
     legacy_light: Option<String>,
@@ -67,12 +71,14 @@ fn default_true() -> bool {
 impl Default for SavedState {
     fn default() -> Self {
         Self {
-            version: 12,
+            version: 13,
             books: Vec::new(),
             active: 0,
             categories: Vec::new(),
             next_category_id: 1,
             preference: ThemePreference::System,
+            light_theme: appearance::default_light_theme(),
+            dark_theme: appearance::default_dark_theme(),
             legacy_light: None,
             legacy_dark: None,
             library_grid: false,
@@ -90,6 +96,14 @@ impl Default for SavedState {
     }
 }
 impl SavedState {
+    fn migrate_themes(&mut self, appearance: WindowAppearance, cx: &App) -> Result<()> {
+        self.preference
+            .migrate(&mut self.light_theme, &mut self.dark_theme, cx)?;
+        for preference in [ThemePreference::Light, ThemePreference::Dark] {
+            preference.configured(&self.light_theme, &self.dark_theme, appearance, cx)?;
+        }
+        Ok(())
+    }
     /// Maps the retired "Never" policy to Manual, which never checks on its own.
     /// Version 12 makes the startup check the default for fresh installs; a
     /// stored Manual value cannot be distinguished from the old fresh-install
@@ -114,7 +128,7 @@ impl SavedState {
         };
     }
     fn validate(&self) -> Result<()> {
-        anyhow::ensure!(matches!(self.version, 1..=12), "Unsupported state version");
+        anyhow::ensure!(matches!(self.version, 1..=13), "Unsupported state version");
         anyhow::ensure!(self.books.len() <= 4096, "Too many library entries");
         anyhow::ensure!(
             self.width.is_finite() && (168.0..=360.0).contains(&self.width),
@@ -195,7 +209,7 @@ impl SavedState {
 impl Breeze {
     pub(super) fn snapshot(&self) -> SavedState {
         SavedState {
-            version: 12,
+            version: 13,
             books: self
                 .books
                 .iter()
@@ -230,6 +244,8 @@ impl Breeze {
             categories: self.categories.clone(),
             next_category_id: self.next_category_id,
             preference: self.theme_preference.clone(),
+            light_theme: self.light_theme.clone(),
+            dark_theme: self.dark_theme.clone(),
             legacy_light: None,
             legacy_dark: None,
             library_grid: self.library_grid,
@@ -276,13 +292,11 @@ impl Breeze {
             let _ = this.update(cx, |this, cx| {
                 this.restoring = false;
                 match result {
-                    Ok(Ok(state)) => {
-                        if let Err(e) = state.validate().and_then(|_| {
-                            state
-                                .preference
-                                .config(this.system_appearance, cx)
-                                .map(|_| ())
-                        }) {
+                    Ok(Ok(mut state)) => {
+                        if let Err(e) = state
+                            .validate()
+                            .and_then(|_| state.migrate_themes(this.system_appearance, cx))
+                        {
                             this.storage_error = Some(format!("{e:#}"));
                             this.storage = None;
                             this.open_requested(initial, cx);
@@ -339,6 +353,12 @@ impl Breeze {
         requested_documents
     }
     pub(super) fn restore(&mut self, mut state: SavedState, cx: &mut Context<Self>) {
+        let theme_result = state.migrate_themes(self.system_appearance, cx);
+        if let Err(error) = theme_result {
+            self.storage_error = Some(errors::error_text(&error));
+            self.storage_ready = false;
+            return;
+        }
         state.migrate_update_policy();
         state.migrate_language();
         if state.version < 5 {
@@ -377,6 +397,8 @@ impl Breeze {
         self.categories = state.categories;
         self.next_category_id = state.next_category_id;
         self.theme_preference = state.preference;
+        self.light_theme = state.light_theme;
+        self.dark_theme = state.dark_theme;
         self.library_grid = state.library_grid;
         self.sidebar = state.sidebar;
         self.status_bar_visible = state.show_status_bar;
@@ -728,10 +750,13 @@ mod tests {
     fn state_json_roundtrip() {
         for preference in [
             ThemePreference::System,
-            ThemePreference::Theme("Default Dark".into()),
+            ThemePreference::Light,
+            ThemePreference::Dark,
         ] {
             let state = SavedState {
                 preference,
+                light_theme: "Aurora Light".into(),
+                dark_theme: "Tokyo Night".into(),
                 ..Default::default()
             };
             let bytes = serde_json::to_vec(&state).unwrap();
@@ -868,17 +893,54 @@ mod tests {
             json["dark"] = "Forest".into();
             let state: SavedState = serde_json::from_value(json).unwrap();
             state.validate().unwrap();
-            assert_eq!(
-                state.preference,
-                ThemePreference::Theme("Default Dark".into())
-            );
+            assert_eq!(state.preference, ThemePreference::Dark);
             let saved = serde_json::to_value(&state).unwrap();
             assert!(saved.get("light").is_none());
             assert!(saved.get("dark").is_none());
-            assert_eq!(
-                saved["preference"],
-                serde_json::json!({"Theme": "Default Dark"})
-            );
+            assert_eq!(saved["preference"], serde_json::json!("Dark"));
         }
+    }
+
+    #[gpui_kit::test]
+    fn legacy_named_themes_migrate_and_split_names_are_validated(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            gpui_kit::init(cx);
+            appearance::init(cx).unwrap();
+            for version in 1..=12 {
+                for (name, mode) in [
+                    ("Aurora Light", ThemePreference::Light),
+                    ("Catppuccin Mocha", ThemePreference::Dark),
+                ] {
+                    let mut json = serde_json::to_value(SavedState::default()).unwrap();
+                    json["version"] = version.into();
+                    json["preference"] = serde_json::json!({"Theme": name});
+                    json.as_object_mut().unwrap().remove("light_theme");
+                    json.as_object_mut().unwrap().remove("dark_theme");
+                    let mut state: SavedState = serde_json::from_value(json).unwrap();
+                    state.validate().unwrap();
+                    state.migrate_themes(WindowAppearance::Light, cx).unwrap();
+                    assert_eq!(state.preference, mode);
+                    if mode == ThemePreference::Light {
+                        assert_eq!(state.light_theme, name);
+                        assert_eq!(state.dark_theme, "Default Dark");
+                    } else {
+                        assert_eq!(state.dark_theme, name);
+                        assert_eq!(state.light_theme, "Default Light");
+                    }
+                }
+            }
+            for name in ["Missing", "Tokyo Night"] {
+                let mut state = SavedState {
+                    light_theme: name.into(),
+                    ..Default::default()
+                };
+                assert!(state.migrate_themes(WindowAppearance::Light, cx).is_err());
+            }
+            let mut state = SavedState {
+                dark_theme: "Aurora Light".into(),
+                ..Default::default()
+            };
+            assert!(state.migrate_themes(WindowAppearance::Dark, cx).is_err());
+        });
     }
 }

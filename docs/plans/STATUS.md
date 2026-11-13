@@ -1,3 +1,42 @@
+# November 12 Independent light and dark theme settings
+
+Theme settings now contain three compact Kit Select rows. Theme chooses Follow
+System, Light, or Dark; Light Theme and Dark Theme independently choose from
+12 light and 26 dark official gallery themes. The two searchable theme lists
+retain their upstream names, default-first order, and colors.
+
+Follow System applies the saved theme for the current system appearance through
+the existing window-appearance subscription. A fixed mode uses its saved theme;
+configuring the inactive appearance leaves the current chrome in place. The
+titlebar action and Primary+Shift+T cycle the three modes. Arrow-key previews in
+the active appearance's list remain temporary and restore the committed name
+when dismissed or when Settings is left.
+
+State schema 13 persists the mode and both registry names. Old named selections
+migrate to their declared mode and corresponding field; the other field defaults
+to Kit's matching default. Theme migration validates both names and appearances
+before restoring application state. Shared reader panes receive both choices.
+
+Validation on November 13, 2026: `cargo fmt --all -- --check` and
+`cargo clippy --workspace --all-targets --locked -- -D warnings` pass. The serial
+`cargo test --workspace --locked -- --test-threads=1` run reports 285 application
+tests passed, two failed, and two ignored; Cargo stops before the remaining
+workspace suites. Both failures report that no EPUB frame arrived:
+`ui_tests::epub_paging_has_no_status_bar_buttons` and
+`ui_tests::epub_wheel_turns_pages_without_a_render_per_event`. Theme registry,
+migration, independent settings, restoration, search, and preview component tests
+pass. Local native builds use the installed v145 toolset through
+`MUPDF_MSVC_PLATFORM_TOOLSET` and an isolated temporary directory under `target/`.
+
+`cargo run --locked -p breeze-app` starts successfully with an isolated
+`BREEZE_DATA_DIR`. Native Windows inspection confirms the three labeled rows,
+the three mode options, fixed Light mode, the searchable Light Theme list, and
+arrow-key preview. During preview the trigger visually follows the highlighted
+row while its accessibility value and the row checkmark remain committed; the
+trigger therefore does not meet specification 04's committed-name requirement.
+Computer Use stopped on an Escape signal before cancellation, dark-theme search,
+and restart persistence could be inspected. Native acceptance remains incomplete.
+
 # November 9 Clipboard commands lead the content menu
 
 Text selected in the reader left no way to copy it from the pointer, and a
@@ -2231,7 +2270,7 @@ future-incompatibility notice remains. Windows/Linux runtime checks are pending.
 | Area | Delivered behavior |
 |---|---|
 | Library | All Documents first; whole-row opening, aligned list/cover-grid views, empty new libraries, persisted multi-category memberships and eight tag colors, inline hover actions, favorites/filtering, and removal without deleting source files |
-| Preferences | Persistent Follow System / GPUI Kit built-in theme selection, sidebar width, independent file/position restoration, and opening-window policy |
+| Preferences | Persistent Follow System / Light / Dark modes with independent GPUI Kit light/dark theme selections, sidebar width, independent file/position restoration, and opening-window policy |
 | State integrity | Background/coalesced JSON, process locking, bounded inputs, atomic replacement, external-revision checks, and normal-close acknowledgement |
 | Reading | Single/Continuous/Spread layouts; per-document view rotation in either direction; immersive fullscreen that keeps the document only; virtualized full outline/thumbnail lists; visible-range scheduling; 32 MiB worker, 64 MiB UI-page, and 8 MiB UI-thumbnail budgets; page navigation and zoom |
 | Text/search | Reading-order text selection/copy with per-row highlight fills; cancellable background search with up to 300 results and page destinations |

@@ -142,7 +142,7 @@ impl Breeze {
         } else if action.as_any().is::<ShowShortcuts>() {
             self.show_home_page(HomePage::Shortcuts, cx);
         } else if action.as_any().is::<CycleTheme>() {
-            self.set_appearance(self.theme_preference.next(cx), window, cx);
+            self.set_appearance(self.theme_preference.next(), window, cx);
         } else if action.as_any().is::<ToggleFullScreen>() {
             self.set_full_screen(!self.full_screen, window, cx);
         } else if action.as_any().is::<NextTab>() || action.as_any().is::<PreviousTab>() {

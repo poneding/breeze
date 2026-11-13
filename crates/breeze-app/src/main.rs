@@ -51,7 +51,7 @@ use breeze_core::document::{DocumentFormat, ReflowState};
 use breeze_core::{Mode, ReaderState, ReadingLayout, ReadingPreferences, Zoom};
 use breeze_pdf::{PdfWorker, Pixels, Source};
 use gpui_kit::component::{
-    ResizableState, Theme, TitleBar,
+    ResizableState, Theme, ThemeMode, TitleBar,
     select::{SelectEvent, SelectState},
 };
 use gpui_kit::{
@@ -254,8 +254,13 @@ struct Breeze {
     theme_preference: ThemePreference,
     /// The dropdown row the user is previewing but has not confirmed, if any.
     theme_preview: Option<ThemePreference>,
-    theme_choices: appearance::ThemeChoices,
-    theme_select: Entity<SelectState<appearance::ThemeChoices>>,
+    light_theme: String,
+    dark_theme: String,
+    theme_select: Entity<SelectState<Vec<ThemePreference>>>,
+    light_theme_choices: appearance::ThemeChoices,
+    dark_theme_choices: appearance::ThemeChoices,
+    light_theme_select: Entity<SelectState<appearance::ThemeChoices>>,
+    dark_theme_select: Entity<SelectState<appearance::ThemeChoices>>,
     navigation_split: Entity<ResizableState>,
     navigation_width: f32,
     sidebar: bool,
@@ -364,15 +369,13 @@ impl Breeze {
                 }
             }
         });
-        let theme_choices = appearance::ThemeChoices::new(ThemePreference::groups(cx));
         let theme_select = cx.new(|cx| {
             SelectState::new(
-                theme_choices.clone(),
+                ThemePreference::options(),
                 Some(gpui_kit::component::IndexPath::new(0)),
                 window,
                 cx,
             )
-            .searchable(true)
         });
         let theme_subscription =
             cx.subscribe_in(&theme_select, window, |this, _, event, window, cx| {
@@ -380,17 +383,53 @@ impl Breeze {
                     this.set_appearance(preference.clone(), window, cx);
                 }
             });
-        // Escape, an outside click, or focus loss must not leave a preview applied.
-        let theme_dismiss_subscription = cx.subscribe_in(
-            &theme_select,
-            window,
-            |this, _, _: &DismissEvent, window, cx| {
-                this.cancel_theme_preview(window, cx);
-            },
-        );
+        let groups = ThemePreference::groups(cx);
+        let light_theme_choices = appearance::ThemeChoices::new(vec![groups[0].clone()]);
+        let dark_theme_choices = appearance::ThemeChoices::new(vec![groups[1].clone()]);
+        let light_theme_select = cx.new(|cx| {
+            SelectState::new(
+                light_theme_choices.clone(),
+                Some(gpui_kit::component::IndexPath::new(0)),
+                window,
+                cx,
+            )
+            .searchable(true)
+        });
+        let dark_theme_select = cx.new(|cx| {
+            SelectState::new(
+                dark_theme_choices.clone(),
+                Some(gpui_kit::component::IndexPath::new(0)),
+                window,
+                cx,
+            )
+            .searchable(true)
+        });
+        let mut palette_subscriptions = Vec::new();
+        for (select, mode) in [
+            (&light_theme_select, ThemeMode::Light),
+            (&dark_theme_select, ThemeMode::Dark),
+        ] {
+            palette_subscriptions.push(cx.subscribe_in(
+                select,
+                window,
+                move |this, _, event, window, cx| {
+                    if let SelectEvent::Confirm(Some(ThemePreference::Theme(name))) = event {
+                        this.set_theme(mode, name.clone(), window, cx);
+                    }
+                },
+            ));
+            palette_subscriptions.push(cx.subscribe_in(
+                select,
+                window,
+                |this, _, _: &DismissEvent, window, cx| {
+                    this.cancel_theme_preview(window, cx);
+                },
+            ));
+        }
         let appearance_observer = cx.observe_window_appearance(window, |this, window, cx| {
             this.system_appearance = window.appearance();
             if this.workspace.parent.is_none() && this.theme_preference == ThemePreference::System {
+                this.cancel_theme_preview(window, cx);
                 this.apply_theme(cx);
                 cx.notify();
             }
@@ -450,9 +489,11 @@ impl Breeze {
                 search_subscription,
                 library_observer,
                 theme_subscription,
-                theme_dismiss_subscription,
                 language_subscription,
-            ],
+            ]
+            .into_iter()
+            .chain(palette_subscriptions)
+            .collect(),
             books: Vec::new(),
             active: 0,
             pending_opens: Vec::new(),
@@ -463,8 +504,13 @@ impl Breeze {
             system_appearance: window.appearance(),
             theme_preference: ThemePreference::System,
             theme_preview: None,
-            theme_choices,
+            light_theme: appearance::default_light_theme(),
+            dark_theme: appearance::default_dark_theme(),
+            light_theme_choices,
+            dark_theme_choices,
             theme_select,
+            light_theme_select,
+            dark_theme_select,
             navigation_split,
             navigation_width: 208.,
             sidebar: true,
@@ -884,72 +930,6 @@ impl Breeze {
         });
         self.open_book(self.books.len() - 1, cx);
     }
-    /// Applies the preference in effect, which is the previewed row while the user is
-    /// still moving around the open theme dropdown.
-    fn apply_theme(&mut self, cx: &mut App) {
-        let preference = self
-            .theme_preview
-            .clone()
-            .unwrap_or_else(|| self.theme_preference.clone());
-        match preference.config(self.system_appearance, cx) {
-            Ok(config) => style::apply(&config, cx),
-            Err(error) => self.storage_error = Some(errors::error_text(&error)),
-        }
-    }
-    /// The theme under the open dropdown's cursor, resolved through its own delegate.
-    fn highlighted_theme(&self, cx: &App) -> Option<ThemePreference> {
-        self.theme_select
-            .read(cx)
-            .selected_index(cx)
-            .and_then(|index| self.theme_choices.theme_at(index))
-    }
-    /// Whether the Settings page that owns the theme dropdown is on screen.
-    fn settings_visible(&self) -> bool {
-        !self.restoring
-            && !self.closing
-            && self.screen == Screen::Home
-            && self.home_page == HomePage::Settings
-    }
-    /// Shows the theme under the open dropdown's cursor without committing it.
-    ///
-    /// Kit reports the cursor as an index into its filtered rows, so the row is
-    /// resolved through the dropdown's own delegate. Confirming the row is what
-    /// commits the preference; until then the applied theme stays a preview.
-    fn preview_highlighted_theme(&mut self, cx: &mut Context<Self>) {
-        let Some(highlighted) = self.highlighted_theme(cx) else {
-            return;
-        };
-        if highlighted == self.theme_preference {
-            // Moving back onto the committed row ends the preview.
-            if self.theme_preview.take().is_some() {
-                self.apply_theme(cx);
-                cx.notify();
-            }
-            return;
-        }
-        if self.theme_preview.as_ref() == Some(&highlighted) {
-            return;
-        }
-        self.theme_preview = Some(highlighted);
-        self.apply_theme(cx);
-        cx.notify();
-    }
-    /// Previews the highlighted row once Kit's own key handler has moved the cursor.
-    fn schedule_theme_preview(&mut self, window: &Window, cx: &mut Context<Self>) {
-        cx.defer_in(window, |this, _, cx| this.preview_highlighted_theme(cx));
-    }
-    /// Drops an unconfirmed preview so the committed theme comes back on screen, and
-    /// puts the dropdown's cursor back on the committed row for the next open.
-    fn cancel_theme_preview(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.theme_preview.take().is_none() {
-            return;
-        }
-        self.theme_select.update(cx, |select, cx| {
-            select.set_selected_value(&self.theme_preference, window, cx);
-        });
-        self.apply_theme(cx);
-        cx.notify();
-    }
     /// Toggles immersive reading. The window and the reader mode are separate:
     /// macOS's green traffic light can enter native fullscreen without hiding
     /// application chrome, while this control also requests native fullscreen
@@ -986,19 +966,6 @@ impl Breeze {
         self.reading.invalidate_metrics();
         cx.notify();
     }
-    fn set_appearance(
-        &mut self,
-        preference: ThemePreference,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) {
-        // Committing a row, or cycling from the keyboard, replaces any preview.
-        self.theme_preview = None;
-        self.theme_preference = preference;
-        self.system_appearance = window.appearance();
-        self.apply_theme(cx);
-        cx.notify();
-    }
 }
 impl Render for Breeze {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1006,6 +973,8 @@ impl Render for Breeze {
             peer.update(cx, |peer, _| {
                 peer.language = self.language;
                 peer.theme_preference = self.theme_preference.clone();
+                peer.light_theme = self.light_theme.clone();
+                peer.dark_theme = self.dark_theme.clone();
                 peer.categories = self.categories.clone();
                 peer.reading_preferences = self.reading_preferences;
                 peer.full_screen = self.full_screen;
@@ -1022,11 +991,7 @@ impl Render for Breeze {
             });
         }
         let p = self.p(cx);
-        if self.theme_select.read(cx).selected_value() != Some(&self.theme_preference) {
-            self.theme_select.update(cx, |select, cx| {
-                select.set_selected_value(&self.theme_preference, window, cx);
-            });
-        }
+        self.sync_theme_selects(window, cx);
         if self.screen == Screen::Reader
             && !self.page_input.read(cx).focus_handle(cx).is_focused(window)
         {

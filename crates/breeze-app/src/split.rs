@@ -178,6 +178,8 @@ impl Breeze {
             peer.workspace.parent = Some(parent);
             peer.language = self.language;
             peer.theme_preference = self.theme_preference.clone();
+            peer.light_theme = self.light_theme.clone();
+            peer.dark_theme = self.dark_theme.clone();
             peer.sidebar = self.sidebar;
             peer.status_bar_visible = self.status_bar_visible;
             peer.navigation_width = self.navigation_width;

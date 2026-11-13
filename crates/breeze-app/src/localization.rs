@@ -13,13 +13,31 @@ impl Breeze {
         self.language_select.update(cx, |select, cx| {
             select.set_selected_value(&i18n::LanguageItem::Choice(preference), window, cx);
         });
-        // Group titles are localized, so the shared delegate is rebuilt with the same
-        // choice list the dropdown is about to show.
-        self.theme_choices = appearance::ThemeChoices::new(ThemePreference::groups(cx));
+        self.cancel_theme_preview(window, cx);
         self.theme_select.update(cx, |select, cx| {
-            select.set_items(self.theme_choices.clone(), window, cx);
+            select.set_items(ThemePreference::options(), window, cx);
             select.set_selected_value(&self.theme_preference, window, cx);
         });
+        let groups = ThemePreference::groups(cx);
+        self.light_theme_choices = appearance::ThemeChoices::new(vec![groups[0].clone()]);
+        self.dark_theme_choices = appearance::ThemeChoices::new(vec![groups[1].clone()]);
+        for (select, choices, name) in [
+            (
+                &self.light_theme_select,
+                &self.light_theme_choices,
+                &self.light_theme,
+            ),
+            (
+                &self.dark_theme_select,
+                &self.dark_theme_choices,
+                &self.dark_theme,
+            ),
+        ] {
+            select.update(cx, |select, cx| {
+                select.set_items(choices.clone(), window, cx);
+                select.set_selected_value(&ThemePreference::Theme(name.clone()), window, cx);
+            });
+        }
         for (input, placeholder) in [
             (&self.search_input, tr!("Search document text (Enter)")),
             (&self.library_input, tr!("Filter document names")),
