@@ -1,3 +1,46 @@
+# November 24 File opens reuse the existing window
+
+OS and command-line launches now claim one application instance per data
+directory before starting GPUI, PDF or persistence workers. Later launches
+transfer a bounded path request over an authenticated loopback connection and
+exit after it is queued. The existing window activates and opens new documents
+in tabs, reuses already-open tabs and defers requests during library restoration.
+Plain launches activate the existing window. Independent `BREEZE_DATA_DIR`
+directories keep isolated development instances possible. The state lock and
+invalid-state write protections remain in place; transfer failure does not start
+a competing window. See [package 23](23-file-associations.md).
+
+Native Windows QA used `target/instance-review/native/`: a Markdown launch,
+followed by a separate executable launch with a Chinese/spaced PDF path, retained
+one process and the same native window with two tabs. The second process exited
+successfully, the PDF became active, and no state-lock warning appeared. Reopening
+the Markdown reused its tab; a no-argument launch retained both tabs. State
+persistence recorded both documents as open. Closing the scratch window flushed
+state and removed the endpoint. The user's two installed Breeze windows and
+documents were not modified. This validates Windows command-line delivery, not
+installer registration or macOS/Linux runtime behavior.
+
+Process and component regressions cover cross-process transfer, multiple and
+relative paths, Unicode/spaces, restoration timing, tab reuse, independent data
+directories, stale endpoints and request limits. Formatting, diff checks and
+workspace Clippy with warnings denied pass. With TEMP/TMP isolated under
+`target/instance-review/tmp/` and one test thread, the full workspace run reports
+296 application tests passed, one failed and three ignored, then stops before
+the other crate suites. The failure remains the previously recorded
+`ui_tests::epub_wheel_turns_pages_without_a_render_per_event`: its fixture did not
+produce a frame within the existing wait. All five instance regressions passed;
+the additional ignored test is an entry point invoked by the subprocess test.
+
+A focused `cargo test --workspace --locked instance::` on the final code passes
+all five regressions; its ignored child entry point runs through the process test.
+A library-only Cargo follow-up selected a different MuPDF feature build and
+failed before tests because the default MSVC v142 toolset is unavailable, as
+previously recorded. Running the 15 remaining test executables produced by the
+full workspace build directly passes 160 tests with six existing tests ignored,
+including the EPUB integration suite. No toolchain or document engine was
+changed. On November 24, 2026, the user explicitly requested a local commit
+with this existing full-workspace failure recorded. The failure remains open.
+
 # November 12 Independent light and dark theme settings
 
 Theme settings now contain three compact Kit Select rows. Theme chooses Follow

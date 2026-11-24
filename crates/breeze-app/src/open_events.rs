@@ -1,7 +1,8 @@
 //! Documents the operating system asks Breeze to open.
 //!
 //! Windows and Linux hand a document to a new process as a command-line
-//! argument. macOS delivers `application:openURLs:` to the running application
+//! argument, which the instance listener forwards to the existing process.
+//! macOS delivers `application:openURLs:` to the running application
 //! instead, and that event can arrive before the reader window exists. The
 //! platform callback carries no application context, so requests are queued
 //! here and delivered to the window on the foreground executor.
@@ -116,6 +117,7 @@ struct RequestState {
     /// entity directly instead of casting the root view.
     view: Option<WeakEntity<Breeze>>,
     pending: Vec<PathBuf>,
+    activate: bool,
     scheduled: bool,
     attempts: u8,
 }
@@ -136,7 +138,9 @@ impl OpenRequests {
     /// Documents requested before the window existed. The caller opens them
     /// after the saved library has been restored.
     pub(super) fn take_pending(&self) -> Vec<PathBuf> {
-        std::mem::take(&mut self.0.borrow_mut().pending)
+        let mut state = self.0.borrow_mut();
+        state.activate = false;
+        std::mem::take(&mut state.pending)
     }
 
     /// Queue the documents an open-url event named and deliver them.
@@ -145,10 +149,16 @@ impl OpenRequests {
         if paths.is_empty() {
             return;
         }
+        self.receive_paths(paths);
+    }
+
+    /// An empty launch request activates the existing window without adding a tab.
+    pub(super) fn receive_paths(&self, paths: Vec<PathBuf>) {
         {
             let mut state = self.0.borrow_mut();
             let room = MAX_PENDING.saturating_sub(state.pending.len());
             state.pending.extend(paths.into_iter().take(room));
+            state.activate = true;
             state.attempts = DELIVERY_ATTEMPTS;
         }
         self.schedule();
@@ -159,7 +169,7 @@ impl OpenRequests {
     fn schedule(&self) {
         let app = {
             let mut state = self.0.borrow_mut();
-            if state.scheduled || state.pending.is_empty() {
+            if state.scheduled || (state.pending.is_empty() && !state.activate) {
                 return;
             }
             let Some(app) = state.app.clone() else {
@@ -185,9 +195,10 @@ impl OpenRequests {
             else {
                 return;
             };
-            if state.pending.is_empty() {
+            if state.pending.is_empty() && !state.activate {
                 return;
             }
+            state.activate = false;
             (app, window, view, std::mem::take(&mut state.pending))
         };
         let queued = paths.clone();
@@ -210,12 +221,14 @@ impl OpenRequests {
         let mut pending = paths;
         pending.append(&mut state.pending);
         state.pending = pending;
+        state.activate = true;
         if state.attempts == 0 {
             eprintln!(
                 "Breeze could not open {} requested by the system",
                 state.pending.len()
             );
             state.pending.clear();
+            state.activate = false;
             return;
         }
         state.attempts -= 1;

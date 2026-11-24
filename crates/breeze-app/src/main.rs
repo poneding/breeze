@@ -30,6 +30,7 @@ mod document_icons;
 mod document_panel;
 mod errors;
 mod home;
+mod instance;
 mod markdown_editor;
 mod markdown_style;
 mod open_events;
@@ -1259,6 +1260,13 @@ fn app_window_options(cx: &App) -> WindowOptions {
 
 /// Run the application, returning the failure that stopped it from starting.
 fn run() -> Result<()> {
+    use futures::StreamExt;
+    let initial = open_events::argument_paths(std::env::args_os().skip(1));
+    let (instance, mut incoming) =
+        match instance::start(&breeze_storage::data_directory()?, initial.clone())? {
+            instance::Launch::Forwarded => return Ok(()),
+            instance::Launch::Primary(instance, incoming) => (instance, incoming),
+        };
     let worker = PdfWorker::new()?;
     let requests = open_events::OpenRequests::new();
     let requested = requests.clone();
@@ -1290,12 +1298,19 @@ fn run() -> Result<()> {
             }
         })
         .detach();
+        let forwarded = requests.clone();
+        cx.spawn(async move |_| {
+            while let Some(paths) = incoming.next().await {
+                forwarded.receive_paths(paths);
+            }
+        })
+        .detach();
         let result = gpui_kit::open_window(app_window_options(cx), cx, move |window, cx| {
             let view = cx.new(|cx| Breeze::new(worker, window, cx));
             // Attach before draining so an event that arrives during
             // startup is delivered to this window instead of waiting.
             requests.attach(cx.to_async(), window.window_handle(), view.downgrade());
-            let mut initial = open_events::argument_paths(std::env::args_os().skip(1));
+            let mut initial = initial;
             initial.extend(requests.take_pending());
             view.update(cx, |this, cx| {
                 window.focus(&this.focus, cx);
@@ -1327,6 +1342,7 @@ fn run() -> Result<()> {
         }
         cx.activate(true);
     });
+    drop(instance);
     Ok(())
 }
 

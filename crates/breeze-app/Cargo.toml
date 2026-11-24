@@ -5,6 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 [dependencies]
+futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 breeze-storage.workspace = true
@@ -40,6 +41,7 @@ mermaid-rs-renderer = { version = "=0.3.1", default-features = false }
 ureq = { version = "=3.5.0", default-features = false, features = ["rustls"] }
 semver = "=1.0.28"
 sha2.workspace = true
+tempfile.workspace = true
 sys-locale = "=0.3.2"
 
 [lints]
@@ -52,6 +54,4 @@ embed-resource = "=3.0.12"
 
 [dev-dependencies]
 zip = { version = "=9.2.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
-futures.workspace = true
-tempfile.workspace = true
 gpui-kit = { workspace = true, features = ["test-support"] }

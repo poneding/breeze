@@ -52,15 +52,26 @@ stays the PDF type so upgrades keep the same registration.
 
 - Command-line arguments stay the Windows/Linux path: every non-flag argument
   is a document request.
+- As requested on November 24, 2026, launches reuse the process and native
+  window already using the same data directory. A new document opens in a new
+  tab; an already-open document activates its existing tab. A launch with no
+  document activates the window. Separate `BREEZE_DATA_DIR` directories remain
+  independent for development and manual QA.
+- Before initializing GPUI or the document/state workers, `instance.rs` claims
+  a process lock and publishes a user-local, authenticated loopback endpoint.
+  Other launches resolve their relative paths, transfer a bounded request and
+  exit after acknowledgement. The listener delivers requests through the same
+  foreground queue as macOS open-url events; requests during library restoration
+  wait for restoration. Transfer failures are reported as startup failures,
+  without opening a competing window or relaxing the state lock.
 - macOS delivers `application:openURLs:` to the running process, which may occur
   before the reader window exists. The platform callback has no application
   context, so requests are queued and handed to the window once it is created;
   later requests are delivered through the window on the foreground executor.
 - File URLs are decoded (`file://` scheme, percent escapes); non-file URLs are
   ignored rather than guessed at.
-- A launch that cannot take the state lock (another Breeze instance owns the
-  data directory) still opens the requested document and reports the storage
-  warning, instead of silently discarding the request.
+- Invalid local state still reports a storage warning and allows the primary
+  instance to open requested documents without overwriting that state.
 - A document requested while the library is still restoring waits for the
   restore, because restore replaces the whole book list.
 
@@ -68,6 +79,10 @@ stays the PDF type so upgrades keep the same registration.
 
 - Unit tests for URL decoding, argument filtering, and the delivery queue.
 - Component test: a queued request opens a tab once restore completes.
+- Process tests cover a second executable launch, Unicode/spaced/multiple and
+  relative paths, plain launches, independent data directories, stale endpoint
+  replacement and bounded/authenticated requests. A component test covers
+  forwarding while restoring, tab reuse and retaining one window.
 - `scripts/test_release.py` asserts the PDF, EPUB and Markdown registrations in
   the macOS plist, the WiX and Inno registry entries, and the Linux desktop
   entry.

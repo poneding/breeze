@@ -342,9 +342,9 @@ impl Breeze {
         .detach();
     }
     /// Open the documents this launch was asked for, even when local state is
-    /// unavailable — a second instance that cannot take the data-directory lock
-    /// still has to show the file the user opened. Returns whether anything was
-    /// requested, so a plain launch can fall back to the remembered session.
+    /// unavailable, so an invalid state file cannot hide the requested document.
+    /// Returns whether anything was requested, so a plain launch can fall back
+    /// to the remembered session.
     pub(super) fn open_requested(&mut self, initial: Vec<PathBuf>, cx: &mut Context<Self>) -> bool {
         let mut requested = initial;
         requested.extend(std::mem::take(&mut self.pending_opens));
