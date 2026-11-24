@@ -4151,7 +4151,10 @@ fn epub_wheel_turns_pages_without_a_render_per_event(cx: &mut TestAppContext) {
         }
         std::thread::sleep(WAIT_PAUSE);
     }
-    assert!(rendered, "the EPUB never produced a frame");
+    let failure = cx
+        .update_window(handle, |_, _, cx| view.read(cx).message.clone())
+        .unwrap();
+    assert!(rendered, "the EPUB never produced a frame: {failure}");
     // A scroll delta shorter than a page accumulates instead of re-rendering.
     let (chapter_page, pages, renders) = cx
         .update_window(handle, |_, window, cx| {
