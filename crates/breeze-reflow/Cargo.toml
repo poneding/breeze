@@ -17,6 +17,9 @@ rbook = { version = "=0.7.12", default-features = false }
 quick-xml = "=0.42.0"
 percent-encoding = "=2.3.2"
 url = "=2.5.8"
+docx-rs = { version = "=0.4.21", default-features = false }
+image = { workspace = true, features = ["jpeg", "webp"] }
+base64 = "=0.22.1"
 mupdf = { workspace = true, features = ["html", "epub"] }
 sha2.workspace = true
 zip = { version = "=9.2.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }

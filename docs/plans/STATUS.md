@@ -41,6 +41,50 @@ including the EPUB integration suite. No toolchain or document engine was
 changed. On November 24, 2026, the user explicitly requested a local commit
 with this existing full-workspace failure recorded. The failure remains open.
 
+# November 23 Export results use dialogs
+
+PDF, Markdown and annotated-PDF export outcomes now open a centered Kit
+AlertDialog in the originating window. The dialog shows the destination and
+receipt or the failure detail, with a translated OK button and Kit keyboard
+dismissal. Export progress is cleared when work ends, so completed receipts do
+not occupy either reader status bar. Cancelling the destination picker is silent.
+Export still does not acknowledge a sidecar save or save a Markdown draft.
+
+The inherited reader-menu and conversion work in [package 33](33-document-export.md)
+adds content-menu favorites and toolbar More, Markdown-to-PDF/Word, and
+PDF-to-Markdown/Word. Word export now keeps every page's image paragraphs in
+the document body because the pinned writer does not collect media from Section
+children; paragraph section properties retain each page's dimensions. Base 14
+PDF font aliases map to matching Office font families. General Word layout and
+font fidelity remain unaccepted.
+
+Validation on November 23, 2026: formatting, `git diff --check`, and workspace
+Clippy with warnings denied pass. With TEMP/TMP isolated under `target/` and one
+test thread, `cargo test --workspace --locked` reports 291 application tests
+passed, one failed, and two ignored, then stops before the other crate suites.
+The remaining failure is the previously recorded
+`ui_tests::epub_wheel_turns_pages_without_a_render_per_event`: its fixture did not
+produce a frame within the existing 90-second wait. Export conversion, menu,
+success/failure dialog, keyboard dismissal, source/destination protection and
+annotation-save separation tests pass. The initial run also hit access-denied
+errors in the machine's default temporary directory; those disappear with the
+isolated directory.
+
+The follow-up `cargo test --workspace --locked export` passes all matching
+application, PDF, reflow and integration tests, including the multi-page Word
+fixture's complete media count and the Markdown Unicode/image conversions.
+An attempted library-only selection encountered a different MuPDF feature build
+and the unavailable default MSVC v142 toolset; the installed v145 toolset remains
+the documented native build prerequisite. No toolchain or renderer was changed.
+
+`cargo run --locked -p breeze-app` runs with isolated BREEZE_DATA_DIR under
+`target/`. Native Windows inspection confirms the Markdown export menu, actual
+destination picker, and successful Word export dialog in its final centered
+layout: the destination wraps fully, OK is visible, and the status bar has no
+completed receipt. Native failure-dialog inspection and three-platform fidelity
+acceptance are still pending. On November 24, 2026, the user requested a local
+commit with the existing workspace failure recorded. The failure remains open.
+
 # November 12 Independent light and dark theme settings
 
 Theme settings now contain three compact Kit Select rows. Theme chooses Follow

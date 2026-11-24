@@ -72,6 +72,8 @@ fn pdf_content_menu_exposes_status_commands_and_runs_them(cx: &mut TestAppContex
             "Zoom options",
             "Fullscreen reading",
             "Show status bar",
+            "Add favorite",
+            "Export",
         ] {
             assert!(
                 menu.find_by_label(i18n::text(label)).visible(),
@@ -102,7 +104,7 @@ fn status_bar_toggle_hides_and_restores_the_pdf_status_bar(cx: &mut TestAppConte
         window.render_frame(cx);
         let mut menu = window.within("popup-menu");
         assert!(menu.find_by_label(i18n::text("Show status bar")).visible());
-        menu.click(8usize, cx);
+        menu.click(11usize, cx);
     })
     .unwrap();
     cx.update_window(handle, |_, window, cx| {
@@ -118,7 +120,7 @@ fn status_bar_toggle_hides_and_restores_the_pdf_status_bar(cx: &mut TestAppConte
         window.render_frame(cx);
         let mut menu = window.within("popup-menu");
         assert!(menu.find_by_label(i18n::text("Show status bar")).visible());
-        menu.click(8usize, cx);
+        menu.click(11usize, cx);
     })
     .unwrap();
     cx.update_window(handle, |_, window, cx| {
@@ -155,7 +157,7 @@ fn status_bar_toggle_hides_and_restores_the_markdown_status_bar(cx: &mut TestApp
         window.render_frame(cx);
         let mut menu = window.within("popup-menu");
         assert!(menu.find_by_label(i18n::text("Show status bar")).visible());
-        menu.click(7usize, cx);
+        menu.click(10usize, cx);
     })
     .unwrap();
     cx.update_window(handle, |_, window, cx| {
@@ -170,7 +172,7 @@ fn status_bar_toggle_hides_and_restores_the_markdown_status_bar(cx: &mut TestApp
         window.render_frame(cx);
         let mut menu = window.within("popup-menu");
         assert!(menu.find_by_label(i18n::text("Show status bar")).visible());
-        menu.click(7usize, cx);
+        menu.click(10usize, cx);
     })
     .unwrap();
     cx.update_window(handle, |_, window, cx| {
@@ -211,6 +213,8 @@ fn markdown_content_menu_duplicates_status_controls(cx: &mut TestAppContext) {
             "Increase text size",
             "Fullscreen reading",
             "Show status bar",
+            "Add favorite",
+            "Export",
         ] {
             assert!(
                 menu.find_by_label(i18n::text(label)).visible(),

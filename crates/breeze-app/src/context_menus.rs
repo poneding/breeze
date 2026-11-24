@@ -120,6 +120,21 @@ pub(super) fn content(
             window,
         ),
     };
+    let favorite = view.read(cx).books[view.read(cx).active].favorite;
+    let menu = action_item(
+        menu.separator(),
+        if favorite {
+            tr!("Remove favorite")
+        } else {
+            tr!("Add favorite")
+        },
+        IconName::Bookmark,
+        &Favorite,
+        Some(favorite),
+        &view,
+        window,
+    );
+    let menu = crate::export::export_menu(menu, view.clone(), window, cx);
     status_bar_item(menu, view, show_status_bar, window)
 }
 

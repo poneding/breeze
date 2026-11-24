@@ -370,6 +370,11 @@ impl MarkdownEditor {
         self.state.read(cx).value().to_string()
     }
 
+    /// Export snapshots are independent of the editor's save checkpoint.
+    pub(super) fn export_source(&self, cx: &App) -> Option<(String, String)> {
+        Some((self.source_text(cx), self.fingerprint.clone()?))
+    }
+
     /// Characters in the draft, refreshed when its byte length changed.
     pub(super) fn characters(&self, cx: &App) -> usize {
         self.sync(cx, false);

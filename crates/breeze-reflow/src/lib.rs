@@ -1,5 +1,6 @@
 //! Bounded, read-only EPUB and Markdown adapters. Engine objects never cross workers.
 pub mod epub;
+pub mod export;
 pub mod markdown;
 mod worker;
 pub use worker::EpubWorker;

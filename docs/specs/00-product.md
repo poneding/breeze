@@ -5,6 +5,10 @@
 - Breeze is a local, cross-format reading workspace. EPUB and Markdown reading
   were requested on October 15, 2026, with format-specific controls and native
   locations; see [the integration assessment](12-reflowable-reading.md).
+- On November 13, 2026, the user requested favorite/export content-menu commands
+  and a toolbar More menu. Markdown exports to PDF and Word (.docx); PDF exports
+  to Markdown and Word, with text, images and layout retained where the target
+  format can represent them. See [work package 33](../plans/33-document-export.md).
 - On October 16, 2026, the user requested Typora-like Markdown editing, starting
   with [technical research](13-markdown-live-editing.md), then a
   [technical design](14-markdown-editor-design.md) and implementation plan.

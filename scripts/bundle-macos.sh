@@ -14,7 +14,8 @@ cp LICENSE "$bundle/Contents/Resources/LICENSE"
 cp Cargo.lock README.md docs/releases.md "$bundle/Contents/Resources/"
 mkdir -p "$bundle/Contents/Resources/licenses"
 cp assets/licenses/COPYING-MUPDF.txt assets/licenses/NOTICE-MUPDF.md \
-  assets/licenses/NOTICE-TREE-SITTER.md "$bundle/Contents/Resources/licenses/"
+  assets/licenses/NOTICE-TREE-SITTER.md assets/licenses/LICENSE-DOCX-RS.txt \
+  "$bundle/Contents/Resources/licenses/"
 cat > "$bundle/Contents/Resources/SOURCE-CODE.txt" <<'SOURCE'
 Breeze is licensed under AGPL-3.0-only. This local review bundle was built from
 the Breeze checkout used to invoke scripts/bundle-macos.sh. Published versions

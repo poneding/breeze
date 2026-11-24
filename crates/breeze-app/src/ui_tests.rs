@@ -1092,6 +1092,7 @@ async fn export_uses_snapshot_and_never_acknowledges_sidecar_save(cx: &mut TestA
     let destination = folder.path().join("annotated.pdf");
     let fingerprint = rendered_sample().fingerprint;
     let (handle, view) = app(cx);
+    cx.update(|cx| cx.set_reduce_motion(true));
     cx.update_window(handle, |_, window, cx| {
         view.update(cx, |view, cx| {
             let a = &mut view.books[0].annotations;
@@ -1128,14 +1129,20 @@ async fn export_uses_snapshot_and_never_acknowledges_sidecar_save(cx: &mut TestA
     })
     .unwrap();
     assert!(destination.exists());
-    cx.update_window(handle, |_, _, cx| {
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
         assert!(
-            view.read(cx)
-                .export_notice
-                .as_ref()
+            window
+                .find("export-result")
+                .label()
                 .unwrap()
                 .contains("1 条批注")
-        )
+        );
+        assert!(view.read(cx).export_notice.is_none());
+        assert!(window.find("reader-status").visible());
+        window.press("enter", cx);
+        window.render_frame(cx);
+        assert!(window.try_find("export-result").is_none());
     })
     .unwrap();
 }
@@ -1147,6 +1154,7 @@ async fn failed_export_preserves_destination_and_releases_busy_state(cx: &mut Te
     std::fs::write(&destination, b"original destination").unwrap();
     let fingerprint = rendered_sample().fingerprint;
     let (handle, view) = app(cx);
+    cx.update(|cx| cx.set_reduce_motion(true));
     cx.update_window(handle, |_, _, cx| {
         view.update(cx, |view, cx| {
             let a = &mut view.books[0].annotations;
@@ -1162,15 +1170,17 @@ async fn failed_export_preserves_destination_and_releases_busy_state(cx: &mut Te
         !view.read(cx).export_busy
     })
     .await;
-    cx.update_window(handle, |_, _, cx| {
+    cx.update_window(handle, |_, window, cx| {
+        window.render_frame(cx);
         assert!(view.read(cx).last_export.is_none());
         assert!(
-            view.read(cx)
-                .export_notice
-                .as_ref()
+            window
+                .find("export-result")
+                .label()
                 .unwrap()
                 .contains("导出失败")
         );
+        assert!(view.read(cx).export_notice.is_none());
         assert!(view.read(cx).can_export_pdf());
     })
     .unwrap();

@@ -4,6 +4,7 @@ pub mod export;
 mod integrity;
 mod raster;
 mod text;
+pub mod text_export;
 use anyhow::{Context, Result, bail};
 use breeze_core::{
     Rotation,

@@ -324,7 +324,7 @@ impl Breeze {
         }
         self.commit_selected_annotation(cx);
         if self.export_busy {
-            self.message = tr!("Wait for PDF export to finish or cancel the file dialog").into();
+            self.message = tr!("Wait for export to finish or cancel the file dialog").into();
             cx.notify();
             return false;
         }

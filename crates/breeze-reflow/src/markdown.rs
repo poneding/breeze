@@ -5,7 +5,7 @@
 //! same thing when it is read, edited live and shown as source. Editing state
 //! (`buffer`, `edit`, `history`, `positions`, `pipeline`) never depends on the
 //! parser, and no module here writes to the document.
-mod ast;
+pub(crate) mod ast;
 mod buffer;
 mod edit;
 mod history;
@@ -28,4 +28,4 @@ pub use semantic::{LineKind, Marker, MarkerKind, Semantic, Span};
 /// to lay out; see [`MAX_PARSE_BYTES`].
 pub const MAX_SOURCE_BYTES: usize = 16 * 1024 * 1024;
 const MAX_BLOCKS: usize = 100_000;
-const MAX_DEPTH: usize = 64;
+pub(crate) const MAX_DEPTH: usize = 64;

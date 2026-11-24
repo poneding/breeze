@@ -338,6 +338,7 @@ mod tests {
             include_str!("annotations/recovery.rs"),
             include_str!("annotation_editing.rs"),
             include_str!("export.rs"),
+            include_str!("export/conversion.rs"),
             include_str!("search.rs"),
             include_str!("reading.rs"),
             include_str!("reflow.rs"),

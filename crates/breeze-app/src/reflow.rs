@@ -1721,8 +1721,16 @@ impl Breeze {
                         )
                         .icon(document_icons::bookmark_icon(
                             self.books[self.active].favorite,
-                        )),
+                        ))
+                        .accessibility_label(
+                            if self.books[self.active].favorite {
+                                tr!("Remove favorite")
+                            } else {
+                                tr!("Add favorite")
+                            },
+                        ),
                     )
+                    .child(self.reader_more(cx))
                     .when(!self.document_panel.open, |bar| {
                         bar.child(self.command(
                             "document-panel-toggle",
@@ -1931,7 +1939,26 @@ impl Breeze {
                                 .text_color(color);
                             self.status_control("text-larger", button, cx)
                         })
-                        .child(self.fullscreen_button(cx)),
+                        .child(self.fullscreen_button(cx))
+                        .when_some(self.export_notice.clone(), |bar, notice| {
+                            bar.child(
+                                div()
+                                    .id("reflow-export-notice")
+                                    .test_support()
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate()
+                                    .text_size(px(12.))
+                                    .text_color(p.muted)
+                                    .tooltip({
+                                        let notice = notice.clone();
+                                        move |window, cx| {
+                                            Tooltip::new(notice.clone()).build(window, cx)
+                                        }
+                                    })
+                                    .child(notice),
+                            )
+                        }),
                 )
             });
         let center = if self.sidebar {

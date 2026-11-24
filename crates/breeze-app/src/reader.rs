@@ -168,6 +168,7 @@ impl Breeze {
                             },
                         ),
                     )
+                    .child(self.reader_more(cx))
                     .when(!self.document_panel.open, |toolbar| {
                         toolbar.child(self.command(
                             "document-panel-toggle",

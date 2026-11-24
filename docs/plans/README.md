@@ -2,6 +2,9 @@
 
 Implementation was authorized on September 29, 2026, after acceptance of the compact UI direction. On October 14, 2026, the user selected MuPDF via `mupdf-rs` and accepted AGPL-compatible source distribution. This authorizes that engine migration, not weaker fidelity/performance requirements.
 
+The November 13, 2026 reader menu and Markdown/PDF conversion request is tracked
+in [work package 33](33-document-export.md).
+
 ## Delivery order
 
 | Stage | Plan | Outcome |
