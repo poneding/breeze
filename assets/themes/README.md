@@ -6,6 +6,11 @@ pinned to commit `1676826d9d49b90f4d7b6808b69924f58796f6f1`. This is the source
 commit recorded by the published `gpui-component 0.8.0` dependency in
 `.cargo_vcs_info.json`.
 
+On November 23, 2026, every theme blob was also checked against the published
+GPUI Component 0.10.0 source commit
+`f697c3133d55c64fa8a5b67926147fb3dadd276d`. Its complete 21-file gallery is
+unchanged from the bundled collection.
+
 The 21 files define 36 named themes (11 light, 25 dark). Kit itself supplies
 Default Light and Default Dark, giving 38 themes. Breeze adds Follow System as
 an application preference, not a theme. The dropdown groups these choices by

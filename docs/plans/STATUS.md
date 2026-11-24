@@ -41,6 +41,37 @@ including the EPUB integration suite. No toolchain or document engine was
 changed. On November 24, 2026, the user explicitly requested a local commit
 with this existing full-workspace failure recorded. The failure remains open.
 
+# November 23 GPUI Component 0.10.0 upgrade
+
+The workspace pins GPUI Kit 0.10.0, with GPUI Base, Component, component macros
+and assets at 0.10.0. Its required default GPUI snapshot is 0.3.12; Breeze still
+uses the gpui-pre backend. The optional GPUI Fast packages resolve to 0.1.17 in
+the lockfile and are not enabled. Only GPUI package versions changed; the
+inherited export dependencies and edits are preserved.
+
+The complete upstream 21-file theme gallery at the published Component source
+commit `f697c3133d55c64fa8a5b67926147fb3dadd276d` matches the bundled Git blob
+IDs. Theme assets, colors, names and persisted choices require no migration.
+
+The v0.10.0 Input/textarea API changes do not require Breeze source changes.
+`cargo check --workspace --all-targets --locked`, formatting, and workspace
+Clippy with warnings denied pass. With TEMP/TMP isolated under `target/` and one
+test thread, `cargo test --workspace --locked` reports 290 application tests
+passed, two failed, and two ignored, then stops before the other crate suites.
+Both failures are the previously recorded EPUB missing-frame waits:
+`ui_tests::epub_paging_has_no_status_bar_buttons` and
+`ui_tests::epub_wheel_turns_pages_without_a_render_per_event`. The existing
+90-second waits are unchanged. On November 24, 2026, the user requested a local
+commit with these existing failures recorded. The failures remain open.
+
+`cargo run --locked -p breeze-app` starts with an isolated BREEZE_DATA_DIR under
+`target/`. Native Windows inspection confirms the Markdown reading/source
+surfaces, Chinese syntax-highlighted source, library navigation, settings,
+the three-option theme Select, and the actual change from light to dark chrome.
+The typing attempt was interrupted by the computer-use driver's user-input
+guard, so native text entry and IME acceptance are not recorded as passed.
+macOS and Linux runtime validation is still pending.
+
 # November 23 Export results use dialogs
 
 PDF, Markdown and annotated-PDF export outcomes now open a centered Kit

@@ -25,7 +25,7 @@ Live and source modes are two projections of the same model. The native surface
 owns a document-wide input handler; independently editable paragraph widgets
 and separate mode-specific undo stacks are outside this design.
 
-Keep `gpui-kit = 0.8.0` and the checked `gpui-pre 0.3.9` resolution. Use Kit for
+Keep `gpui-kit = 0.10.0` and the checked `gpui-pre 0.3.12` resolution. Use Kit for
 buttons, tooltips, menus, inputs in dialogs and shared application chrome.
 Implement the document surface with GPUI shaping/layout and
 `EntityInputHandler`. The published interface includes text/range replacement,
