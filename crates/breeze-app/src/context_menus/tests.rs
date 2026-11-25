@@ -278,8 +278,8 @@ fn reading_selection_leads_the_content_menu_with_copy(cx: &mut TestAppContext) {
     .unwrap();
 }
 
-/// The Markdown draft's own menu offers Paste, which writes the clipboard into
-/// the focused source editor.
+/// Right-clicking the Markdown draft shows one reader-owned menu, whose Paste
+/// action writes the clipboard into the source editor.
 #[gpui_kit::test]
 fn markdown_draft_menu_offers_paste(cx: &mut TestAppContext) {
     let directory = tempfile::tempdir().unwrap();
@@ -310,6 +310,10 @@ fn markdown_draft_menu_offers_paste(cx: &mut TestAppContext) {
         assert!(
             menu.find_by_label(i18n::text("Paste")).visible(),
             "the draft menu must offer Paste"
+        );
+        assert!(
+            menu.find_by_label(i18n::text("Show status bar")).visible(),
+            "the same menu must retain the reader controls"
         );
         menu.click(0usize, cx);
     })

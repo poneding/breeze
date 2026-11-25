@@ -1,3 +1,46 @@
+# November 25 Cross-platform release verification fixes
+
+The original `v0.3.0` release's macOS and Ubuntu Verify jobs failed on the same
+tests as its cross-platform check workflow, so its publish job was skipped.
+Those runs used the pre-fix revision; rerunning it would not include these fixes.
+
+The instance subprocess test now compares a relative argument's exact filename
+and canonical existing parent directory, while still checking request count,
+order, exact absolute arguments and a plain launch. This accepts macOS's
+`/private/var` spelling of `/var` and Windows's differing verbatim path prefixes
+without requiring the source documents to exist. Production path forwarding is
+unchanged.
+
+The Markdown source editor disables its own native context menu because the
+reader already owns the draft surface's menu. On Linux, Kit draws the editor's
+native-menu fallback as a second popup; suppressing that menu leaves clipboard
+bindings intact. The regression still requires exactly one window-wide popup,
+now checks that it contains the reader's status-bar control, and verifies that
+Paste reaches the source editor. No test is skipped or narrowed to hide a
+second menu.
+
+Windows validation uses TEMP/TMP/TMPDIR under `target/ci-fix-review/tmp/`.
+Formatting, diff checks, locked workspace/all-target checks and workspace Clippy
+with warnings denied pass. The five instance regressions and seven context-menu
+regressions pass; the subprocess entry point is ignored except when invoked by
+its parent test. Release-tool tests report 21 run, OK, with two platform skips.
+The final serial `cargo test --workspace --locked --no-fail-fast --
+--test-threads=1` run reports 296 application tests passed, one failed and three
+ignored in 521.76 seconds. The remaining failure is the previously recorded
+`ui_tests::epub_wheel_turns_pages_without_a_render_per_event`, which still produces
+no frame within the unchanged 90-second wait. The other workspace suites pass
+160 tests, with six existing ignores. Full verification remains incomplete.
+
+`cargo run --locked -p breeze-app` starts with an isolated `BREEZE_DATA_DIR`
+under `target/ci-fix-review/native-state/`; the process's listening port matches
+that directory's endpoint. The temporary process exits cleanly and its tty7
+pane is closed. Native menu visual inspection was not performed while the user
+was using the desktop. On November 25, the user explicitly requested committing
+and pushing these fixes and recreating the failed `v0.3.0` tag to trigger GitHub
+Actions without a version bump. The known local EPUB failure and native
+inspection gap remain recorded, not counted as passing checks. Cross-platform
+CI and package publication must be reported from the new workflow run.
+
 # November 24 File opens reuse the existing window
 
 OS and command-line launches now claim one application instance per data

@@ -12,11 +12,15 @@ fn primary(root: &Path) -> (Instance, Receiver<Vec<PathBuf>>) {
 #[test]
 fn a_second_process_forwards_paths_and_a_plain_launch() {
     let directory = tempfile::tempdir().unwrap();
-    let (instance, mut requests) = primary(directory.path());
+    // Canonicalize only the existing directory, not the missing source files.
+    // macOS getcwd() can resolve /var to /private/var; Windows can omit the
+    // verbatim prefix that canonicalize() adds to the same directory.
+    let root = fs::canonicalize(directory.path()).unwrap();
+    let (instance, mut requests) = primary(&root);
     // Unicode, spaces, multiple arguments and the child's working directory
     // must survive IPC without URL conversion or source-file writes.
     let relative = PathBuf::from("中文 field notes.pdf");
-    let other = directory.path().join("second.markdown");
+    let other = root.join("second.markdown");
     for paths in [vec![relative, other.clone()], Vec::new()] {
         let output = Command::new(std::env::current_exe().unwrap())
             .args([
@@ -25,8 +29,8 @@ fn a_second_process_forwards_paths_and_a_plain_launch() {
                 "--ignored",
                 "--nocapture",
             ])
-            .current_dir(directory.path())
-            .env("BREEZE_INSTANCE_TEST_DIR", directory.path())
+            .current_dir(&root)
+            .env("BREEZE_INSTANCE_TEST_DIR", &root)
             .env(
                 "BREEZE_INSTANCE_TEST_PATHS",
                 serde_json::to_string(&paths).unwrap(),
@@ -40,24 +44,27 @@ fn a_second_process_forwards_paths_and_a_plain_launch() {
             String::from_utf8_lossy(&output.stderr)
         );
         let forwarded = block_on(requests.next()).unwrap();
-        let expected = paths
-            .into_iter()
-            .map(|path| {
-                if path.is_absolute() {
-                    path
-                } else {
-                    directory.path().join(path)
-                }
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(forwarded, expected);
+        assert_eq!(forwarded.len(), paths.len());
+        for (forwarded, path) in forwarded.into_iter().zip(paths) {
+            if path.is_absolute() {
+                assert_eq!(forwarded, path, "absolute arguments must be preserved");
+            } else {
+                assert!(forwarded.is_absolute());
+                assert_eq!(forwarded.file_name(), path.file_name());
+                assert_eq!(
+                    fs::canonicalize(forwarded.parent().unwrap()).unwrap(),
+                    root,
+                    "relative arguments must use the child's working directory"
+                );
+            }
+        }
     }
     assert!(
         !other.exists(),
         "forwarding does not create source documents"
     );
     drop(instance);
-    assert!(!directory.path().join("instance.json").exists());
+    assert!(!root.join("instance.json").exists());
 }
 
 #[test]

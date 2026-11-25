@@ -238,6 +238,9 @@ impl MarkdownEditor {
         let characters = text.chars().count();
         let state = cx.new(|cx| {
             EditorState::new(window, cx)
+                // The reader owns this surface's menu. Suppress the editor's
+                // native menu (a second Kit popup on Linux), not its bindings.
+                .context_menu(false)
                 // Markdown highlighting, soft wrapped like prose. Line numbers
                 // and folding belong to code; a note should read as a page.
                 .language("markdown")
